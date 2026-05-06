@@ -42,9 +42,7 @@ class AgentIdentity:
 
     def fingerprint(self) -> str:
         """Stable, human-readable fingerprint for agent identification."""
-        return hashlib.sha256(
-            f"{self.agent_id}:{self.public_key}".encode()
-        ).hexdigest()[:16]
+        return hashlib.sha256(f"{self.agent_id}:{self.public_key}".encode()).hexdigest()[:16]
 
     def sign_claim(self, claim: dict) -> str:
         """Sign a claim (capability manifest, handoff token, etc.).
@@ -54,9 +52,7 @@ class AgentIdentity:
         """
         payload = json.dumps(claim, sort_keys=True).encode()
         # Production: ed25519.SigningKey.sign(payload)
-        return base64.b64encode(
-            hashlib.sha256(self.public_key.encode() + payload).digest()
-        ).decode()
+        return base64.b64encode(hashlib.sha256(self.public_key.encode() + payload).digest()).decode()
 
     @classmethod
     def create(cls, agent_id: str) -> "AgentIdentity":
@@ -129,15 +125,17 @@ def main():
         authority=authority.agent_id,
         capabilities=["web_search", "document_analysis", "citation_extraction"],
     )
-    cert.signature = authority.sign_claim({
-        "agent_id": cert.agent_id,
-        "authority": cert.authority,
-        "capabilities": cert.capabilities,
-        "issued_at": cert.issued_at,
-        "expires_at": cert.expires_at,
-    })
+    cert.signature = authority.sign_claim(
+        {
+            "agent_id": cert.agent_id,
+            "authority": cert.authority,
+            "capabilities": cert.capabilities,
+            "issued_at": cert.issued_at,
+            "expires_at": cert.expires_at,
+        }
+    )
 
-    print(f"\n📜 Onboarding Certificate")
+    print("\n📜 Onboarding Certificate")
     print(f"   Issued to:  {cert.agent_id}")
     print(f"   Capabilities: {', '.join(cert.capabilities)}")
     print(f"   Verified:   {'✅' if cert.is_valid(authority) else '❌'}")
@@ -152,7 +150,7 @@ def main():
     }
     handoff["signature"] = research_agent.sign_claim(handoff)
 
-    print(f"\n🤝 Handoff Token (signed)")
+    print("\n🤝 Handoff Token (signed)")
     print(f"   {handoff['from']} → {handoff['to']}")
     print(f"   Task: {handoff['task']}")
     print(f"   Context: {handoff['context_hash'][:16]}...")

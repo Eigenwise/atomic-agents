@@ -17,3 +17,6 @@ requires-python = ">=3.12"
 dependencies = [
     "atomic-agents>=1.0.0",
 ]
+
+[tool.uv.sources]
+atomic-agents = { workspace = true }
