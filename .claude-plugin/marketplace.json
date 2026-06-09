@@ -1,10 +1,10 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "brainblend-plugins",
+  "name": "eigenwise",
   "description": "Official plugins for the Atomic Agents framework - a lightweight, modular system for building AI agents with Pydantic and Instructor",
   "owner": {
-    "name": "BrainBlend AI",
-    "email": "support@brainblend.ai"
+    "name": "Kenny Vaneetvelde",
+    "email": "kenny@eigenwise.io"
   },
   "plugins": [
     {
@@ -12,13 +12,13 @@
       "description": "Skills plus explorer and reviewer subagents for building, scaffolding, understanding, and auditing applications with the Atomic Agents Python framework. Progressive-disclosure references for schemas, agents, tools, context providers, prompts, orchestration, memory, hooks, providers, project structure, and testing — plus isolated-context subagents for codebase mapping and code review, and a new-app scaffolder.",
       "version": "2.0.1",
       "author": {
-        "name": "BrainBlend AI",
-        "email": "support@brainblend.ai"
+        "name": "Kenny Vaneetvelde",
+        "email": "kenny@eigenwise.io"
       },
       "source": "./claude-plugin/atomic-agents",
       "category": "development",
-      "homepage": "https://github.com/BrainBlend-AI/atomic-agents",
-      "repository": "https://github.com/BrainBlend-AI/atomic-agents",
+      "homepage": "https://github.com/eigenwise/atomic-agents",
+      "repository": "https://github.com/eigenwise/atomic-agents",
       "license": "MIT",
       "keywords": [
         "atomic-agents",

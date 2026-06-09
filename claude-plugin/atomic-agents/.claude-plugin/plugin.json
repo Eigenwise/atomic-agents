@@ -3,10 +3,10 @@
   "version": "2.1.0",
   "description": "Skills plus explorer and reviewer subagents for building, scaffolding, understanding, and auditing applications with the Atomic Agents Python framework. Includes the umbrella `framework` skill, action-oriented `create-atomic-schema` / `create-atomic-agent` / `create-atomic-tool` / `create-atomic-context-provider` skills, the `new-app` scaffolder, progressive-disclosure reference material for prompts, orchestration, memory, hooks, providers, project structure, and testing, and isolated-context subagents for codebase mapping and code review.",
   "author": {
-    "name": "BrainBlend AI",
-    "email": "support@brainblendai.com"
+    "name": "Kenny Vaneetvelde",
+    "email": "kenny@eigenwise.io"
   },
-  "homepage": "https://github.com/BrainBlend-AI/atomic-agents",
-  "repository": "https://github.com/BrainBlend-AI/atomic-agents",
+  "homepage": "https://github.com/eigenwise/atomic-agents",
+  "repository": "https://github.com/eigenwise/atomic-agents",
   "license": "MIT"
 }
