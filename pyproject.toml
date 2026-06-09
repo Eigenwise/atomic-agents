@@ -9,7 +9,7 @@ description = "A versatile framework for creating and managing intelligent agent
 readme = "README.md"
 license = "MIT"
 authors = [
-    { name = "Kenny Vaneetvelde", email = "kenny.vaneetvelde@gmail.com" }
+    { name = "Kenny Vaneetvelde", email = "kenny@eigenwise.io" }
 ]
 requires-python = ">=3.12"
 classifiers = [
@@ -37,8 +37,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/BrainBlend-AI/atomic-agents"
-Repository = "https://github.com/BrainBlend-AI/atomic-agents"
+Homepage = "https://github.com/eigenwise/atomic-agents"
+Repository = "https://github.com/eigenwise/atomic-agents"
 
 [project.scripts]
 atomic = "atomic_assembler.main:main"

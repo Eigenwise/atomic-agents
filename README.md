@@ -3,16 +3,16 @@
 <img src="./.assets/logo.png" alt="Atomic Agents" width="350"/>
 
 [![PyPI version](https://badge.fury.io/py/atomic-agents.svg)](https://badge.fury.io/py/atomic-agents)
-[![Documentation](https://img.shields.io/badge/docs-read%20the%20docs-blue?logo=readthedocs&style=flat-square)](https://brainblend-ai.github.io/atomic-agents/)
-[![Build Docs](https://github.com/BrainBlend-AI/atomic-agents/actions/workflows/docs.yml/badge.svg)](https://github.com/BrainBlend-AI/atomic-agents/actions/workflows/docs.yml)
-[![Code Quality](https://github.com/BrainBlend-AI/atomic-agents/actions/workflows/code-quality.yml/badge.svg)](https://github.com/BrainBlend-AI/atomic-agents/actions/workflows/code-quality.yml)
+[![Documentation](https://img.shields.io/badge/docs-read%20the%20docs-blue?logo=readthedocs&style=flat-square)](https://eigenwise.github.io/atomic-agents/)
+[![Build Docs](https://github.com/eigenwise/atomic-agents/actions/workflows/docs.yml/badge.svg)](https://github.com/eigenwise/atomic-agents/actions/workflows/docs.yml)
+[![Code Quality](https://github.com/eigenwise/atomic-agents/actions/workflows/code-quality.yml/badge.svg)](https://github.com/eigenwise/atomic-agents/actions/workflows/code-quality.yml)
 [![Discord](https://img.shields.io/badge/chat-on%20discord-7289DA?logo=discord&style=flat-square)](https://discord.gg/J3W9b5AZJR)
 [![PyPI downloads](https://img.shields.io/pypi/dm/atomic-agents?style=flat-square)](https://pypi.org/project/atomic-agents/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/atomic-agents?style=flat-square)](https://pypi.org/project/atomic-agents/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/BrainBlend-AI/atomic-agents?style=social)](https://github.com/BrainBlend-AI/atomic-agents/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/BrainBlend-AI/atomic-agents?style=social)](https://github.com/BrainBlend-AI/atomic-agents/network/members)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/BrainBlend-AI/atomic-agents)
+[![GitHub Stars](https://img.shields.io/github/stars/eigenwise/atomic-agents?style=social)](https://github.com/eigenwise/atomic-agents/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/eigenwise/atomic-agents?style=social)](https://github.com/eigenwise/atomic-agents/network/members)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/eigenwise/atomic-agents)
 
 ## What is Atomic Agents?
 
@@ -262,9 +262,9 @@ This design pattern simplifies the process of chaining agents and tools, making 
 
 ## Examples & Documentation
 
-[![Read the Docs](https://img.shields.io/badge/docs-read%20the%20docs-blue?logo=readthedocs&style=for-the-badge)](https://brainblend-ai.github.io/atomic-agents/)
+[![Read the Docs](https://img.shields.io/badge/docs-read%20the%20docs-blue?logo=readthedocs&style=for-the-badge)](https://eigenwise.github.io/atomic-agents/)
 
-[Visit the Documentation Site »](https://brainblend-ai.github.io/atomic-agents/)
+[Visit the Documentation Site »](https://eigenwise.github.io/atomic-agents/)
 
 ### Quickstart Examples
 
@@ -374,7 +374,7 @@ Atomic Agents uses a monorepo structure with the following main components:
 For local development, you can install from the repository:
 
 ```bash
-git clone https://github.com/BrainBlend-AI/atomic-agents.git
+git clone https://github.com/eigenwise/atomic-agents.git
 cd atomic-agents
 uv sync
 ```
@@ -419,5 +419,5 @@ If you want to learn more about the motivation and philosophy behind Atomic Agen
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=BrainBlend-AI/atomic-agents&type=Date)](https://star-history.com/#BrainBlend-AI/atomic-agents&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=eigenwise/atomic-agents&type=Date)](https://star-history.com/#eigenwise/atomic-agents&Date)
 

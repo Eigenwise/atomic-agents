@@ -14,7 +14,7 @@ TITLE_FONT: str = "big"
 TOOLS_SUBFOLDER: str = "atomic-forge/tools"
 
 # Base URL for GitHub repository
-GITHUB_BASE_URL: str = "https://github.com/BrainBlend-AI/atomic-agents.git"
+GITHUB_BASE_URL: str = "https://github.com/eigenwise/atomic-agents.git"
 GITHUB_BRANCH: str = "main"
 
 
