@@ -425,6 +425,139 @@ If you want to learn more about the motivation and philosophy behind Atomic Agen
 - [Watch the Overview Video](https://www.youtube.com/watch?v=Sp30YsjGUW0) - Learn about the framework's philosophy and design principles
 - [Watch the Quickstart Video](https://www.youtube.com/watch?v=CyZxRU0ax3Q) - Get started with code examples
 
+
+## FAQ
+
+### What is Atomic Agents?
+
+Atomic Agents is an extremely lightweight and modular framework for building Agentic AI pipelines and applications. Think of it like building AI applications with LEGO blocks - each component (agent, tool, context provider) is single-purpose, reusable, composable, and predictable.
+
+### How does Atomic Agents compare to LangChain or CrewAI?
+
+| Framework | Philosophy | Key Strength |
+|-----------|------------|--------------|
+| **Atomic Agents** | Atomicity & modularity | LEGO-like components, single-purpose |
+| **LangChain** | Chains & sequences | Pre-built chains for common tasks |
+| **CrewAI** | Role-playing agents | Multi-agent collaboration |
+
+Atomic Agents focuses on **control and predictability** - each component does one thing well and produces consistent outputs, making it ideal for production applications where reliability matters.
+
+### What are the core components of Atomic Agents?
+
+**Agent Anatomy:**
+- **System Prompt**: Defines the agent's behavior and purpose
+- **Input Schema**: Specifies structure and validation for inputs (Pydantic)
+- **Output Schema**: Specifies structure and validation for outputs (Pydantic)
+- **History**: Stores conversation history
+- **Context Providers**: Inject dynamic context at runtime
+
+**Context Providers:** Enhance agents with dynamic information (e.g., search results, user data) injected into system prompts at runtime.
+
+### What LLM providers are supported?
+
+Atomic Agents uses [Instructor](https://github.com/jxnl/instructor) for LLM integration:
+
+**Native Support:**
+- OpenAI (default)
+- Anthropic
+- Groq
+- Google Gemini
+- Mistral
+- Cohere
+- MiniMax
+
+**Via Instructor extras:**
+```bash
+pip install instructor[groq]        # for Groq
+pip install instructor[anthropic]   # for Anthropic
+pip install instructor[google-genai] # for Gemini
+```
+
+### How do I get started?
+
+```bash
+# Install Atomic Agents
+pip install atomic-agents
+
+# Install your preferred provider
+pip install instructor[groq]  # example for Groq
+
+# Run the CLI to download tools
+atomic
+```
+
+### What is Atomic Forge?
+
+Atomic Forge is a collection of pre-built tools that extend Atomic Agents functionality:
+
+- arXiv Search
+- BoCha Search
+- Calculator
+- DateTime
+- Fía Signals
+- Hacker News Search
+- PDF Reader
+- SearXNG Search
+- Tavily Search
+- Webpage Scraper
+- Weather
+- Wikipedia Search
+- YouTube Transcript Scraper
+
+Each tool has its own input schema, output schema, usage example, dependencies, and installation instructions.
+
+### How do I chain agents and tools together?
+
+By aligning input/output schemas between agents and tools, you can chain them directly:
+
+```python
+# Agent output matches tool input schema
+query_agent = AtomicAgent[QueryInputSchema, SearchTool.input_schema](
+    config=AgentConfig(...)
+)
+
+# Output can be directly used as tool input
+search_results = SearchTool.run(query_agent.run(input_data))
+```
+
+This promotes modularity and makes swapping components effortless.
+
+### What changed in Version 2.0?
+
+**Key improvements:**
+- Cleaner imports: eliminated `.lib` from paths
+- Renamed classes: `BaseAgent` → `AtomicAgent`, `BaseAgentConfig` → `AgentConfig`
+- Better type safety: Generic type parameters for tools and agents
+- Enhanced streaming: New `run_stream()` and `run_async_stream()` methods
+- Improved organization: Better module structure (`context`, `connectors`)
+
+**Upgrading from v1.x:** See the [Upgrade Guide](UPGRADE_DOC.md) for migration instructions.
+
+### What are the complete examples available?
+
+| Example | Description |
+|---------|-------------|
+| **Hooks System** | Monitoring, error handling, performance metrics |
+| **Basic Multimodal** | Image analysis with GPT-4 Vision |
+| **Deep Research** | Advanced research task execution |
+| **Orchestration Agent** | Tool selection (search vs calculator) |
+| **RAG Chatbot** | Retrieval-Augmented Generation |
+| **Web Search Agent** | Web search and question answering |
+| **YouTube Summarizer** | Video knowledge extraction |
+| **YouTube to Recipe** | Cooking video to structured recipe |
+
+### What is the license?
+
+MIT License - see [LICENSE](LICENSE) file.
+
+### Where can I get help?
+
+- **Documentation**: [brainblend-ai.github.io/atomic-agents](https://brainblend-ai.github.io/atomic-agents/)
+- **Discord**: [discord.gg/J3W9b5AZJR](https://discord.gg/J3W9b5AZJR)
+- **Subreddit**: [/r/AtomicAgents](https://www.reddit.com/r/AtomicAgents/)
+- **GitHub Issues**: For bug reports and feature requests
+- **Video Resources**: Overview & Quickstart videos available
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=eigenwise/atomic-agents&type=Date)](https://star-history.com/#eigenwise/atomic-agents&Date)
