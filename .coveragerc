@@ -5,6 +5,8 @@ exclude_lines =
     @abc.abstractmethod
     if __name__ == .__main__.:
     if __name__ == '__main__':
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
     pragma: no cover
     # pragma: no cover
 
