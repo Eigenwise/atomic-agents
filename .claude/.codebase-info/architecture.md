@@ -1,6 +1,6 @@
 # Architecture
 
-*Last Updated: 2026-06-13*
+*Last Updated: 2026-07-05*
 
 ## Summary
 
@@ -47,7 +47,7 @@ Tool install (atomic-assembler TUI):
 |-----------|------|----------------|
 | Core agent | `atomic-agents/atomic_agents/agents/atomic_agent.py` | `AtomicAgent`, `AgentConfig`, run / stream / async methods |
 | Base contracts | `atomic-agents/atomic_agents/base/` | `BaseIOSchema`, `BaseTool`, `BaseToolConfig`, `BaseResource`, `BasePrompt` |
-| Context | `atomic-agents/atomic_agents/context/` | `SystemPromptGenerator`, `BaseDynamicContextProvider`, `ChatHistory` |
+| Context | `atomic-agents/atomic_agents/context/` | `SystemPromptGenerator`, `BaseDynamicContextProvider`, `BaseChatHistory` (pluggable memory contract) + `ChatHistory` |
 | Connectors | `atomic-agents/atomic_agents/connectors/mcp/` | Model Context Protocol tools / resources / prompts |
 | Utils | `atomic-agents/atomic_agents/utils/` | Token counting (LiteLLM), tool-message formatting |
 | Assembler (CLI) | `atomic-assembler/atomic_assembler/` | Textual TUI to fetch/install forge tools |

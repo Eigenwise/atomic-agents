@@ -1,6 +1,6 @@
 # Directory Structure
 
-*Last Updated: 2026-06-13*
+*Last Updated: 2026-07-05*
 
 ## Root Layout
 
@@ -10,7 +10,7 @@ atomic-agents/                  # repo root (uv workspace)
 │   └── atomic_agents/          #   import package
 │       ├── agents/             #     AtomicAgent, AgentConfig
 │       ├── base/               #     BaseIOSchema, BaseTool, BaseResource, BasePrompt
-│       ├── context/            #     SystemPromptGenerator, ChatHistory, context providers
+│       ├── context/            #     SystemPromptGenerator, BaseChatHistory/ChatHistory, context providers
 │       ├── connectors/mcp/     #     Model Context Protocol integration
 │       └── utils/              #     token counter, tool-message formatting
 │   └── tests/                  #   pytest suite (agents/, base/, context/, connectors/, utils/)
@@ -19,7 +19,7 @@ atomic-agents/                  # repo root (uv workspace)
 ├── atomic-forge/               # library of standalone tools (NOT a package)
 │   ├── tools/<tool>/           #   one folder per tool: tool/<tool>.py, tests/, pyproject.toml
 │   └── guides/                 #   tool authoring guides (e.g. tool_structure.md)
-├── atomic-examples/            # 15 runnable example apps (each its own project)
+├── atomic-examples/            # 16 runnable example apps (each its own project)
 ├── docs/                       # Sphinx + MyST documentation (api/, guides/, examples/)
 ├── guides/                     # DEV_GUIDE.md and contributor guides
 ├── scripts/                    # sync_version.py, generate_llms_files.py
@@ -49,9 +49,9 @@ and copies a selected tool into the user's project.
 `pyproject.toml`/`requirements.txt`. Tools are copied into user projects, not pip-installed.
 
 ### `atomic-examples/`
-15 standalone example apps (`quickstart`, `rag-chatbot`, `deep-research`, `web-search-agent`,
-`mcp-agent`, `fastapi-memory`, `youtube-summarizer`, …), each with its own `pyproject.toml`. These
-are excluded from the workspace build.
+16 standalone example apps (`quickstart`, `rag-chatbot`, `deep-research`, `web-search-agent`,
+`mcp-agent`, `fastapi-memory`, `persistent-memory`, `youtube-summarizer`, …), each with its own
+`pyproject.toml`. These are excluded from the workspace build.
 
 ### `docs/` and `guides/`
 `docs/` is a Sphinx + MyST site (`api/` reference, `guides/`, `examples/`, `conf.py`), deployed to

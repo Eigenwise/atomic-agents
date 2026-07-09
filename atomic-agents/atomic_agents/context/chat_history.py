@@ -8,6 +8,7 @@ from instructor.processing.multimodal import PDF, Image, Audio
 from pydantic import BaseModel, Field
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
+from atomic_agents.context.base_chat_history import BaseChatHistory
 
 
 INSTRUCTOR_MULTIMODAL_TYPES = (Image, Audio, PDF)
@@ -28,7 +29,7 @@ class Message(BaseModel):
     turn_id: Optional[str] = None
 
 
-class ChatHistory:
+class ChatHistory(BaseChatHistory):
     """
     Manages the chat history for an AI agent.
 

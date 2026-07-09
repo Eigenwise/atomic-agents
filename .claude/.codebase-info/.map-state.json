@@ -1,8 +1,8 @@
 {
   "tool": "codebase-mapper",
   "version": "2.0.0",
-  "mappedAt": "2026-06-13",
-  "gitCommit": "3d33e62f2b6796b7259c1e3e5d77c4313a56f22d",
+  "mappedAt": "2026-07-05",
+  "gitCommit": "28099f5aa6eccb491c66be4bcd22532f15bb407f",
   "documents": [
     "architecture.md",
     "tech-landscape.md",

@@ -1,6 +1,6 @@
 # Entry Points
 
-*Last Updated: 2026-06-13*
+*Last Updated: 2026-07-05*
 
 ## 1. Library API (the primary entry point)
 
@@ -45,6 +45,7 @@ MCP server tools/resources/prompts become agent components via `atomic_agents.co
 | `mcp-agent` | MCP client/server, multiple transports |
 | `progressive-disclosure` | efficient MCP tool loading (3 servers, 24 tools) |
 | `fastapi-memory` | multi-user / multi-session memory behind a FastAPI service |
+| `persistent-memory` | custom `BaseChatHistory` backend: cross-session recall via stdlib `sqlite3` (no extra deps) |
 | `hooks-example` | monitoring, error handling, retry via hooks |
 | `basic-multimodal` / `nested-multimodal` | images / PDFs in (nested) schemas |
 | `basic-pdf-analysis` | PDF analysis with a multimodal model |

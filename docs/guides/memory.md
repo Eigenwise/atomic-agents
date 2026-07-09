@@ -402,6 +402,79 @@ history = ChatHistory()  # Create new instance
 
 ---
 
+## Writing a Custom Memory Backend
+
+Memory is intentionally kept outside the framework core. `ChatHistory` is a solid in-memory default, but if you want conversations to survive a restart, live in Redis, Postgres, or some hosted memory service, that integration belongs in **your** codebase, not as a framework dependency. `BaseChatHistory` is the stable seam that makes this possible: build against it and `AtomicAgent` doesn't care what's underneath.
+
+### The Contract
+
+`BaseChatHistory` is an interface-only abstract base class (`ABC`). It declares no state and no behavior of its own, just the methods a history implementation must provide:
+
+- `initialize_turn(self) -> None`
+- `add_message(self, role: str, content: BaseIOSchema) -> None`
+- `get_history(self) -> List[Dict]`
+- `get_current_turn_id(self) -> Optional[str]`
+- `delete_turn_id(self, turn_id: str)`
+- `get_message_count(self) -> int`
+- `dump(self) -> str`
+- `load(self, serialized_data: str) -> None`
+- `copy(self) -> "BaseChatHistory"`
+
+Every implementation also has to maintain two attributes, because `AtomicAgent` reads them directly:
+
+- `history: List[Message]` - the in-memory working list of messages. `AtomicAgent._trim_context` reads this list (via each message's `turn_id`) to decide what to trim when a context-length limit is hit.
+- `current_turn_id: Optional[str]` - the ID of the current turn, or `None` if no turn has started yet. Set by `initialize_turn()`.
+
+### Recommended Pattern: Subclass ChatHistory
+
+Don't implement `BaseChatHistory` from scratch unless you have a good reason to. Subclassing `ChatHistory` gets you turn handling and serialization for free, you only need to override the couple of methods that touch your storage layer:
+
+```python
+from atomic_agents.context import ChatHistory
+
+class PersistentHistory(ChatHistory):
+    def __init__(self, session_id, store, max_messages=None):
+        super().__init__(max_messages=max_messages)
+        self.session_id = session_id
+        self.store = store
+        saved = store.get(session_id)
+        if saved:
+            self.load(saved)
+
+    def add_message(self, role, content):
+        super().add_message(role, content)
+        self.store.put(self.session_id, self.dump())
+
+    def copy(self):
+        # AtomicAgent calls copy() for its initial_history snapshot and reset_history().
+        # Without this override, copy() returns a plain ChatHistory and your backend is
+        # silently dropped after reset_history() (later writes stop reaching the store).
+        new_history = PersistentHistory(self.session_id, self.store, max_messages=self.max_messages)
+        new_history.load(self.dump())
+        new_history.current_turn_id = self.current_turn_id
+        return new_history
+```
+
+The core of the pattern is small: load on init if there's saved state, persist on every `add_message`. `dump()`/`load()` already round-trip the full history, so there's no serialization logic to write yourself.
+
+```{important}
+Override `copy()` too. `AtomicAgent` snapshots `initial_history` with `copy()` at construction and restores it in `reset_history()`. The built-in `ChatHistory.copy()` hard-codes a plain `ChatHistory`, so a subclass that carries extra state (a store handle, a `session_id`) that forgets to override `copy()` will be **silently replaced by a non-persistent in-memory history** the first time `reset_history()` runs. Any subclass with its own state must override `copy()` to return its own type.
+```
+
+```{note}
+This pattern re-serializes and rewrites the **entire** history on every message (`self.dump()`), which is fine for a demo but O(n²) over a long conversation. A production backend against Redis/Postgres/etc. should persist incrementally (append the new message) rather than dumping the whole history each write.
+```
+
+### From-Scratch Alternative
+
+If you don't want the in-memory list at all (say your backend is a query, not a cache), implement `BaseChatHistory` directly. You give up the free turn tracking and `get_history()` serialization that `ChatHistory` provides, so you own all of it: generating turn IDs, building the wire-format list of dicts, and keeping `history` / `current_turn_id` in sync with whatever `AtomicAgent` expects to read.
+
+### Try It
+
+There's a full runnable example of this pattern (a dependency-free SQLite-backed history that survives across process runs) at [`atomic-examples/persistent-memory`](https://github.com/eigenwise/atomic-agents/tree/main/atomic-examples/persistent-memory).
+
+---
+
 ## Multimodal Content in History
 
 ChatHistory supports images, PDFs, and audio through Instructor's multimodal types.
@@ -1174,6 +1247,24 @@ if history.get_message_count() > 40:
 | `dump()` | Serialize to JSON string |
 | `load(data)` | Deserialize from JSON string |
 | `copy()` | Create deep copy |
+
+### BaseChatHistory
+
+The abstract base class `ChatHistory` implements. Subclass it (directly, or via `ChatHistory`) to plug in a custom memory backend. See [Writing a Custom Memory Backend](#writing-a-custom-memory-backend).
+
+| Method | Description |
+|--------|-------------|
+| `initialize_turn()` | Start new turn with new UUID |
+| `add_message(role, content)` | Add message to current turn |
+| `get_history()` | Get all messages as list of dicts |
+| `get_current_turn_id()` | Get current turn's UUID |
+| `delete_turn_id(turn_id)` | Delete all messages in a turn |
+| `get_message_count()` | Get number of messages |
+| `dump()` | Serialize to JSON string |
+| `load(data)` | Deserialize from JSON string |
+| `copy()` | Create deep copy |
+
+Every implementation must also maintain a `history: List[Message]` attribute and a `current_turn_id: Optional[str]` attribute.
 
 ### Message
 

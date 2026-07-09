@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Type, Generator, AsyncGenerator, get_args, get_origin, Dict, List, Callable, Any
 import logging
 from atomic_agents.context.chat_history import ChatHistory
+from atomic_agents.context.base_chat_history import BaseChatHistory
 from atomic_agents.context.system_prompt_generator import (
     BaseDynamicContextProvider,
     SystemPromptGenerator,
@@ -66,7 +67,7 @@ class BasicChatOutputSchema(BaseIOSchema):
 class AgentConfig(BaseModel):
     client: instructor.core.client.Instructor = Field(..., description="Client for interacting with the language model.")
     model: str = Field(default="gpt-5-mini", description="The model to use for generating responses.")
-    history: Optional[ChatHistory] = Field(default=None, description="History component for storing chat history.")
+    history: Optional[BaseChatHistory] = Field(default=None, description="History component for storing chat history.")
     system_prompt_generator: Optional[BaseSystemPromptGenerator] = Field(
         default=None,
         description=(
@@ -117,7 +118,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
     Attributes:
         client: Client for interacting with the language model.
         model (str): The model to use for generating responses.
-        history (ChatHistory): History component for storing chat history.
+        history (BaseChatHistory): History component for storing chat history.
         system_prompt_generator (BaseSystemPromptGenerator): Component for generating system prompts.
         system_role (Optional[str]): The role of the system in the conversation. None means no system prompt.
         assistant_role (str): The role of the assistant in the conversation. Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
@@ -189,7 +190,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         self.client = config.client
         self.model = config.model
-        self.history = config.history or ChatHistory()
+        self.history = config.history if config.history is not None else ChatHistory()
         self.system_prompt_generator = config.system_prompt_generator or SystemPromptGenerator()
         self.system_role = config.system_role
         self.assistant_role = config.assistant_role

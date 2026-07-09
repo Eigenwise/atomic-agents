@@ -6,7 +6,7 @@ For a comprehensive guide on memory management, multi-agent patterns, and best p
 
 ## Agent History
 
-The `ChatHistory` class manages conversation history and state for AI agents:
+The `ChatHistory` class manages conversation history and state for AI agents. It implements `BaseChatHistory`, an interface-only abstract base class that declares the memory contract `AtomicAgent` depends on (the type `AgentConfig.history` accepts). Implement `BaseChatHistory` directly, or subclass `ChatHistory`, to plug in your own persistent or backend-specific memory store. See the [Memory guide's "Writing a Custom Memory Backend" section](/guides/memory#writing-a-custom-memory-backend) for the full contract and a recommended pattern.
 
 ```python
 from atomic_agents.context import ChatHistory
@@ -256,6 +256,11 @@ For full API details:
 
 ```{eval-rst}
 .. automodule:: atomic_agents.context.chat_history
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: atomic_agents.context.base_chat_history
    :members:
    :undoc-members:
    :show-inheritance:

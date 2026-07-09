@@ -26,6 +26,7 @@ members = [
     "nested-multimodal",
     "orchestration-agent",
     "pdf-reader",
+    "persistent-memory",
     "progressive-disclosure",
     "quickstart",
     "rag-chatbot",
@@ -2919,6 +2920,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ed/f0/07d8b771b99c16a06741cd7b2639494a15357df819ecf899c33b87db6257/pdoc3-0.11.6.tar.gz", hash = "sha256:1ea5e84b87a754d191fb64bf5e517ca6c50d0d84a614c1efecf6b46d290ae387", size = 177107, upload-time = "2025-03-20T22:53:53.099Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/98/629f269c2bd91bdcac147aad5cf51ceb645c0196e23a41ee3c051125190f/pdoc3-0.11.6-py3-none-any.whl", hash = "sha256:8b72723767bd48d899812d2aec8375fc1c3476e179455db0b4575e6dccb44b93", size = 255188, upload-time = "2025-03-20T22:53:51.671Z" },
+]
+
+[[package]]
+name = "persistent-memory"
+version = "1.0.0"
+source = { editable = "atomic-examples/persistent-memory" }
+dependencies = [
+    { name = "atomic-agents" },
+    { name = "instructor", extra = ["anthropic", "google-genai", "groq"] },
+    { name = "openai" },
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "atomic-agents", editable = "." },
+    { name = "instructor", extras = ["anthropic", "groq", "google-genai"], specifier = "==1.14.5" },
+    { name = "openai", specifier = ">=2.0.0,<3.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.1,<2.0.0" },
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 # Patterns & Conventions
 
-*Last Updated: 2026-06-13*
+*Last Updated: 2026-07-05*
 
 ## Atomicity
 Build with small, single-purpose, composable parts ("LEGO blocks"): each agent, tool, and context
@@ -25,9 +25,15 @@ the next's input. See `atomic-examples/deep-research` and `orchestration-agent`.
   schema(s) → config → tool class + logic → example usage.
 
 ## Memory
-- `ChatHistory` stores typed `Message`s grouped into turns (a user+assistant pair shares a `turn_id`),
-  is multimodal-aware (Image/Audio/PDF), and supports `dump()`/`load()`. `AtomicAgent` trims the
-  oldest whole turns to honor `max_context_tokens`.
+- `BaseChatHistory` (`context/base_chat_history.py`) is an interface-only ABC declaring the memory
+  contract `AtomicAgent` relies on (`add_message`, `get_history`, turn handling, `dump()`/`load()`,
+  `copy()`, plus the `history`/`current_turn_id` attributes). It is the documented, dependency-free
+  seam for plugging in custom/persistent backends; `AgentConfig.history` is typed to it.
+- `ChatHistory` is the built-in implementation: stores typed `Message`s grouped into turns (a
+  user+assistant pair shares a `turn_id`), is multimodal-aware (Image/Audio/PDF), and supports
+  `dump()`/`load()`. `AtomicAgent` trims the oldest whole turns to honor `max_context_tokens`.
+- Custom backend pattern: subclass `ChatHistory` and override `add_message`/`load` to persist (see
+  the `persistent-memory` example and the "Writing a Custom Memory Backend" guide section).
 
 ## Error handling & retries
 - Lean on Instructor's validation/retry of structured outputs, plus hook events (`parse:error`, …)

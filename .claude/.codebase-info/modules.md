@@ -1,6 +1,6 @@
 # Key Modules
 
-*Last Updated: 2026-06-13*
+*Last Updated: 2026-07-05*
 
 ## Core framework — `atomic-agents/atomic_agents/`
 
@@ -24,8 +24,11 @@
 - **Location:** `atomic-agents/atomic_agents/context/`
 - **Purpose:** System-prompt assembly and conversation memory.
 - **Key files:** `system_prompt_generator.py` (`SystemPromptGenerator`, `BaseDynamicContextProvider`),
-  `chat_history.py` (`ChatHistory`, `Message` — multimodal Image/Audio/PDF, turn grouping,
-  `dump()`/`load()` serialization).
+  `base_chat_history.py` (`BaseChatHistory` — interface-only ABC declaring the memory contract
+  `AtomicAgent` depends on; the pluggable seam for custom/persistent backends),
+  `chat_history.py` (`ChatHistory`, `Message` — the built-in in-memory implementation of
+  `BaseChatHistory`: multimodal Image/Audio/PDF, turn grouping, `dump()`/`load()` serialization).
+- **Note:** `AgentConfig.history` is typed to `BaseChatHistory`, so any conforming backend drops in.
 
 ### connectors/mcp
 - **Location:** `atomic-agents/atomic_agents/connectors/mcp/`
@@ -58,4 +61,4 @@
 
 ### atomic-examples
 - **Location:** `atomic-examples/`
-- **Purpose:** 15 runnable reference apps. Catalog in `entry-points.md`.
+- **Purpose:** 16 runnable reference apps. Catalog in `entry-points.md`.
