@@ -52,7 +52,6 @@ Built on [Instructor](https://github.com/jxnl/instructor) and [Pydantic](https:/
   - [Project Structure](#project-structure)
   - [Provider \& Model Compatibility](#provider--model-compatibility)
   - [Support](#support)
-    - [$Atomic Agents token (unofficial)](#atomic-agents-token-unofficial)
   - [Contributing](#contributing)
   - [License](#license)
   - [Additional Resources](#additional-resources)
@@ -379,20 +378,6 @@ If Atomic Agents is useful to you and you'd like to support continued developmen
 
 - **[GitHub Sponsors](https://github.com/sponsors/Eigenwise):** sponsor the project directly on GitHub.
 - **[Ko-fi](https://ko-fi.com/eigenwise):** buy me a coffee, one-off or recurring.
-
-### $Atomic Agents token (unofficial)
-
-Someone in the community launched a "$Atomic Agents" token on pump.fun as a way to support the project. If you'd like to grab some:
-
-- [pump.fun page](https://pump.fun/coin/5qbrfmYP25KFMs4XgXg4ykuS4R5bWxhfnFUDrXYPpump)
-- Contract address (CA): `5qbrfmYP25KFMs4XgXg4ykuS4R5bWxhfnFUDrXYPpump`
-
-A few important caveats before you buy anything:
-
-- The token was created by a third party, **not** by me or anyone on the Atomic Agents project. I don't control it, its supply, or its liquidity.
-- It has no utility and no connection to the framework's code, roadmap, or releases. The project doesn't depend on it in any way.
-- Memecoins are extremely volatile and can go to zero at any time. Only spend what you're completely fine with losing.
-- Always verify the contract address above before buying, and do your own research. Nothing here is financial advice.
 
 ## Contributing
 
