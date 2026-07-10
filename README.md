@@ -374,10 +374,11 @@ Atomic Agents depends on the [Instructor](https://github.com/jxnl/instructor) pa
 
 ## Support
 
-If Atomic Agents is useful to you and you'd like to support continued development, there are a few ways to chip in:
+Atomic Agents is free and MIT-licensed. If it saves you time, [a coffee](https://ko-fi.com/eigenwise) or [a GitHub sponsorship](https://github.com/sponsors/Eigenwise) genuinely helps me keep building and maintaining it.
 
-- **[GitHub Sponsors](https://github.com/sponsors/Eigenwise):** sponsor the project directly on GitHub.
-- **[Ko-fi](https://ko-fi.com/eigenwise):** buy me a coffee, one-off or recurring.
+| Ko-fi | GitHub Sponsors |
+|:-----:|:---------------:|
+| <a href="https://ko-fi.com/eigenwise"><img height="32" alt="Support me on Ko-fi" src="https://ko-fi.com/img/githubbutton_sm.svg"></a> | <a href="https://github.com/sponsors/Eigenwise"><img height="32" alt="Sponsor on GitHub" src="https://img.shields.io/badge/Sponsor-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white"></a> |
 
 ## Contributing
 
