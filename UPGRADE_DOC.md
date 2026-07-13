@@ -118,7 +118,7 @@ from atomic_agents.lib.base.base_io_schema import BaseIOSchema
 class MyTool(BaseTool):
     input_schema = MyInputSchema
     output_schema = MyOutputSchema
-    
+
     def run(self, params: MyInputSchema) -> MyOutputSchema:
         # Tool logic
         pass
@@ -141,7 +141,7 @@ class MyTool(BaseTool[MyInputSchema, MyOutputSchema]):
    class CalculatorTool(BaseTool):
        input_schema = CalculatorInputSchema
        output_schema = CalculatorOutputSchema
-   
+
    # NEW
    class CalculatorTool(BaseTool[CalculatorInputSchema, CalculatorOutputSchema]):
        # No need for input_schema and output_schema attributes
@@ -249,15 +249,15 @@ agent = AtomicAgent[CustomInputSchema, CustomOutputSchema](
    # Example with custom schemas:
    from atomic_agents import BaseIOSchema
    from pydantic import Field
-   
+
    class TranslationInput(BaseIOSchema):
        text: str = Field(..., description="Text to translate")
        target_language: str = Field(..., description="Target language code")
-   
+
    class TranslationOutput(BaseIOSchema):
        translated_text: str = Field(..., description="The translated text")
        confidence: float = Field(..., description="Translation confidence score")
-   
+
    # OLD - Schemas passed in config
    agent = BaseAgent(
        BaseAgentConfig(
@@ -268,7 +268,7 @@ agent = AtomicAgent[CustomInputSchema, CustomOutputSchema](
            output_schema=TranslationOutput  # Was here
        )
    )
-   
+
    # NEW - Schemas as type parameters
    agent = AtomicAgent[TranslationInput, TranslationOutput](
        AgentConfig(
@@ -290,7 +290,7 @@ agent = AtomicAgent[CustomInputSchema, CustomOutputSchema](
        temperature=0.7,       # Direct parameter
        max_tokens=1000        # Direct parameter
    )
-   
+
    # NEW - Grouped parameters
    config = AgentConfig(
        client=client,
@@ -320,7 +320,7 @@ The v2.0 upgrade brings several key benefits:
 1. **Shorter imports**: Eliminated `.lib` from import paths
 2. **Consistent API**: All base classes from main package
 3. **Cleaner code**: More readable import statements
-4. **Better organization**: 
+4. **Better organization**:
    - `components` → `context` (better reflects purpose)
    - `factories` → `connectors` with MCP-specific functionality grouped under `connectors.mcp`
    - `connectors` structure allows future extension for agent-to-agent communications and other connectivity modules
@@ -501,14 +501,14 @@ class WeatherToolOutputSchema(BaseIOSchema):
 
 class WeatherTool(BaseTool):
     """Tool for fetching weather information"""
-    
+
     input_schema = WeatherToolInputSchema
     output_schema = WeatherToolOutputSchema
-    
+
     def __init__(self, api_key: str, config: BaseToolConfig = BaseToolConfig()):
         super().__init__(config)
         self.api_key = api_key
-    
+
     def run(self, params: WeatherToolInputSchema) -> WeatherToolOutputSchema:
         # Tool implementation
         response = requests.get(
@@ -543,11 +543,11 @@ class WeatherToolOutputSchema(BaseIOSchema):
 
 class WeatherTool(BaseTool[WeatherToolInputSchema, WeatherToolOutputSchema]):
     """Tool for fetching weather information"""
-    
+
     def __init__(self, api_key: str, config: BaseToolConfig = BaseToolConfig()):
         super().__init__(config)
         self.api_key = api_key
-    
+
     def run(self, params: WeatherToolInputSchema) -> WeatherToolOutputSchema:
         # Tool implementation (unchanged)
         response = requests.get(
@@ -721,7 +721,7 @@ If you encounter import errors after upgrading:
 1. Ensure all old `.lib` imports are updated
 2. Check that class renames are applied:
    - `BaseAgent` → `AtomicAgent`
-   - `BaseAgentConfig` → `AgentConfig` 
+   - `BaseAgentConfig` → `AgentConfig`
    - `BaseAgentInputSchema` → `BasicChatInputSchema`
    - `BaseAgentOutputSchema` → `BasicChatOutputSchema`
    - `AgentMemory` → `ChatHistory`

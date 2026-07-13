@@ -59,7 +59,7 @@ Make sure to add these lines to `settings.tml`:
    SEARXNG_BASE_URL=your_searxng_instance_url
    ```
 
-   Replace `your_openai_api_key` with your actual OpenAI API key and `your_searxng_instance_url` with the URL of your SearXNG instance.  
+   Replace `your_openai_api_key` with your actual OpenAI API key and `your_searxng_instance_url` with the URL of your SearXNG instance.
    If you do not have a SearxNG instance, see the instructions below to set up one locally with docker.
 
 2. Run the Web Search Agent:
