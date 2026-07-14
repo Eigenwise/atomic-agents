@@ -410,5 +410,13 @@ If you want to learn more about the motivation and philosophy behind Atomic Agen
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=eigenwise/atomic-agents&type=Date)](https://star-history.com/#eigenwise/atomic-agents&Date)
+## Star History
+
+<a href="https://www.star-history.com/?type=date&repos=eigenwise%2Fatomic-agents">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=eigenwise/atomic-agents&type=date&theme=dark&legend=top-left&sealed_token=bLmINE964wFC41alauDl3hSyqW8sm5FyyW99qO_99iZLJ5RG_Mqygi8SrdMmVx06pCB-IdgNUbaiN_e57ToEL3XA1WAliiCjyA8TAgXAPUYsW1OPAJunEw" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=eigenwise/atomic-agents&type=date&legend=top-left&sealed_token=bLmINE964wFC41alauDl3hSyqW8sm5FyyW99qO_99iZLJ5RG_Mqygi8SrdMmVx06pCB-IdgNUbaiN_e57ToEL3XA1WAliiCjyA8TAgXAPUYsW1OPAJunEw" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=eigenwise/atomic-agents&type=date&legend=top-left&sealed_token=bLmINE964wFC41alauDl3hSyqW8sm5FyyW99qO_99iZLJ5RG_Mqygi8SrdMmVx06pCB-IdgNUbaiN_e57ToEL3XA1WAliiCjyA8TAgXAPUYsW1OPAJunEw" />
+ </picture>
+</a>
 
