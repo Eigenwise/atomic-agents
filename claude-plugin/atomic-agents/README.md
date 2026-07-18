@@ -4,10 +4,12 @@ A Claude Code plugin that gives Claude deep, just-in-time knowledge of the [Atom
 
 ## What you get
 
-Two skills + two subagents, loaded on demand:
+Seven skills + two subagents, loaded on demand:
 
 - **`framework` skill** — auto-triggered when Claude sees atomic-agents code. Orients Claude on the framework and exposes eleven focused reference files (schemas, agents, tools, context providers, prompts, orchestration, memory, hooks, providers, project structure, testing). Progressive disclosure keeps the parent context lean.
-- **`new-app` skill** — slash-invokable scaffolder (`/atomic-agents:new-app`). Four short questions and produces a runnable project with the right `pyproject.toml`, environment file, and first agent.
+- **Four creation skills** — `create-atomic-schema`, `create-atomic-agent`, `create-atomic-tool`, `create-atomic-context-provider`. Each walks a clarify → write → verify → hand-off workflow for its component type, auto-triggering on the matching phrasing.
+- **`troubleshoot` skill** — auto-triggered on errors and tracebacks from atomic-agents code. Symptom table keyed on the framework's real error messages (provider role/mode mismatches, schema docstring enforcement, history misuse, MCP transports), each with a mechanical fix and a verification step.
+- **`new-app` skill** — slash-invokable scaffolder (`/atomic-agents:new-app`). Four short questions and produces a runnable project with the right `pyproject.toml`, environment file, first agent, and an `AGENTS.md` + `CLAUDE.md` pair so any coding assistant knows the conventions from the first commit.
 - **`atomic-explorer` subagent** — auto-triggered (or `Task`-invoked) when you ask to explore, map, or understand an existing atomic-agents codebase. Reads the project in isolated context and returns a compact architecture map (agents, tools, schemas, context providers, orchestration, essential-reading list) without polluting the parent thread with every file it had to open to build that map.
 - **`atomic-reviewer` subagent** — auto-triggered (or `Task`-invoked) when you ask for a review, audit, or check of atomic-agents code. Runs in isolated context with read-only tools so the file-exploration load never pollutes the parent thread. Focuses only on framework-specific concerns (BaseIOSchema invariants, Instructor wrapping, per-provider role and mode, context-provider I/O hygiene, orchestration hazards, common API misuses). Returns a single confidence-filtered structured report. Complements generic code review; does not replace it.
 

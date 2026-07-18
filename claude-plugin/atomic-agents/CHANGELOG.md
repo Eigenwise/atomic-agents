@@ -5,7 +5,13 @@ All notable changes to the Atomic Agents Claude Code Plugin will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-07-18
+
+### Added
+
+- **`troubleshoot` skill** — diagnostic workflow for the "my agent is broken" moment. Symptom table keyed on the framework's real error messages (docstring enforcement, `AgentConfig.client` validation, provider role/mode errors, `HTTP_STREAM`, history misuse), each with a mechanical fix and a re-run verification step. Escalation map into the `framework` reference files; `framework` routes concrete errors here.
+- **`new-app` emits `AGENTS.md` + `CLAUDE.md`** into every scaffolded project — framework conventions any coding assistant reads, with `CLAUDE.md` as a one-line `@AGENTS.md` import (the documented, Windows-safe pattern). Template includes per-provider quirk lines.
+- Cross-tool install path documented: `npx skills add eigenwise/atomic-agents` works for Cursor, Copilot, Codex, Windsurf, Gemini CLI, and other skills-compatible assistants (discovery via the repo's `.claude-plugin/marketplace.json`).
 
 ### Changed
 
@@ -15,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Quoted `argument-hint` YAML values in skill frontmatter so GitHub Copilot CLI ≥1.0.65 loads all skills ([#265](https://github.com/eigenwise/atomic-agents/pull/265)).
+- The repo's maintainer-only `release` skill no longer leaks into `npx skills` discovery (`metadata.internal: true`).
 
 ## [2.1.0] - 2026-04-29
 

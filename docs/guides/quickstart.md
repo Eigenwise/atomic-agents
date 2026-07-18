@@ -439,6 +439,44 @@ To run any of these examples:
    uv run python chatbot.py
    ```
 
+## Set Up Your Project for AI Coding Assistants
+
+If you build with an AI assistant (Claude Code, Cursor, Copilot, Codex, Gemini CLI, ...), two small steps make it know Atomic Agents instead of guessing at the API:
+
+1. **Install the agent skills** — guided workflows for creating schemas, agents, tools, and context providers, plus a troubleshooting diagnostic:
+
+   ```bash
+   # Claude Code
+   /plugin marketplace add eigenwise/atomic-agents
+   /plugin install atomic-agents@eigenwise
+
+   # Any other skills-compatible assistant
+   npx skills add eigenwise/atomic-agents
+   ```
+
+2. **Drop an `AGENTS.md` into your project root** so every assistant picks up the framework conventions. Add a `CLAUDE.md` containing just `@AGENTS.md` so Claude Code reads the same file:
+
+   ```markdown
+   # My Project
+
+   Built with [Atomic Agents](https://github.com/eigenwise/atomic-agents) — a schema-driven
+   framework on Instructor + Pydantic. Docs for LLMs:
+   https://eigenwise.github.io/atomic-agents/llms.txt
+
+   ## Framework conventions
+
+   - Import from the top-level package: `from atomic_agents import AtomicAgent, AgentConfig,
+     BaseIOSchema, BaseTool`; context pieces from `atomic_agents.context`.
+   - Agents are `AtomicAgent[InputSchema, OutputSchema](config=AgentConfig(...))` — the type
+     parameters carry runtime information, keep them accurate.
+   - The LLM client must be wrapped with Instructor before it goes into `AgentConfig.client`.
+   - Every `BaseIOSchema` subclass needs a non-empty docstring and `Field(..., description=...)`
+     on each field — both flow into the LLM prompt.
+   - Provider knobs (`temperature`, `max_tokens`, ...) go in `AgentConfig.model_api_parameters`.
+   ```
+
+Projects scaffolded with the `new-app` skill get both files automatically. Assistants can also pull the full docs from [llms.txt](https://eigenwise.github.io/atomic-agents/llms.txt) or query them via [Context7](https://context7.com/eigenwise/atomic-agents).
+
 ## Next Steps
 
 After trying these examples, you can:

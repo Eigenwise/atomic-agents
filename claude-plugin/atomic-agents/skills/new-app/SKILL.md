@@ -47,6 +47,8 @@ Create files in this order. Verify each step before proceeding.
 ├── .env.example
 ├── .gitignore
 ├── README.md
+├── AGENTS.md
+├── CLAUDE.md
 └── <project_name>/
     ├── __init__.py
     └── main.py
@@ -94,6 +96,42 @@ Per-provider AgentConfig knobs — match the Instructor factory mode on `AgentCo
 ### `README.md`
 
 Short. Include: what the project is, how to install (`uv sync` or `pip install -e .[dev]`), how to set the API key (`cp .env.example .env` and edit), how to run (`uv run python -m <project_name>.main` or equivalent).
+
+### `AGENTS.md` and `CLAUDE.md`
+
+Every scaffolded project ships agent instructions so any coding assistant (Cursor, Codex, Copilot, Gemini CLI, ...) knows the framework conventions from the first commit. `CLAUDE.md` contains exactly one line — `@AGENTS.md` — so Claude Code reads the same file without duplication.
+
+`AGENTS.md` template (substitute project specifics):
+
+```markdown
+# <Project Name>
+
+<One-line description from the agent-type answer.>
+
+Built with [Atomic Agents](https://github.com/eigenwise/atomic-agents) — a schema-driven
+framework on Instructor + Pydantic. Docs for LLMs:
+https://eigenwise.github.io/atomic-agents/llms.txt
+
+## Framework conventions
+
+- Import from the top-level package: `from atomic_agents import AtomicAgent, AgentConfig,
+  BaseIOSchema, BaseTool`; context pieces from `atomic_agents.context`.
+- Agents are `AtomicAgent[InputSchema, OutputSchema](config=AgentConfig(...))` — the type
+  parameters carry runtime information, keep them accurate.
+- The LLM client must be wrapped with Instructor before it goes into `AgentConfig.client`.
+- Every `BaseIOSchema` subclass needs a non-empty docstring and `Field(..., description=...)`
+  on each field — both flow into the LLM prompt.
+- Provider knobs (`temperature`, `max_tokens`, ...) go in `AgentConfig.model_api_parameters`.
+- Provider: <chosen provider>. <Provider-specific line from the matrix below, if any.>
+
+## Commands
+
+- Install: `uv sync` (or the pip equivalent chosen at scaffold time)
+- Run: `uv run python -m <project_name>.main`
+- Test: `uv run pytest`
+```
+
+Provider-specific lines for the template: Anthropic → "Requires `max_tokens` in `model_api_parameters`; `mode=Mode.TOOLS`." Gemini → "`assistant_role='model'` and `mode=Mode.GENAI_TOOLS`." Groq/Ollama/MiniMax → "`mode=Mode.JSON` on both the Instructor factory and `AgentConfig`." OpenAI/OpenRouter → omit.
 
 ## Phase 4 — Install and smoke-test
 

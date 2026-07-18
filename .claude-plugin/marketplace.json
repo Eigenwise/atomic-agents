@@ -9,8 +9,8 @@
   "plugins": [
     {
       "name": "atomic-agents",
-      "description": "Skills plus explorer and reviewer subagents for building, scaffolding, understanding, and auditing applications with the Atomic Agents Python framework. Progressive-disclosure references for schemas, agents, tools, context providers, prompts, orchestration, memory, hooks, providers, project structure, and testing — plus isolated-context subagents for codebase mapping and code review, and a new-app scaffolder.",
-      "version": "2.1.0",
+      "description": "Skills plus explorer and reviewer subagents for building, scaffolding, debugging, understanding, and auditing applications with the Atomic Agents Python framework. Progressive-disclosure references for schemas, agents, tools, context providers, prompts, orchestration, memory, hooks, providers, project structure, and testing — plus a troubleshoot diagnostic, isolated-context subagents for codebase mapping and code review, and a new-app scaffolder.",
+      "version": "2.2.0",
       "author": {
         "name": "Kenny Vaneetvelde",
         "email": "kenny@eigenwise.io"

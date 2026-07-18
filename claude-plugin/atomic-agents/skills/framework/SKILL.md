@@ -74,6 +74,7 @@ For the four most common authoring tasks, dedicated atomic skills give a step-by
 | "create an agent" / "add another agent" / "wire up an `AtomicAgent`" | `atomic-agents:create-atomic-agent` |
 | "add a tool" / "wrap an API as a tool" / "build a `BaseTool`" | `atomic-agents:create-atomic-tool` |
 | "add a context provider" / "inject X into the prompt" / "wire up RAG" | `atomic-agents:create-atomic-context-provider` |
+| "my agent is broken / crashing / returning garbage" + a traceback or error | `atomic-agents:troubleshoot` |
 
 These skills auto-trigger on the matching phrasing. The reference files below are what they (and you) load for deeper material.
 
@@ -122,6 +123,10 @@ Scaffolding a brand-new project (fresh directory, `pyproject.toml`, first agent)
 Delegate to the `atomic-explorer` subagent when the project has more than a handful of atomic-agents files and the user asks to "explore", "map", "understand how X works", or similar. The subagent reads the relevant files in isolated context and returns a compact architecture map (agents, tools, schemas, context providers, orchestration, essential-reading list). Invoke via the `Task` tool with the scope (project root, module path, or feature) in the prompt.
 
 For a small project (a single `main.py` + one or two agents), reading the files directly in the main thread is fine — the isolation upside is thin.
+
+## When something is failing right now
+
+A concrete error, traceback, or wrong-output report routes to the `troubleshoot` skill — it carries a symptom table keyed on the framework's real error messages plus the per-provider failure modes. Review is for code that isn't currently on fire; troubleshoot is for code that is.
 
 ## When the user wants a review
 
