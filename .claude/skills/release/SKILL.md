@@ -2,6 +2,8 @@
 name: release
 description: Release a new version of atomic-agents to PyPI and GitHub. Use when the user asks to "release", "publish", "deploy", or "bump version" for atomic-agents.
 allowed-tools: Read, Bash, Grep, Glob
+metadata:
+  internal: true
 ---
 
 # Release Process for atomic-agents

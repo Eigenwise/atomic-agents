@@ -57,11 +57,16 @@ jobs:
           cd docs
           uv run make html
 
+      - name: Place llms files at site root
+        run: |
+          cp docs/llms.txt docs/llms-*.txt docs/_build/html/
+
       - name: Verify llms files in build
         run: |
-          echo "Checking for llms files in build directory:"
+          echo "Checking for llms files at site root:"
+          ls -lh docs/_build/html/llms*.txt
+          echo "Checking for llms files in _static (download links):"
           ls -lh docs/_build/html/_static/llms-*.txt || echo "Files not in _static"
-          ls -lh docs/_build/html/_downloads/*/llms-*.txt || echo "Files not in _downloads"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

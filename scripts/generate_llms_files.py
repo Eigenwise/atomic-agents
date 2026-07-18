@@ -22,10 +22,13 @@ ATOMIC_EXAMPLES_DIR = PROJECT_ROOT / "atomic-examples"
 SINGLEHTML_DIR = DOCS_DIR / "_build" / "singlehtml"
 
 # Output files
+OUTPUT_INDEX = DOCS_DIR / "llms.txt"
 OUTPUT_DOCS = DOCS_DIR / "llms-docs.txt"
 OUTPUT_SOURCE = DOCS_DIR / "llms-source.txt"
 OUTPUT_EXAMPLES = DOCS_DIR / "llms-examples.txt"
 OUTPUT_FULL = DOCS_DIR / "llms-full.txt"
+
+SITE_URL = "https://eigenwise.github.io/atomic-agents"
 
 # File extensions to include in source code
 SOURCE_CODE_EXTENSIONS = {'.py', '.md', '.txt', '.yml', '.yaml', '.toml', '.cfg', '.ini', '.json'}
@@ -240,6 +243,46 @@ def generate_full_content() -> str:
     
     return content
 
+def generate_index() -> str:
+    """Generate the llms.txt index per the llmstxt.org spec: a small Markdown
+    navigation file at the site root pointing to the full bundles and key pages."""
+    return f"""# Atomic Agents
+
+> Atomic Agents is a lightweight, modular Python framework for building agentic AI applications
+> as composable, schema-driven building blocks. Built on Instructor and Pydantic: every agent is
+> a typed transformer from an input schema to an output schema, with full developer control and
+> no hidden abstractions. Provider-agnostic (OpenAI, Anthropic, Groq, Gemini, Ollama, and more).
+
+Key API facts: import from the top-level `atomic_agents` package (`AtomicAgent`, `AgentConfig`,
+`BaseIOSchema`, `BaseTool`) and from `atomic_agents.context` (`ChatHistory`,
+`SystemPromptGenerator`, `BaseDynamicContextProvider`). Agents are constructed as
+`AtomicAgent[InputSchema, OutputSchema](config=AgentConfig(...))` with an Instructor-wrapped
+client. Every `BaseIOSchema` subclass requires a docstring. Python 3.12+.
+
+## Documentation
+
+- [Quickstart guide]({SITE_URL}/guides/quickstart.html): first agent, providers, streaming
+- [Tools guide]({SITE_URL}/guides/tools.html): BaseTool, Atomic Forge, MCP interop
+- [Orchestration guide]({SITE_URL}/guides/orchestration.html): multi-agent patterns
+- [Memory guide]({SITE_URL}/guides/memory.html): ChatHistory, persistence, custom backends
+- [Hooks guide]({SITE_URL}/guides/hooks.html): telemetry, retries, error handling
+- [API reference]({SITE_URL}/api/index.html): full API documentation
+
+## Bundles
+
+- [llms-full.txt]({SITE_URL}/llms-full.txt): complete documentation, framework source code, and all examples in one file
+- [llms-docs.txt]({SITE_URL}/llms-docs.txt): documentation only
+- [llms-source.txt]({SITE_URL}/llms-source.txt): framework source code only
+- [llms-examples.txt]({SITE_URL}/llms-examples.txt): runnable example projects only
+
+## Optional
+
+- [GitHub repository](https://github.com/eigenwise/atomic-agents): source, issues, discussions
+- [Agent skills](https://github.com/eigenwise/atomic-agents/tree/main/claude-plugin/atomic-agents): installable skills for coding assistants (`npx skills add eigenwise/atomic-agents`)
+- [PyPI package](https://pypi.org/project/atomic-agents/): `pip install atomic-agents`
+"""
+
+
 def write_to_file_and_copy(output_file: Path, content: str):
     """Write content to file and copy to HTML build directory if it exists."""
     with open(output_file, "w", encoding="utf-8") as f:
@@ -277,6 +320,10 @@ def main():
     print("\nGenerating llms-full.txt...")
     full_content = generate_full_content()
     write_to_file_and_copy(OUTPUT_FULL, full_content)
+
+    # Generate the spec-compliant index
+    print("\nGenerating llms.txt index...")
+    write_to_file_and_copy(OUTPUT_INDEX, generate_index())
     
     print("\n" + "=" * 40)
     print("Successfully generated all llms.txt files!")

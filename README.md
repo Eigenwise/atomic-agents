@@ -44,6 +44,9 @@ Built on [Instructor](https://github.com/jxnl/instructor) and [Pydantic](https:/
   - [Examples \& Documentation](#examples--documentation)
     - [Quickstart Examples](#quickstart-examples)
     - [Complete Examples](#complete-examples)
+  - [AI-Assisted Development](#ai-assisted-development)
+    - [Agent skills (Claude Code, Cursor, Copilot, Codex, Windsurf, Gemini CLI, ...)](#agent-skills-claude-code-cursor-copilot-codex-windsurf-gemini-cli-)
+    - [Docs for LLMs](#docs-for-llms)
   - [🚀 Version 2.0 Released!](#-version-20-released)
     - [Key Changes in v2.0:](#key-changes-in-v20)
     - [⚠️ Upgrading from v1.x](#️-upgrading-from-v1x)
@@ -292,6 +295,35 @@ In addition to the quickstart examples, we have more complex examples demonstrat
 - [YouTube to Recipe](/atomic-examples/youtube-to-recipe/README.md): An example that extracts structured recipe information from cooking videos, demonstrating complex information extraction and structuring.
 
 For a complete list of examples, see the [examples directory](/atomic-examples/).
+
+## AI-Assisted Development
+
+Building with an AI coding assistant? Atomic Agents ships first-class support so your assistant knows the framework's current API and conventions instead of guessing.
+
+### Agent skills (Claude Code, Cursor, Copilot, Codex, Windsurf, Gemini CLI, ...)
+
+Six [agent skills](https://agents.md/) cover the framework: an auto-triggering `framework` guide with progressive-disclosure references, four creation workflows (`create-atomic-schema`, `create-atomic-agent`, `create-atomic-tool`, `create-atomic-context-provider`), and a `new-app` project scaffolder.
+
+**Claude Code** (also gets the `atomic-explorer` and `atomic-reviewer` subagents):
+
+```
+/plugin marketplace add eigenwise/atomic-agents
+/plugin install atomic-agents@eigenwise
+```
+
+**Any other skills-compatible assistant:**
+
+```bash
+npx skills add eigenwise/atomic-agents
+```
+
+See [claude-plugin/atomic-agents](./claude-plugin/atomic-agents/README.md) for details.
+
+### Docs for LLMs
+
+The [documentation site](https://eigenwise.github.io/atomic-agents/) publishes LLM-ready bundles: [llms-full.txt](https://eigenwise.github.io/atomic-agents/llms-full.txt) (docs + source + examples), plus separate [docs](https://eigenwise.github.io/atomic-agents/llms-docs.txt), [source](https://eigenwise.github.io/atomic-agents/llms-source.txt), and [examples](https://eigenwise.github.io/atomic-agents/llms-examples.txt) bundles. Point your assistant at one of these when it needs the full picture.
+
+Atomic Agents is also indexed on [Context7](https://context7.com/eigenwise/atomic-agents) for assistants with the Context7 MCP server.
 
 ## Atomic Forge & CLI
 
