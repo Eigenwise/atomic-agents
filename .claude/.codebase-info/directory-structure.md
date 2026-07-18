@@ -20,6 +20,9 @@ atomic-agents/                  # repo root (uv workspace)
 │   ├── tools/<tool>/           #   one folder per tool: tool/<tool>.py, tests/, pyproject.toml
 │   └── guides/                 #   tool authoring guides (e.g. tool_structure.md)
 ├── atomic-examples/            # 16 runnable example apps (each its own project)
+├── claude-plugin/atomic-agents/ # AI-assistant plugin: 7 skills + 2 subagents (Claude Code plugin,
+│                               #   also installable cross-tool via `npx skills add eigenwise/atomic-agents`)
+├── .claude-plugin/             # marketplace.json — plugin marketplace manifest (drives npx skills discovery)
 ├── docs/                       # Sphinx + MyST documentation (api/, guides/, examples/)
 ├── guides/                     # DEV_GUIDE.md and contributor guides
 ├── scripts/                    # generate_llms_files.py (llms.txt index + llms-*.txt bundles)

@@ -2,7 +2,7 @@
   "tool": "codebase-mapper",
   "version": "2.8.0",
   "mappedAt": "2026-07-18",
-  "gitCommit": "ffcdca567bd460af080734598762112a9af6857e",
+  "gitCommit": "73dbc8be54f4ca32e71d28f5d9a7648dd9628c9b",
   "documents": [
     "architecture.md",
     "tech-landscape.md",
@@ -19,7 +19,7 @@
     "INDEX.md": "17eaa0ba82f159465e126597aac349c6e4429330887b58742636734e15854313",
     "architecture.md": "7c908f047e6b0f08824ccd7c3f674ad47bd547dde234d0bd424a6d2784c0cbb6",
     "tech-landscape.md": "cad1a11e5e63013a10cf07657d248196d0e3e4e14203eba7b777c1c123628198",
-    "directory-structure.md": "7d04bf29e9005508af316e29ded0c2f082a8dca561a279faecbc682f3bf5db6f",
+    "directory-structure.md": "7e3fc4c3c8b89b6627beabcb6ddebd74b0ac7094e52718926fc87a94c932df84",
     "entry-points.md": "6bd4ccae3d975196e03fc2c4e86007eba89f1f6427232fd8adce78ec97d6b432",
     "modules.md": "1238c76664edb1c1667fda23f39507bcab5b760b57a3a3728d7104b2cf8032e7",
     "communication.md": "49741a7455b0f162881e1cfb2d797dc8e3832cc8782796bbcb8a10529f2c5a0b",
