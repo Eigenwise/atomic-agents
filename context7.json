@@ -1,0 +1,16 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Atomic Agents",
+  "description": "Lightweight, modular Python framework for building agentic AI applications with typed Pydantic schemas and Instructor",
+  "branch": "main",
+  "excludeFolders": [".claude", ".github", "docs/_build", "**/__pycache__"],
+  "excludeFiles": ["CHANGELOG.md"],
+  "rules": [
+    "Import from the top-level package: from atomic_agents import AtomicAgent, AgentConfig, BaseIOSchema, BaseTool. Legacy paths like atomic_agents.lib.* were removed in v2.",
+    "Construct agents as AtomicAgent[InputSchema, OutputSchema](config=AgentConfig(...)). The type parameters carry runtime information, so write them explicitly.",
+    "Always wrap the provider SDK client with Instructor (instructor.from_openai, instructor.from_anthropic, ...) before passing it as AgentConfig.client.",
+    "Every BaseIOSchema subclass requires a non-empty docstring; the docstring and Field descriptions flow into the LLM prompt.",
+    "Provider parameters (temperature, max_tokens, reasoning_effort) go in AgentConfig.model_api_parameters, not on the agent.",
+    "For Gemini set assistant_role='model' and match AgentConfig.mode to the Instructor factory mode; Anthropic requires max_tokens in model_api_parameters."
+  ]
+}

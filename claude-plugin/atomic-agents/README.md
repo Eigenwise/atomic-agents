@@ -54,6 +54,16 @@ To require this plugin for everyone who opens a given repo, add it to the projec
 
 Claude Code prompts each teammate to install on first trust of the folder.
 
+### Other coding assistants (Cursor, Copilot, Codex, Windsurf, Gemini CLI, ...)
+
+The skills follow the cross-tool [agent skills](https://agents.md/) format, so any skills-compatible assistant can install them without the Claude Code plugin system:
+
+```bash
+npx skills add eigenwise/atomic-agents
+```
+
+This installs the six skills (framework guide, four create-* workflows, new-app scaffolder). The `atomic-explorer` and `atomic-reviewer` subagents are Claude Code plugin features and don't travel this path.
+
 ### Local dev
 
 ```bash

@@ -39,9 +39,9 @@
     `pytest --cov=atomic_agents` across `atomic-agents`, `atomic-assembler`, `atomic-examples`,
     `atomic-forge`.
   - `docs.yml` — on push to `main`: build Sphinx docs, run
-    `scripts/generate_llms_files.py` (produces `llms-*.txt`), deploy to GitHub Pages.
-    The docs version needs no sync step — `docs/conf.py` reads it from the root
-    `pyproject.toml` via `tomllib`.
+    `scripts/generate_llms_files.py` (spec-compliant `llms.txt` index + `llms-*.txt`
+    bundles, copied to the site root), deploy to GitHub Pages. The docs version needs
+    no sync step — `docs/conf.py` reads it from the root `pyproject.toml` via `tomllib`.
 - **Release:** `build_and_deploy.ps1 <major|minor|patch> [--dry]` bumps the version in
   `pyproject.toml`, then `uv sync` → `uv build` → `uv publish` (requires a `PYPI_TOKEN`).
 - **Distribution:** PyPI package `atomic-agents`; the `atomic` console script ships with it.

@@ -22,8 +22,9 @@ atomic-agents/                  # repo root (uv workspace)
 ├── atomic-examples/            # 16 runnable example apps (each its own project)
 ├── docs/                       # Sphinx + MyST documentation (api/, guides/, examples/)
 ├── guides/                     # DEV_GUIDE.md and contributor guides
-├── scripts/                    # generate_llms_files.py (llms-*.txt bundles for the docs site)
+├── scripts/                    # generate_llms_files.py (llms.txt index + llms-*.txt bundles)
 ├── pyproject.toml              # package metadata, deps, [tool.black], uv workspace
+├── context7.json               # Context7 indexing config + v2 API rules for AI assistants
 ├── build_and_deploy.ps1        # version bump + uv build/publish
 ├── AGENTS.md                   # the project's own design philosophy (imported by CLAUDE.md)
 └── README.md
