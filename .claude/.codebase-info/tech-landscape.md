@@ -1,6 +1,6 @@
 # Technology Landscape
 
-*Last Updated: 2026-06-13*
+*Last Updated: 2026-07-18*
 
 ## Source-of-Truth Files
 
@@ -38,8 +38,10 @@
   - `code-quality.yml` — on push/PR to `main`/`v2.0`: `uv sync`, `black --check`, `flake8`, then
     `pytest --cov=atomic_agents` across `atomic-agents`, `atomic-assembler`, `atomic-examples`,
     `atomic-forge`.
-  - `docs.yml` — on push to `main`: build Sphinx docs, run `scripts/sync_version.py` and
+  - `docs.yml` — on push to `main`: build Sphinx docs, run
     `scripts/generate_llms_files.py` (produces `llms-*.txt`), deploy to GitHub Pages.
+    The docs version needs no sync step — `docs/conf.py` reads it from the root
+    `pyproject.toml` via `tomllib`.
 - **Release:** `build_and_deploy.ps1 <major|minor|patch> [--dry]` bumps the version in
   `pyproject.toml`, then `uv sync` → `uv build` → `uv publish` (requires a `PYPI_TOKEN`).
 - **Distribution:** PyPI package `atomic-agents`; the `atomic` console script ships with it.

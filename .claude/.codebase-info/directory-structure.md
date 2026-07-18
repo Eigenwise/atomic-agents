@@ -1,6 +1,6 @@
 # Directory Structure
 
-*Last Updated: 2026-07-05*
+*Last Updated: 2026-07-18*
 
 ## Root Layout
 
@@ -22,7 +22,7 @@ atomic-agents/                  # repo root (uv workspace)
 ├── atomic-examples/            # 16 runnable example apps (each its own project)
 ├── docs/                       # Sphinx + MyST documentation (api/, guides/, examples/)
 ├── guides/                     # DEV_GUIDE.md and contributor guides
-├── scripts/                    # sync_version.py, generate_llms_files.py
+├── scripts/                    # generate_llms_files.py (llms-*.txt bundles for the docs site)
 ├── pyproject.toml              # package metadata, deps, [tool.black], uv workspace
 ├── build_and_deploy.ps1        # version bump + uv build/publish
 ├── AGENTS.md                   # the project's own design philosophy (imported by CLAUDE.md)

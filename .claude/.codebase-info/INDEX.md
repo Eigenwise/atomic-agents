@@ -1,6 +1,6 @@
 # Codebase Map — Atomic Agents
 
-*Last Updated: 2026-06-13*
+*Last Updated: 2026-07-18*
 
 Atomic Agents is a lightweight, modular Python framework for building agentic AI applications as
 composable, schema-driven building blocks (built on Instructor + Pydantic). This repository is a
@@ -8,7 +8,7 @@ composable, schema-driven building blocks (built on Instructor + Pydantic). This
 
 **Stack:** Python ≥3.12 · Instructor · Pydantic v2 · LiteLLM · MCP · Textual · uv + Hatchling
 **Shape:** Monorepo — `atomic-agents/` (core lib) · `atomic-assembler/` (CLI) · `atomic-forge/` (tools) · `atomic-examples/` (examples)
-**Package:** `atomic-agents` v2.8.1 on PyPI · core import package is `atomic_agents`
+**Package:** `atomic-agents` v2.9.1 on PyPI · core import package is `atomic_agents`
 
 ## Documents
 
