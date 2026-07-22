@@ -82,6 +82,14 @@ def setup_client(provider):
         model = "MiniMax-M3"
         model_api_parameters = {"max_tokens": 2048}
         assistant_role = "assistant"
+    elif provider == "8" or provider == "edenai":
+        from openai import OpenAI as EdenAIClient
+
+        api_key = os.getenv("EDENAI_API_KEY")
+        client = instructor.from_openai(EdenAIClient(base_url="https://api.edenai.run/v3", api_key=api_key))
+        model = "openai/gpt-4o-mini"
+        model_api_parameters = {"max_tokens": 2048}
+        assistant_role = "assistant"
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -89,7 +97,7 @@ def setup_client(provider):
 
 
 # Prompt the user to choose a provider from one in the list below.
-providers_list = ["openai", "anthropic", "groq", "ollama", "gemini", "openrouter", "minimax"]
+providers_list = ["openai", "anthropic", "groq", "ollama", "gemini", "openrouter", "minimax", "edenai"]
 y = "bold yellow"
 b = "bold blue"
 g = "bold green"
