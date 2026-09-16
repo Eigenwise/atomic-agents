@@ -130,6 +130,90 @@ async def setup_tools():
     return tools
 ```
 
+## Remote web search with Parallel
+
+The local examples above use a server base URL. To connect to a remote server
+with an exact endpoint and custom headers, open an MCP SDK session and pass it
+to `fetch_mcp_tools_async`. The generated tools reuse that session.
+
+This example uses [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+over Streamable HTTP at `https://search.parallel.ai/mcp`. Anonymous access needs
+no Parallel account or API key and is rate limited. No local MCP server or LLM
+key is needed for these direct tool calls.
+
+Run `uv sync` in the repository root, save the following as `parallel_search.py`,
+then run `uv run python parallel_search.py`:
+
+```python
+import asyncio
+from importlib.metadata import version
+from uuid import uuid4
+
+import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+from atomic_agents.connectors.mcp import MCPTransportType, fetch_mcp_tools_async
+
+
+async def main() -> None:
+    # Identify Atomic Agents for aggregate free MCP usage measurement.
+    # Keep this project-wide, without user or installation identifiers.
+    headers = {
+        "User-Agent": f"atomic-agents/{version('atomic-agents')} python-httpx/{httpx.__version__}",
+    }
+    async with streamablehttp_client("https://search.parallel.ai/mcp", headers=headers) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            tools = await fetch_mcp_tools_async(
+                transport_type=MCPTransportType.HTTP_STREAM,
+                client_session=session,
+            )
+            tools_by_name = {tool.mcp_tool_name: tool for tool in tools}
+            print("Available tools:", ", ".join(tools_by_name))
+
+            # Search and fetch belong to one task, independently of the HTTP session.
+            task_session_id = uuid4().hex
+            Search = tools_by_name["web_search"]
+            search_result = await Search().arun(
+                Search.input_schema(
+                    tool_name="web_search",
+                    objective="Find the official Parallel Search MCP setup instructions",
+                    search_queries=["Parallel Search MCP setup"],
+                    session_id=task_session_id,
+                )
+            )
+            print(search_result.model_dump_json(indent=2))
+
+            Fetch = tools_by_name["web_fetch"]
+            fetch_result = await Fetch().arun(
+                Fetch.input_schema(
+                    tool_name="web_fetch",
+                    urls=["https://docs.parallel.ai/integrations/mcp/search-mcp"],
+                    objective="Explain anonymous access and the available tools",
+                    full_content=False,
+                    session_id=task_session_id,
+                )
+            )
+            print(fetch_result.model_dump_json(indent=2))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Running this example sends queries, requested URLs, objectives, and the supplied
+task identifier to Parallel. Its project `User-Agent` identifies Atomic Agents
+and its installed version for aggregate usage measurement. See Parallel's
+[Customer Terms](https://parallel.ai/customer-terms) and
+[Privacy Policy](https://parallel.ai/privacy-policy).
+
+The tools retain their discovered input and output schemas, including result
+URLs, excerpts, warnings, and per-URL fetch errors. `full_content=False` requests
+excerpts; fetching does not use a signed-in browser or browser cookies. Keep
+retrieved page text separate from trusted instructions. If you give these tools
+to an agent, it can invoke them as part of answering a question. Use them only
+while the session context is open and call `arun` from the same event loop.
+
 ## MCP Transport Methods
 
 The example implements three distinct transport methods via the `MCPTransportType` enum, each with its own advantages:

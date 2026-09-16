@@ -25,6 +25,42 @@ class DummySession:
     pass
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed_output", [False, True])
+@pytest.mark.parametrize("dict_result", [False, True])
+async def test_tool_error_is_rejected_before_output_conversion(typed_output, dict_result):
+    """Error content must not become a valid generic or typed tool result."""
+    from mcp.types import CallToolResult, TextContent
+
+    error = CallToolResult(
+        isError=True,
+        content=[TextContent(type="text", text="Rate limit exceeded")],
+        structuredContent={"results": []},
+    )
+
+    class ErrorSession:
+        async def call_tool(self, name, arguments):
+            assert name == "Search"
+            return error.model_dump() if dict_result else error
+
+    factory = MCPFactory(client_session=ErrorSession(), event_loop=asyncio.get_running_loop())
+    output_schema = {
+        "type": "object",
+        "properties": {"results": {"type": "array", "items": {"type": "string"}}},
+        "required": ["results"],
+    }
+    definition = MCPToolDefinition(
+        name="Search",
+        description="Search the web",
+        input_schema={"type": "object", "properties": {}},
+        output_schema=output_schema if typed_output else None,
+    )
+    Tool = factory._create_tool_classes([definition])[0]
+
+    with pytest.raises(RuntimeError, match="reported an error.*Rate limit exceeded"):
+        await Tool().arun(Tool.input_schema(tool_name="Search"))
+
+
 def test_fetch_mcp_tools_no_endpoint_raises():
     with pytest.raises(ValueError):
         fetch_mcp_tools()
