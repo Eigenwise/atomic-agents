@@ -239,6 +239,15 @@ class MCPFactory:
                             # Legacy behaviour – open a fresh connection per invocation.
                             tool_result = await _connect_and_call()
 
+                        # An MCP tool error is not successful content, even if it matches the output schema.
+                        is_error = (
+                            tool_result.get("isError", False)
+                            if isinstance(tool_result, dict)
+                            else getattr(tool_result, "isError", False)
+                        )
+                        if is_error:
+                            raise RuntimeError(f"MCP tool '{bound_tool_name}' reported an error: {tool_result}")
+
                         # Process the result based on whether we have a typed output schema.
                         # Extraction precedence for typed schemas:
                         # 1. structuredContent attribute (MCP spec primary path)
