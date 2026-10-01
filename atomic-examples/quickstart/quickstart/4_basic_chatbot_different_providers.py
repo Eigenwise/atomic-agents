@@ -90,6 +90,16 @@ def setup_client(provider):
         model = "openai/gpt-4o-mini"
         model_api_parameters = {"max_tokens": 2048}
         assistant_role = "assistant"
+    elif provider == "9" or provider == "cheaperinference":
+        from openai import OpenAI as CheaperInferenceClient
+
+        api_key = os.getenv("CHEAPER_INFERENCE_API_KEY")
+        client = instructor.from_openai(
+            CheaperInferenceClient(base_url="https://api.cheaperinference.com/v1", api_key=api_key)
+        )
+        model = "gpt-5.4-mini"
+        model_api_parameters = {"max_tokens": 2048}
+        assistant_role = "assistant"
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -97,7 +107,7 @@ def setup_client(provider):
 
 
 # Prompt the user to choose a provider from one in the list below.
-providers_list = ["openai", "anthropic", "groq", "ollama", "gemini", "openrouter", "minimax", "edenai"]
+providers_list = ["openai", "anthropic", "groq", "ollama", "gemini", "openrouter", "minimax", "edenai", "cheaperinference"]
 y = "bold yellow"
 b = "bold blue"
 g = "bold green"
