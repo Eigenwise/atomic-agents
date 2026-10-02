@@ -280,6 +280,7 @@ class ChatHistory(BaseChatHistory):
     def load(self, serialized_data: str) -> None:
         """
         Deserializes a JSON string and loads it into the ChatHistory instance.
+        If loading fails, the existing history and metadata remain unchanged.
 
         Args:
             serialized_data (str): A JSON string representation of the ChatHistory.
@@ -289,9 +290,9 @@ class ChatHistory(BaseChatHistory):
         """
         try:
             history_data = json.loads(serialized_data)
-            self.history = []
-            self.max_messages = history_data["max_messages"]
-            self.current_turn_id = history_data["current_turn_id"]
+            loaded_history: List[Message] = []
+            max_messages = history_data["max_messages"]
+            current_turn_id = history_data["current_turn_id"]
 
             for message_data in history_data["history"]:
                 content_info = message_data["content"]
@@ -302,7 +303,12 @@ class ChatHistory(BaseChatHistory):
                 self._process_multimodal_paths(content_instance)
 
                 message = Message(role=message_data["role"], content=content_instance, turn_id=message_data["turn_id"])
-                self.history.append(message)
+                loaded_history.append(message)
+
+            # Replace the state only after every message has been deserialized successfully.
+            self.history = loaded_history
+            self.max_messages = max_messages
+            self.current_turn_id = current_turn_id
         except (json.JSONDecodeError, KeyError, AttributeError, TypeError) as e:
             raise ValueError(f"Invalid serialized data: {e}")
 

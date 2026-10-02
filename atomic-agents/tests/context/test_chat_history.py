@@ -290,6 +290,96 @@ def test_load_invalid_data(history):
         history.load("invalid json")
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "invalid_json",
+        "missing_max_messages",
+        "missing_current_turn_id",
+        "missing_history",
+        "invalid_history",
+        "missing_content",
+        "unknown_class",
+        "invalid_content_json",
+        "invalid_content",
+        "later_invalid_content",
+        "invalid_role",
+        "invalid_turn_id",
+    ],
+)
+def test_load_failure_preserves_existing_history(history, failure):
+    history.add_message("user", InputSchema(test_field="Keep this message"))
+    original_history = history.history
+    original_message = history.history[0]
+    original_dump = history.dump()
+    original_turn_id = history.current_turn_id
+
+    replacement = ChatHistory(max_messages=2)
+    replacement.current_turn_id = "replacement-turn"
+    replacement.add_message("user", InputSchema(test_field="Replacement user message"))
+    replacement.add_message("assistant", MockOutputSchema(test_field="Replacement assistant message"))
+    replacement_data = json.loads(replacement.dump())
+    first_message = replacement_data["history"][0]
+
+    if failure.startswith("missing_"):
+        field = failure.removeprefix("missing_")
+        del (first_message if field == "content" else replacement_data)[field]
+    elif failure == "invalid_history":
+        replacement_data["history"] = None
+    elif failure == "unknown_class":
+        first_message["content"]["class_name"] = f"{InputSchema.__module__}.NonexistentSchema"
+    elif failure == "invalid_content_json":
+        first_message["content"]["data"] = "invalid json"
+    elif failure == "invalid_content":
+        first_message["content"]["data"] = "{}"
+    elif failure == "later_invalid_content":
+        replacement_data["history"][1]["content"]["data"] = "{}"
+    elif failure == "invalid_role":
+        first_message["role"] = None
+    elif failure == "invalid_turn_id":
+        first_message["turn_id"] = []
+
+    serialized_data = "invalid json" if failure == "invalid_json" else json.dumps(replacement_data)
+    with pytest.raises(ValueError):
+        history.load(serialized_data)
+
+    assert history.history is original_history
+    assert history.history[0] is original_message
+    assert history.dump() == original_dump
+    assert history.max_messages == 5
+    assert history.current_turn_id == original_turn_id
+
+
+def test_load_replaces_existing_history(history):
+    history.add_message("user", InputSchema(test_field="Old message"))
+    original_history = history.history
+    replacement = ChatHistory(max_messages=2)
+    replacement.current_turn_id = "replacement-turn"
+    replacement.add_message("assistant", MockOutputSchema(test_field="Replacement message"))
+
+    history.load(replacement.dump())
+
+    assert history.history is not original_history
+    assert history.dump() == replacement.dump()
+    assert isinstance(history.history[0].content, MockOutputSchema)
+    assert history.max_messages == 2
+    assert history.current_turn_id == "replacement-turn"
+
+
+@pytest.mark.parametrize("max_messages, current_turn_id", [(None, None), (0, "empty-turn")])
+def test_load_empty_history_replaces_existing_history(history, max_messages, current_turn_id):
+    history.add_message("user", InputSchema(test_field="Old message"))
+    replacement = ChatHistory(max_messages=max_messages)
+    replacement.current_turn_id = current_turn_id
+
+    history.load(replacement.dump())
+
+    assert history.history == []
+    assert history.dump() == replacement.dump()
+    assert history.max_messages == max_messages
+    assert history.current_turn_id == current_turn_id
+
+
 def test_get_class_from_string():
     class_string = "tests.context.test_chat_history.InputSchema"
     cls = ChatHistory._get_class_from_string(class_string)
