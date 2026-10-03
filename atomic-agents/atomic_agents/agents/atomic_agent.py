@@ -19,6 +19,33 @@ from instructor.dsl.partial import PartialBase
 from jiter import from_json
 
 
+def _mode_family(mode: Mode) -> str:
+    """
+    Groups an Instructor mode by how the output schema is transmitted.
+
+    The framework only needs to distinguish modes that send the schema as a tools
+    definition from modes that send it inside the messages. Comparing families
+    instead of individual modes avoids false mismatches for equivalent modes of
+    different providers (e.g. GENAI_TOOLS on the client and TOOLS on the config).
+
+    Args:
+        mode (Mode): The Instructor mode to classify.
+
+    Returns:
+        str: "tools", "json", or the mode's own name when it belongs to neither.
+    """
+    name = mode.name
+    if (
+        name == "FUNCTIONS"
+        or name.endswith("_TOOLS")
+        or name in {"TOOLS", "TOOLS_STRICT", "PARALLEL_TOOLS", "RESPONSES_TOOLS"}
+    ):
+        return "tools"
+    if "JSON" in name or name.endswith("STRUCTURED_OUTPUTS"):
+        return "json"
+    return name
+
+
 def model_from_chunks_patched(cls, json_chunks, **kwargs):
     potential_object = ""
     partial_model = cls.get_partial_model()
@@ -91,7 +118,15 @@ class AgentConfig(BaseModel):
         ),
     )
     model_config = {"arbitrary_types_allowed": True}
-    mode: Mode = Field(default=Mode.TOOLS, description="The Instructor mode used for structured outputs (TOOLS, JSON, etc.).")
+    mode: Optional[Mode] = Field(
+        default=None,
+        description=(
+            "The Instructor mode used for structured outputs (TOOLS, JSON, etc.). "
+            "Must use the same mode family as the Instructor client was created with; when None, "
+            "the client's mode is used. Drives token accounting and multimodal serialization, "
+            "not the API call format itself."
+        ),
+    )
     model_api_parameters: Optional[dict] = Field(None, description="Additional parameters passed to the API provider.")
     max_context_tokens: Optional[int] = Field(
         None,
@@ -202,7 +237,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.tool_result_role = "user" if config.assistant_role == "model" else "system"
         self.initial_history = self.history.copy()
         self.current_user_input = None
-        self.mode = config.mode
+        self.mode = self._resolve_mode(config)
         self.model_api_parameters = config.model_api_parameters or {}
         self.max_context_tokens = config.max_context_tokens
 
@@ -215,6 +250,44 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         Resets the history to its initial state.
         """
         self.history = self.initial_history.copy()
+
+    @staticmethod
+    def _resolve_mode(config: AgentConfig) -> Mode:
+        """
+        Resolves the effective Instructor mode used for token accounting.
+
+        The API call format is decided by the mode the Instructor client was created
+        with, so `AgentConfig.mode` follows the client by default. An explicitly
+        configured mode that disagrees with the client's mode family warns, because
+        token accounting then silently disagrees with the actual API calls.
+
+        Args:
+            config (AgentConfig): Configuration for the chat agent.
+
+        Returns:
+            Mode: The mode to use for token accounting and multimodal serialization.
+        """
+        client_mode = getattr(config.client, "mode", None)
+        if not isinstance(client_mode, Mode):
+            # Clients that do not expose a Mode (or test doubles of them) cannot be
+            # compared; the explicitly configured mode, if any, is used as-is.
+            client_mode = None
+
+        if config.mode is None:
+            return client_mode if client_mode is not None else Mode.TOOLS
+
+        if client_mode is not None and _mode_family(config.mode) != _mode_family(client_mode):
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "AgentConfig.mode (%s) does not match the Instructor client's mode (%s). "
+                "Both must use the same mode family or token accounting will silently disagree "
+                "with the actual API calls; either create the Instructor client with %s as well "
+                "or omit AgentConfig.mode to follow the client automatically.",
+                config.mode.name,
+                client_mode.name,
+                config.mode.name,
+            )
+        return config.mode
 
     def add_tool_result(self, content: BaseIOSchema) -> None:
         """
@@ -453,7 +526,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
                     elif isinstance(item, (Image, Audio, PDF)):
                         # Multimodal object - use instructor's to_openai method
                         try:
-                            serialized_content.append(item.to_openai(Mode.JSON))
+                            serialized_content.append(item.to_openai(self.mode))
                         except Exception as e:
                             # Log the error and use placeholder for token estimation
                             logger = logging.getLogger(__name__)
