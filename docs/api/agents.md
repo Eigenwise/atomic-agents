@@ -133,6 +133,7 @@ class AgentConfig:
     model: str = "gpt-4-turbo-preview"  # Model to use
     history: Optional[ChatHistory] = None  # History component
     system_prompt_generator: Optional[SystemPromptGenerator] = None  # Prompt generator
+    mode: Optional[Mode] = None  # Instructor mode for token accounting; follows the client when None
     input_schema: Optional[Type[BaseModel]] = None  # Custom input schema
     output_schema: Optional[Type[BaseModel]] = None  # Custom output schema
     model_api_parameters: Optional[dict] = None  # Additional API parameters
