@@ -1,6 +1,7 @@
 import pytest
 from pydantic import BaseModel
 import asyncio
+from mcp.types import CallToolResult, TextContent
 from atomic_agents.connectors.mcp import (
     fetch_mcp_tools,
     fetch_mcp_resources,
@@ -23,6 +24,63 @@ from atomic_agents.connectors.mcp import (
 
 class DummySession:
     pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed_output", [False, True])
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize("is_error", [False, True])
+@pytest.mark.parametrize("with_text", [False, True])
+async def test_tool_result_error_flag(monkeypatch, typed_output, as_dict, is_error, with_text):
+    """Tool execution errors must not become successful typed or generic outputs."""
+    definition = MCPToolDefinition(
+        name="SearchTool",
+        description="Search tool",
+        input_schema={"type": "object", "properties": {}},
+        output_schema=(
+            {"type": "object", "properties": {"count": {"type": "integer"}}, "required": ["count"]} if typed_output else None
+        ),
+    )
+    tool_result = CallToolResult(
+        content=(
+            [TextContent(type="text", text="Search unavailable"), TextContent(type="text", text="Try again later")]
+            if with_text
+            else []
+        ),
+        structuredContent={"count": 0},
+        isError=is_error,
+    )
+    response = tool_result.model_dump() if as_dict else tool_result
+
+    class Session:
+        async def call_tool(self, name, arguments):
+            assert name == "SearchTool"
+            assert arguments == {}
+            return response
+
+    async def fetch_definitions(session):
+        return [definition]
+
+    monkeypatch.setattr(MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fetch_definitions))
+    tools = await fetch_mcp_tools_async(client_session=Session())
+    tool = tools[0]()
+    params = tool.input_schema(tool_name="SearchTool")
+
+    if is_error:
+        with pytest.raises(RuntimeError, match="Failed to execute MCP tool 'SearchTool'") as exc:
+            await tool.arun(params)
+        if with_text:
+            assert "Search unavailable" in str(exc.value)
+            assert "Try again later" in str(exc.value)
+        else:
+            assert "MCP server reported a tool execution error" in str(exc.value)
+    else:
+        result = await tool.arun(params)
+        if typed_output:
+            assert result.count == 0
+        else:
+            expected_content = response["content"] if as_dict else tool_result.content
+            assert result.result == expected_content
 
 
 def test_fetch_mcp_tools_no_endpoint_raises():
