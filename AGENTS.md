@@ -98,6 +98,7 @@ Each example is self-contained and demonstrates specific patterns and capabiliti
 - `arxiv_search/` - Academic paper search via the public arXiv API
 - `bocha_search/` - BoCha web search
 - `calculator/` - Mathematical computation tool
+- `darkmoon_pentest/` - Run Darkmoon autonomous pentests and read campaigns and findings from a self-hosted Darkmoon dashboard (Pro)
 - `datetime_tool/` - Timezone-aware now / parse / convert / shift / diff
 - `fia_signals/` - Crypto market intelligence (regime, signals, yields, gas, trending, wallet risk)
 - `hackernews_search/` - Hacker News search via the free Algolia API
