@@ -1,6 +1,7 @@
 import pytest
 from pydantic import BaseModel
 import asyncio
+from types import SimpleNamespace
 from mcp.types import CallToolResult, TextContent
 from atomic_agents.connectors.mcp import (
     fetch_mcp_tools,
@@ -81,6 +82,86 @@ async def test_tool_result_error_flag(monkeypatch, typed_output, as_dict, is_err
         else:
             expected_content = response["content"] if as_dict else tool_result.content
             assert result.result == expected_content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed_output", [False, True])
+async def test_raw_dictionary_is_not_interpreted_as_mcp_error(monkeypatch, typed_output):
+    """An application payload may legitimately contain an isError field."""
+    raw_result = {"isError": True, "name": "test_value"}
+    definition = MCPToolDefinition(
+        name="SearchTool",
+        description="Search tool",
+        input_schema={"type": "object", "properties": {}},
+        output_schema=(
+            {
+                "type": "object",
+                "properties": {"isError": {"type": "boolean"}, "name": {"type": "string"}},
+                "required": ["isError", "name"],
+            }
+            if typed_output
+            else None
+        ),
+    )
+
+    class Session:
+        async def call_tool(self, name, arguments):
+            return raw_result
+
+    async def fetch_definitions(session):
+        return [definition]
+
+    monkeypatch.setattr(MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fetch_definitions))
+    tool = (await fetch_mcp_tools_async(client_session=Session()))[0]()
+    result = await tool.arun(tool.input_schema(tool_name="SearchTool"))
+
+    if typed_output:
+        assert result.isError is True
+        assert result.name == "test_value"
+    else:
+        assert result.result == raw_result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("as_dict", [False, True])
+async def test_error_result_ignores_non_text_content_without_text(monkeypatch, as_dict):
+    """Non-text blocks must not break extraction of an MCP error message."""
+    definition = MCPToolDefinition(
+        name="SearchTool",
+        description="Search tool",
+        input_schema={"type": "object", "properties": {}},
+    )
+    if as_dict:
+        response = {
+            "isError": True,
+            "content": [
+                {"type": "text", "text": "Search unavailable"},
+                {"type": "image", "data": "aW1hZ2U=", "mimeType": "image/png", "text": None},
+            ],
+        }
+    else:
+        response = CallToolResult.model_construct(
+            isError=True,
+            content=[
+                TextContent(type="text", text="Search unavailable"),
+                SimpleNamespace(type="image", text=None),
+            ],
+        )
+
+    class Session:
+        async def call_tool(self, name, arguments):
+            return response
+
+    async def fetch_definitions(session):
+        return [definition]
+
+    monkeypatch.setattr(MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fetch_definitions))
+    tool = (await fetch_mcp_tools_async(client_session=Session()))[0]()
+
+    with pytest.raises(RuntimeError, match="Failed to execute MCP tool 'SearchTool'") as exc:
+        await tool.arun(tool.input_schema(tool_name="SearchTool"))
+    assert "Search unavailable" in str(exc.value)
+    assert "TypeError" not in str(exc.value)
 
 
 def test_fetch_mcp_tools_no_endpoint_raises():

@@ -29,6 +29,35 @@ from atomic_agents.connectors.mcp.mcp_definition_service import (
 logger = logging.getLogger(__name__)
 
 
+def _mcp_text_block_text(item: Any) -> Optional[str]:
+    if isinstance(item, dict):
+        if item.get("type") != "text":
+            return None
+        text = item.get("text")
+    else:
+        if getattr(item, "type", None) != "text":
+            return None
+        text = getattr(item, "text", None)
+    return text if isinstance(text, str) else None
+
+
+def _mcp_tool_error_message(tool_result: Any) -> Optional[str]:
+    if isinstance(tool_result, dict):
+        if not any(key in tool_result for key in ("content", "structuredContent")):
+            return None
+        is_error = tool_result.get("isError", False)
+        content = tool_result.get("content", [])
+    else:
+        is_error = getattr(tool_result, "isError", False)
+        content = getattr(tool_result, "content", [])
+
+    if not is_error:
+        return None
+
+    messages = [text for item in content if (text := _mcp_text_block_text(item)) is not None]
+    return "\n".join(messages).strip() or "MCP server reported a tool execution error."
+
+
 class MCPToolOutputSchema(BaseIOSchema):
     """Generic output schema for dynamically generated MCP tools.
 
@@ -213,8 +242,7 @@ class MCPFactory:
                             else:
                                 available_types = [t.value for t in MCPTransportType]
                                 raise ValueError(
-                                    f"Unknown transport type: {bound_transport_type}. "
-                                    f"Available transport types: {available_types}"
+                                    f"Unknown transport type: {bound_transport_type}. Available transport types: {available_types}"
                                 )
 
                             session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
@@ -240,19 +268,9 @@ class MCPFactory:
                             # Legacy behaviour – open a fresh connection per invocation.
                             tool_result = await _connect_and_call()
 
-                        is_error = (
-                            tool_result.get("isError", False)
-                            if isinstance(tool_result, dict)
-                            else getattr(tool_result, "isError", False)
-                        )
-                        if is_error:
-                            content = tool_result.get("content", []) if isinstance(tool_result, dict) else tool_result.content
-                            messages = [
-                                item.get("text", "") if isinstance(item, dict) else getattr(item, "text", "")
-                                for item in content
-                            ]
-                            message = "\n".join(messages).strip() or "MCP server reported a tool execution error."
-                            raise ValueError(message)
+                        error_message = _mcp_tool_error_message(tool_result)
+                        if error_message is not None:
+                            raise ValueError(error_message)
 
                         # Process the result based on whether we have a typed output schema.
                         # Extraction precedence for typed schemas:
@@ -442,10 +460,7 @@ class MCPFactory:
                 ToolUnion,
                 Field(
                     ...,
-                    description=(
-                        "The parameters for the selected tool, matching its specific schema "
-                        "(which includes the 'tool_name')."
-                    ),
+                    description="The parameters for the selected tool, matching its specific schema (which includes the 'tool_name').",
                 ),
             )
 
@@ -455,10 +470,7 @@ class MCPFactory:
                 ResourceUnion,
                 Field(
                     ...,
-                    description=(
-                        "The parameters for the selected resource, matching its specific schema "
-                        "(which includes the 'resource_name')."
-                    ),
+                    description="The parameters for the selected resource, matching its specific schema (which includes the 'resource_name').",
                 ),
             )
 
@@ -468,10 +480,7 @@ class MCPFactory:
                 PromptUnion,
                 Field(
                     ...,
-                    description=(
-                        "The parameters for the selected prompt, matching its specific schema "
-                        "(which includes the 'prompt_name')."
-                    ),
+                    description="The parameters for the selected prompt, matching its specific schema (which includes the 'prompt_name').",
                 ),
             )
 
@@ -482,10 +491,7 @@ class MCPFactory:
         # Dynamically create the output schema with the appropriate fields
         orchestrator_schema = create_model(
             "MCPOrchestratorOutputSchema",
-            __doc__=(
-                "Output schema for the MCP Orchestrator Agent. "
-                "Contains the parameters for the selected tool/resource/prompt."
-            ),
+            __doc__="Output schema for the MCP Orchestrator Agent. Contains the parameters for the selected tool/resource/prompt.",
             __base__=BaseIOSchema,
             **field_defs,
         )
@@ -611,8 +617,7 @@ class MCPFactory:
                             else:
                                 available_types = [t.value for t in MCPTransportType]
                                 raise ValueError(
-                                    f"Unknown transport type: {bound_transport_type}. "
-                                    f"Available transport types: {available_types}"
+                                    f"Unknown transport type: {bound_transport_type}. Available transport types: {available_types}"
                                 )
 
                             session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
@@ -829,8 +834,7 @@ class MCPFactory:
                             else:
                                 available_types = [t.value for t in MCPTransportType]
                                 raise ValueError(
-                                    f"Unknown transport type: {bound_transport_type}. "
-                                    f"Available transport types: {available_types}"
+                                    f"Unknown transport type: {bound_transport_type}. Available transport types: {available_types}"
                                 )
 
                             session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
