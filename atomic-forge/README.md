@@ -16,6 +16,7 @@ The Atomic Forge project includes the following tools:
 - [arXiv Search](/atomic-forge/tools/arxiv_search/README.md) — search the free arXiv public API for academic papers.
 - [BoCha Search](/atomic-forge/tools/bocha_search/README.md)
 - [Calculator](/atomic-forge/tools/calculator/README.md)
+- [Darkmoon Pentest](/atomic-forge/tools/darkmoon_pentest/README.md) — run Darkmoon pentests and read campaigns and findings from a self-hosted Darkmoon dashboard (Pro).
 - [DateTime](/atomic-forge/tools/datetime_tool/README.md) — timezone-aware now/parse/convert/shift/diff.
 - [Fía Signals](/atomic-forge/tools/fia_signals/README.md)
 - [Hacker News Search](/atomic-forge/tools/hackernews_search/README.md) — search HN stories, comments, Show HN, Ask HN via the free Algolia API.
