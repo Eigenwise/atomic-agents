@@ -15,7 +15,7 @@ Searches the web or recent news through the [Firecrawl Search](https://www.firec
 2. Or copy the `tool/` folder directly into your project.
 
 ## Configuration
-- `api_key` (str): Firecrawl API key. Falls back to the `FIRECRAWL_API_KEY` environment variable when empty. Stored as a secret and kept out of reprs, raised errors, and logs.
+- `api_key` (`SecretStr`, a plain string is accepted): Firecrawl API key. Falls back to the `FIRECRAWL_API_KEY` environment variable when empty. It is only sent in the `Authorization` header and is redacted from raised errors and log messages.
 - `base_url` (str): API base URL (default `https://api.firecrawl.dev/v2`).
 - `location` (str, optional): location to localise results, e.g. `Germany`.
 - `time_range` (str, optional): `day`, `week`, `month`, or `year`. Only applies to web results.
@@ -25,16 +25,17 @@ Searches the web or recent news through the [Firecrawl Search](https://www.firec
 ## Input & Output Structure
 
 ### Input Schema
-- `queries` (list[str]): search queries to run. Operators such as `site:`, `"exact phrase"`, `-term`, and `filetype:pdf` are supported.
+- `queries` (list[str], at least one): search queries to run. Operators such as `site:`, `"exact phrase"`, `-term`, and `filetype:pdf` are supported.
 - `search_type` (str): `web` or `news`. Default `web`.
 - `max_results_per_query` (int): 1-100 (default 5, kept low because each result can carry a full page with `include_content`).
 - `include_content` (bool): also return each result page as Markdown (default `False`).
 
 ### Output Schema
-A list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set).
+- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without a usable URL are skipped, and badly typed optional fields are left empty.
+- `failed_queries`: queries that failed while others returned results. The reason for each is logged as a warning.
 
 ## Usage
-If every query fails (for example a wrong API key), `run` raises the error. If only some fail, the others are returned and the failures are logged.
+If no query returns results and at least one failed (for example a wrong API key, no credits, or a malformed response), `run` raises the first error instead of returning an empty list. Redirects are not followed; they are reported as errors.
 
 ```python
 from tool.firecrawl_search import FirecrawlSearchTool, FirecrawlSearchToolConfig, FirecrawlSearchToolInputSchema
