@@ -18,6 +18,7 @@ The Atomic Forge project includes the following tools:
 - [Calculator](/atomic-forge/tools/calculator/README.md)
 - [DateTime](/atomic-forge/tools/datetime_tool/README.md) — timezone-aware now/parse/convert/shift/diff.
 - [Fía Signals](/atomic-forge/tools/fia_signals/README.md)
+- [Firecrawl Search](/atomic-forge/tools/firecrawl_search/README.md) — web and news search via the Firecrawl API, with optional page content as Markdown.
 - [Hacker News Search](/atomic-forge/tools/hackernews_search/README.md) — search HN stories, comments, Show HN, Ask HN via the free Algolia API.
 - [PDF Reader](/atomic-forge/tools/pdf_reader/README.md) — extract text and metadata from a local or remote PDF, with page-range filtering.
 - [SearXNG Search](/atomic-forge/tools/searxng_search/README.md)
