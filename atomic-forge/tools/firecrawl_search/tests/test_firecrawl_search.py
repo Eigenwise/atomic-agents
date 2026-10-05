@@ -319,6 +319,25 @@ async def test_http_non_json_error_page_reports_status():
 
 
 @pytest.mark.asyncio
+async def test_http_transport_error_does_not_expose_key(caplog):
+    """aiohttp's own errors (here a redirect loop) carry the request headers; the tool must not re-raise them as is."""
+
+    def respond(body):
+        return web.Response(status=307, headers={"Location": "/v2/search"})
+
+    async with fake_firecrawl(respond) as (base_url, seen):
+        with caplog.at_level(logging.WARNING, logger="tool.firecrawl_search"):
+            with pytest.raises(Exception) as raised:
+                await _http_tool(base_url).run_async(FirecrawlSearchToolInputSchema(queries=["q"]))
+
+    assert len(seen) > 1
+    assert "Firecrawl search failed for 'q': TooManyRedirects" in str(raised.value)
+    assert raised.value.__cause__ is None
+    for text in (str(raised.value), repr(raised.value), caplog.text):
+        assert DUMMY_KEY not in text
+
+
+@pytest.mark.asyncio
 async def test_http_dummy_key_kept_out_of_repr_errors_and_logs(caplog):
     """Even when the provider echoes the key back, it never reaches repr, raised errors, or logs."""
 

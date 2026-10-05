@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 import aiohttp
 from pydantic import Field, SecretStr
@@ -135,7 +135,7 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
     def _redact(self, text: str) -> str:
         return text.replace(self._api_key, "[redacted]") if self._api_key else text
 
-    def _error(self, query: str, status: int, detail: str) -> Exception:
+    def _error(self, query: str, status: Union[int, str], detail: Optional[str]) -> Exception:
         return Exception(self._redact(f"Firecrawl search failed for '{query}': {status} {detail}"))
 
     @staticmethod
@@ -164,9 +164,13 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
         query: str,
         params: FirecrawlSearchToolInputSchema,
     ) -> List[FirecrawlSearchResultItem]:
-        async with session.post(f"{self.base_url}/search", json=self._build_body(query, params)) as resp:
-            data = await self._read_json(resp)
-            self._check_success(query, resp.status, resp.reason, data)
+        try:
+            async with session.post(f"{self.base_url}/search", json=self._build_body(query, params)) as resp:
+                data = await self._read_json(resp)
+                self._check_success(query, resp.status, resp.reason, data)
+        except aiohttp.ClientError as error:
+            # aiohttp errors such as TooManyRedirects carry the request headers, Authorization included, in their repr.
+            raise self._error(query, type(error).__name__, str(error)) from None
 
         hits = self._extract_hits(query, data, params.search_type)
         items = [self._to_item(hit, query, self.max_content_chars) for hit in hits if isinstance(hit, dict) and hit.get("url")]
