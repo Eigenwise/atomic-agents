@@ -1,20 +1,43 @@
 import asyncio
 import os
 import re
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from datetime import date
+from typing import Dict, List, Literal, Optional, Tuple, Union
+from urllib.parse import urlsplit
 
 import requests
-from pydantic import Field
+from pydantic import Field, JsonValue
 
 from atomic_agents import BaseIOSchema, BaseTool, BaseToolConfig
 
 
-_CURRENCY_RE = re.compile(r"^[A-Za-z]{3}$")
-_SLUG_RE = re.compile(r"^[A-Za-z0-9_]+$")
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+CURRENCY_PATTERN = re.compile(r"^[a-z]{3}$")
+INDICATOR_PATTERN = re.compile(r"^[a-z0-9_]+$")
+DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Printable ASCII without spaces: anything else cannot travel in an HTTP header.
+API_KEY_PATTERN = re.compile(r"^[\x21-\x7e]+$")
 
-# Endpoints whose responses wrap rows in a "data" list next to metadata.
-_ROW_ENDPOINTS = {"announcements", "latest", "calendar", "forex", "cot", "commodities"}
+ENDPOINT_PATHS = {
+    "announcements": "/announcements/{currency}/{indicator}",
+    "latest": "/announcements/{currency}/latest",
+    "calendar": "/calendar/{currency}",
+    "catalogue": "/data_catalogue/{currency}",
+    "forex": "/forex/{currency}/{quote}",
+    "cot": "/cot/{currency}",
+    "commodities": "/commodities/{indicator}",
+}
+
+FIELD_RULES = {
+    "currency": (CURRENCY_PATTERN, "a three-letter currency code such as 'usd' or 'eur'"),
+    "quote": (CURRENCY_PATTERN, "a three-letter currency code such as 'usd' or 'eur'"),
+    "indicator": (INDICATOR_PATTERN, "an indicator slug such as 'inflation' or 'policy_rate'"),
+}
+
+JsonObject = Dict[str, JsonValue]
+
+
+class FXMacroDataError(Exception):
+    """A request or response problem, worded so it is safe to hand back to an agent."""
 
 
 ################
@@ -64,7 +87,7 @@ class FXMacroDataToolOutputSchema(BaseIOSchema):
 
     endpoint: str = Field(..., description="The endpoint that was called.")
     url: str = Field(..., description="The request URL, without the API key.")
-    data: Union[List[Dict[str, Any]], Dict[str, Any]] = Field(
+    data: Union[List[JsonObject], JsonObject] = Field(
         default_factory=list,
         description=(
             "Rows returned by the API. Announcement rows carry 'date' (reference period), 'val', and"
@@ -72,10 +95,10 @@ class FXMacroDataToolOutputSchema(BaseIOSchema):
             " of indicator slug to its metadata."
         ),
     )
-    pagination: Optional[Dict[str, Any]] = Field(
+    pagination: Optional[JsonObject] = Field(
         None, description="Paging info ('has_more', 'next_offset', 'total_count') when the endpoint pages."
     )
-    metadata: Dict[str, Any] = Field(
+    metadata: JsonObject = Field(
         default_factory=dict,
         description="Remaining top-level response fields, such as source, units, provenance and data quality.",
     )
@@ -92,8 +115,109 @@ class FXMacroDataToolConfig(BaseToolConfig):
         default="",
         description="FXMacroData API key. Falls back to the FXMACRODATA_API_KEY environment variable. Optional for USD data.",
     )
-    base_url: str = Field(default="https://api.fxmacrodata.com/v1", description="FXMacroData API base URL.")
+    base_url: str = Field(default="https://api.fxmacrodata.com/v1", description="FXMacroData API base URL (HTTPS only).")
     timeout: float = Field(default=30.0, ge=1.0, le=120.0, description="HTTP request timeout in seconds.")
+
+
+####################
+# REQUEST BUILDING #
+####################
+def validated_field(params: FXMacroDataToolInputSchema, name: str) -> str:
+    """Return a path field lower-cased, or raise if it is missing or malformed."""
+    pattern, expected = FIELD_RULES[name]
+    value = (getattr(params, name) or "").strip().lower()
+    if not pattern.match(value):
+        raise FXMacroDataError(f"'{name}' must be {expected}.")
+    return value
+
+
+def parse_date(name: str, value: str) -> date:
+    """Parse a YYYY-MM-DD string into a real calendar date."""
+    try:
+        if DATE_PATTERN.match(value):
+            return date.fromisoformat(value)
+    except ValueError:
+        pass
+    raise FXMacroDataError(f"'{name}' must be a real date formatted YYYY-MM-DD.")
+
+
+def optional_date(name: str, value: Optional[str]) -> Optional[date]:
+    return None if value is None else parse_date(name, value)
+
+
+def check_order(start: Optional[date], end: Optional[date]) -> None:
+    if start is not None and end is not None and start > end:
+        raise FXMacroDataError("'start_date' must not be after 'end_date'.")
+
+
+def date_query(params: FXMacroDataToolInputSchema) -> Dict[str, str]:
+    """Validate the date range and return it as query parameters."""
+    dates = {name: optional_date(name, getattr(params, name)) for name in ("start_date", "end_date")}
+    check_order(dates["start_date"], dates["end_date"])
+    return {name: day.isoformat() for name, day in dates.items() if day is not None}
+
+
+def build_path(params: FXMacroDataToolInputSchema) -> str:
+    template = ENDPOINT_PATHS[params.endpoint]
+    names = re.findall(r"{(\w+)}", template)
+    return template.format(**{name: validated_field(params, name) for name in names})
+
+
+def build_query(params: FXMacroDataToolInputSchema) -> Dict[str, str]:
+    query = date_query(params)
+    paging = {"limit": params.limit, "offset": params.offset}
+    query.update({name: str(value) for name, value in paging.items() if value is not None})
+    if params.endpoint == "calendar" and params.indicator is not None:
+        query["indicator"] = validated_field(params, "indicator")
+    return query
+
+
+def build_request(params: FXMacroDataToolInputSchema) -> Tuple[str, Dict[str, str]]:
+    """Return the (path, query) pair for an input, validating the fields the endpoint needs."""
+    return build_path(params), build_query(params)
+
+
+####################
+# RESPONSE PARSING #
+####################
+def is_object_list(value: JsonValue) -> bool:
+    return isinstance(value, list) and all(isinstance(item, dict) for item in value)
+
+
+def upstream_detail(payload: JsonValue) -> str:
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    return f": {detail}" if isinstance(detail, str) and detail else ""
+
+
+def unexpected_body(payload: JsonValue) -> FXMacroDataError:
+    return FXMacroDataError(f"FXMacroData returned an unexpected response body{upstream_detail(payload)}")
+
+
+def response_object(payload: JsonValue) -> JsonObject:
+    if not isinstance(payload, dict):
+        raise unexpected_body(payload)
+    return payload
+
+
+def metadata_fields(body: JsonObject) -> JsonObject:
+    return {name: value for name, value in body.items() if name not in ("data", "pagination")}
+
+
+def parse_rows(payload: JsonValue) -> Tuple[List[JsonObject], Optional[JsonObject], JsonObject]:
+    """Split a row endpoint's body into rows, pagination and the remaining metadata."""
+    body = response_object(payload)
+    rows, pagination = body.get("data"), body.get("pagination") or {}
+    if not is_object_list(rows) or not isinstance(pagination, dict):
+        raise unexpected_body(body)
+    return rows, pagination or None, metadata_fields(body)
+
+
+def parse_catalogue(payload: JsonValue) -> JsonObject:
+    """The catalogue is a mapping of indicator slug to an object describing it."""
+    body = response_object(payload)
+    if not body or not all(isinstance(entry, dict) for entry in body.values()):
+        raise unexpected_body(body)
+    return body
 
 
 #####################
@@ -104,100 +228,64 @@ class FXMacroDataTool(BaseTool[FXMacroDataToolInputSchema, FXMacroDataToolOutput
 
     def __init__(self, config: FXMacroDataToolConfig = FXMacroDataToolConfig()):
         super().__init__(config)
-        self.api_key = config.api_key or os.getenv("FXMACRODATA_API_KEY", "")
-        self.base_url = config.base_url.rstrip("/")
+        self.api_key = (config.api_key or os.getenv("FXMACRODATA_API_KEY", "")).strip()
+        self.base_url = config.base_url.strip().rstrip("/")
         self.timeout = config.timeout
 
-    @staticmethod
-    def _currency(value: Optional[str], name: str) -> str:
-        if not value or not _CURRENCY_RE.match(value.strip()):
-            raise ValueError(f"'{name}' must be a three-letter currency code such as 'usd' or 'eur'.")
-        return value.strip().lower()
+    def redact(self, message: str) -> str:
+        """Remove the API key from any text that leaves the tool."""
+        return message.replace(self.api_key, "[redacted]") if self.api_key else message
 
-    @staticmethod
-    def _slug(value: Optional[str], name: str) -> str:
-        if not value or not _SLUG_RE.match(value.strip()):
-            raise ValueError(f"'{name}' must be an indicator slug such as 'inflation' or 'policy_rate'.")
-        return value.strip().lower()
+    def headers(self) -> Dict[str, str]:
+        if self.api_key and not API_KEY_PATTERN.match(self.api_key):
+            raise FXMacroDataError("The FXMacroData API key contains characters that cannot be sent in an HTTP header.")
+        return {"Accept": "application/json", **({"X-API-Key": self.api_key} if self.api_key else {})}
 
-    @classmethod
-    def build_request(cls, params: FXMacroDataToolInputSchema) -> Tuple[str, Dict[str, str]]:
-        """Return the (path, query) pair for an input, validating the fields the endpoint needs."""
-        endpoint = params.endpoint
-        if endpoint == "commodities":
-            path = f"/commodities/{cls._slug(params.indicator, 'indicator')}"
-        else:
-            currency = cls._currency(params.currency, "currency")
-            if endpoint == "announcements":
-                path = f"/announcements/{currency}/{cls._slug(params.indicator, 'indicator')}"
-            elif endpoint == "latest":
-                path = f"/announcements/{currency}/latest"
-            elif endpoint == "calendar":
-                path = f"/calendar/{currency}"
-            elif endpoint == "catalogue":
-                path = f"/data_catalogue/{currency}"
-            elif endpoint == "forex":
-                path = f"/forex/{currency}/{cls._currency(params.quote, 'quote')}"
-            else:
-                path = f"/cot/{currency}"
+    def request_url(self, path: str) -> str:
+        if urlsplit(self.base_url).scheme != "https":
+            raise FXMacroDataError("The FXMacroData base URL must use HTTPS.")
+        return f"{self.base_url}{path}"
 
-        query: Dict[str, str] = {}
-        for name in ("start_date", "end_date"):
-            value = getattr(params, name)
-            if value:
-                if not _DATE_RE.match(value):
-                    raise ValueError(f"'{name}' must be formatted YYYY-MM-DD.")
-                query[name] = value
-        if params.limit is not None:
-            query["limit"] = str(params.limit)
-        if params.offset is not None:
-            query["offset"] = str(params.offset)
-        if endpoint == "calendar" and params.indicator:
-            query["indicator"] = cls._slug(params.indicator, "indicator")
-        return path, query
-
-    @staticmethod
-    def _error_message(response: requests.Response) -> str:
+    def fetch(self, url: str, query: Dict[str, str]) -> JsonValue:
+        """GET one URL. Redirects are never followed, so the key only goes to the configured HTTPS origin."""
         try:
-            body = response.json()
-        except ValueError:
-            body = None
-        detail = body.get("detail") if isinstance(body, dict) else None
-        if isinstance(detail, str) and detail:
-            return f"FXMacroData returned {response.status_code}: {detail}"
-        return f"FXMacroData returned {response.status_code} {response.reason}"
-
-    def _get(self, path: str, query: Dict[str, str]) -> Union[Dict[str, Any], List[Any]]:
-        headers = {"Accept": "application/json"}
-        if self.api_key:
-            headers["X-API-Key"] = self.api_key
-        response = requests.get(f"{self.base_url}{path}", params=query, headers=headers, timeout=self.timeout)
+            response = requests.get(url, params=query, headers=self.headers(), timeout=self.timeout, allow_redirects=False)
+        except requests.RequestException as error:
+            raise FXMacroDataError(f"Could not reach FXMacroData ({type(error).__name__}).") from None
         if response.status_code != 200:
-            raise RuntimeError(self._error_message(response))
-        return response.json()
+            raise FXMacroDataError(self.status_message(response))
+        try:
+            return response.json()
+        except ValueError:
+            raise FXMacroDataError("FXMacroData returned a response that is not JSON.") from None
+
+    @staticmethod
+    def status_message(response: requests.Response) -> str:
+        if 300 <= response.status_code < 400:
+            return f"FXMacroData answered with a redirect ({response.status_code}); redirects are not followed."
+        try:
+            detail = upstream_detail(response.json())
+        except ValueError:
+            detail = ""
+        return f"FXMacroData returned {response.status_code}{detail or ' ' + str(response.reason)}"
+
+    def query_endpoint(self, params: FXMacroDataToolInputSchema) -> FXMacroDataToolOutputSchema:
+        path, query = build_request(params)
+        url = self.request_url(path)
+        display_url = requests.Request("GET", url, params=query).prepare().url
+        payload = self.fetch(url, query)
+        if params.endpoint == "catalogue":
+            return FXMacroDataToolOutputSchema(endpoint=params.endpoint, url=display_url, data=parse_catalogue(payload))
+        rows, pagination, metadata = parse_rows(payload)
+        return FXMacroDataToolOutputSchema(
+            endpoint=params.endpoint, url=display_url, data=rows, pagination=pagination, metadata=metadata
+        )
 
     def run(self, params: FXMacroDataToolInputSchema) -> FXMacroDataToolOutputSchema:
         try:
-            path, query = self.build_request(params)
-        except ValueError as exc:
-            return FXMacroDataToolOutputSchema(endpoint=params.endpoint, url="", error=str(exc))
-
-        url = requests.Request("GET", f"{self.base_url}{path}", params=query).prepare().url
-        try:
-            payload = self._get(path, query)
-        except (requests.RequestException, RuntimeError, ValueError) as exc:
-            return FXMacroDataToolOutputSchema(endpoint=params.endpoint, url=url, error=str(exc))
-
-        if params.endpoint in _ROW_ENDPOINTS and isinstance(payload, dict):
-            metadata = {k: v for k, v in payload.items() if k not in ("data", "pagination")}
-            return FXMacroDataToolOutputSchema(
-                endpoint=params.endpoint,
-                url=url,
-                data=payload.get("data") or [],
-                pagination=payload.get("pagination"),
-                metadata=metadata,
-            )
-        return FXMacroDataToolOutputSchema(endpoint=params.endpoint, url=url, data=payload)
+            return self.query_endpoint(params)
+        except FXMacroDataError as error:
+            return FXMacroDataToolOutputSchema(endpoint=params.endpoint, url="", error=self.redact(str(error)))
 
     async def run_async(self, params: FXMacroDataToolInputSchema) -> FXMacroDataToolOutputSchema:
         return await asyncio.to_thread(self.run, params)

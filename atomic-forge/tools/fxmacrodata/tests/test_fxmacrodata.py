@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -12,6 +13,7 @@ from tool.fxmacrodata import (  # noqa: E402
     FXMacroDataToolConfig,
     FXMacroDataToolInputSchema,
     FXMacroDataToolOutputSchema,
+    build_request,
 )
 
 
@@ -45,12 +47,26 @@ CATALOGUE_PAYLOAD = {
     "inflation": {"name": "Inflation (CPI)", "unit": "%", "frequency": "Monthly"},
 }
 
+SECRET = "fxmd-dummy-secret-0123456789"
+
 
 def _response(status: int, payload, reason: str = "OK") -> MagicMock:
     response = MagicMock()
     response.status_code = status
     response.reason = reason
     response.json.return_value = payload
+    return response
+
+
+def _real_response(request: requests.PreparedRequest, status: int, body: str, headers=None) -> requests.Response:
+    """A genuine requests.Response, so redirect handling and header checks run through Requests itself."""
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    response.headers.update(headers or {})
+    response.url = request.url
+    response.request = request
+    response.reason = "Found" if status == 302 else "OK"
     return response
 
 
@@ -85,7 +101,7 @@ def tool(monkeypatch):
     ],
 )
 def test_build_request(fields, path, query):
-    assert FXMacroDataTool.build_request(FXMacroDataToolInputSchema(**fields)) == (path, query)
+    assert build_request(FXMacroDataToolInputSchema(**fields)) == (path, query)
 
 
 @pytest.mark.parametrize(
@@ -108,6 +124,23 @@ def test_invalid_input_returns_error_without_request(tool, fields, message):
     assert output.data == []
 
 
+@pytest.mark.parametrize(
+    "dates, message",
+    [
+        ({"start_date": "2026-02-30"}, "'start_date' must be a real date"),
+        ({"end_date": "2026-13-01"}, "'end_date' must be a real date"),
+        ({"start_date": ""}, "'start_date' must be a real date"),
+        ({"start_date": "20260101"}, "'start_date' must be a real date"),
+        ({"start_date": "2026-03-01", "end_date": "2026-02-01"}, "'start_date' must not be after 'end_date'"),
+    ],
+)
+def test_impossible_empty_and_reversed_dates_are_rejected(tool, dates, message):
+    with patch("tool.fxmacrodata.requests.get") as mock_get:
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="forex", currency="eur", quote="usd", **dates))
+    mock_get.assert_not_called()
+    assert message in output.error
+
+
 def test_announcements_split_rows_pagination_and_metadata(tool):
     with patch("tool.fxmacrodata.requests.get", return_value=_response(200, ANNOUNCEMENTS_PAYLOAD)) as mock_get:
         output = tool.run(FXMacroDataToolInputSchema(endpoint="announcements", currency="usd", indicator="inflation", limit=2))
@@ -124,6 +157,7 @@ def test_announcements_split_rows_pagination_and_metadata(tool):
     assert args[0] == "https://api.fxmacrodata.com/v1/announcements/usd/inflation"
     assert kwargs["params"] == {"limit": "2"}
     assert kwargs["timeout"] == 30.0
+    assert kwargs["allow_redirects"] is False
     assert "X-API-Key" not in kwargs["headers"]
 
 
@@ -170,7 +204,6 @@ def test_http_error_surfaces_api_detail(tool):
         output = tool.run(FXMacroDataToolInputSchema(endpoint="forex", currency="eur", quote="usd"))
 
     assert output.error == "FXMacroData returned 401: This endpoint requires an Individual or Business API key."
-    assert output.url == "https://api.fxmacrodata.com/v1/forex/eur/usd"
     assert output.data == []
 
 
@@ -182,10 +215,111 @@ def test_http_error_without_json_body(tool):
     assert output.error == "FXMacroData returned 502 Bad Gateway"
 
 
-def test_network_error_is_reported(tool):
-    with patch("tool.fxmacrodata.requests.get", side_effect=requests.ConnectionError("connection refused")):
+def test_non_https_base_url_is_refused():
+    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=SECRET, base_url="http://api.fxmacrodata.com/v1"))
+    with patch("tool.fxmacrodata.requests.get") as mock_get:
         output = tool.run(FXMacroDataToolInputSchema(endpoint="latest", currency="usd"))
-    assert "connection refused" in output.error
+    mock_get.assert_not_called()
+    assert output.error == "The FXMacroData base URL must use HTTPS."
+
+
+# Regression: a 302 from the HTTPS API to an unrelated HTTP host must not carry X-API-Key there.
+def test_redirect_to_other_http_host_does_not_forward_api_key():
+    sent = []
+
+    def send(adapter, request, **kwargs):
+        sent.append((request.url, dict(request.headers)))
+        if request.url.startswith("https://api.fxmacrodata.com/"):
+            return _real_response(request, 302, "", {"Location": "http://collector.example/steal"})
+        return _real_response(request, 200, json.dumps(CALENDAR_PAYLOAD))
+
+    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=SECRET))
+    with patch("requests.adapters.HTTPAdapter.send", send):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="calendar", currency="usd"))
+
+    assert [url for url, _ in sent] == ["https://api.fxmacrodata.com/v1/calendar/usd"]
+    assert all(not url.startswith("http://collector.example") for url, _ in sent)
+    assert output.error == "FXMacroData answered with a redirect (302); redirects are not followed."
+    assert output.data == []
+
+
+# Regression: a key with leading whitespace raised InvalidHeader, whose text carried the full key.
+def test_key_with_leading_whitespace_is_stripped_and_never_echoed():
+    sent = []
+
+    def send(adapter, request, **kwargs):
+        sent.append(dict(request.headers))
+        return _real_response(request, 200, json.dumps(CALENDAR_PAYLOAD))
+
+    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=f"  {SECRET}"))
+    with patch("requests.adapters.HTTPAdapter.send", send):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="calendar", currency="usd"))
+
+    assert output.error is None
+    assert sent[0]["X-API-Key"] == SECRET
+
+
+def test_key_that_cannot_be_a_header_is_reported_without_its_value():
+    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=f"{SECRET}\nInjected: 1"))
+    with patch("requests.adapters.HTTPAdapter.send") as send:
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="calendar", currency="usd"))
+
+    send.assert_not_called()
+    assert SECRET not in output.error
+    assert "cannot be sent in an HTTP header" in output.error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [requests.ConnectionError(f"refused for X-API-Key: {SECRET}"), requests.exceptions.InvalidHeader(f"bad {SECRET}")],
+)
+def test_request_exception_text_never_reaches_the_output(error):
+    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=SECRET))
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=error):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="latest", currency="usd"))
+
+    assert SECRET not in output.error
+    assert output.error == f"Could not reach FXMacroData ({type(error).__name__})."
+
+
+def test_upstream_detail_echoing_the_key_is_redacted():
+    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=SECRET))
+    with patch("tool.fxmacrodata.requests.get", return_value=_response(403, {"detail": f"key {SECRET} revoked"})):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="latest", currency="usd"))
+    assert output.error == "FXMacroData returned 403: key [redacted] revoked"
+
+
+# Regression: HTTP 200 bodies that are not the documented shape must come back as an error, not as data=[] or a
+# ValidationError.
+@pytest.mark.parametrize(
+    "endpoint, payload, message",
+    [
+        ("latest", {"detail": "upstream failure"}, "unexpected response body: upstream failure"),
+        ("latest", {"data": None}, "unexpected response body"),
+        ("latest", {"data": "not rows"}, "unexpected response body"),
+        ("latest", {"data": [1, 2, 3]}, "unexpected response body"),
+        ("latest", {"data": [], "pagination": "page 1"}, "unexpected response body"),
+        ("latest", ["not", "an", "object"], "unexpected response body"),
+        ("catalogue", {"detail": "upstream failure"}, "unexpected response body: upstream failure"),
+        ("catalogue", {"gdp": "GDP"}, "unexpected response body"),
+        ("catalogue", [], "unexpected response body"),
+    ],
+)
+def test_malformed_200_responses_return_an_error(tool, endpoint, payload, message):
+    with patch("tool.fxmacrodata.requests.get", return_value=_response(200, payload)):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint=endpoint, currency="usd"))
+
+    assert isinstance(output, FXMacroDataToolOutputSchema)
+    assert message in output.error
+    assert output.data == []
+
+
+def test_non_json_200_response_returns_an_error(tool):
+    response = _response(200, None)
+    response.json.side_effect = ValueError("Expecting value")
+    with patch("tool.fxmacrodata.requests.get", return_value=response):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="latest", currency="usd"))
+    assert output.error == "FXMacroData returned a response that is not JSON."
 
 
 @pytest.mark.asyncio
