@@ -1,9 +1,13 @@
+import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestServer
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -39,6 +43,33 @@ CONTENT_HIT = {
     "markdown": "# Agent guide\n\nBuild agents step by step.",
     "metadata": {"title": "Agent guide | Example", "description": "Metadata description", "statusCode": 200},
 }
+
+
+DUMMY_KEY = "fc-dummy-secret-0123456789"
+
+
+@asynccontextmanager
+async def fake_firecrawl(respond):
+    """Serve POST /v2/search on a local aiohttp server; `respond(body)` builds each response."""
+    seen = []
+
+    async def handler(request):
+        body = await request.json()
+        seen.append({"headers": dict(request.headers), "body": body})
+        return respond(body)
+
+    app = web.Application()
+    app.router.add_post("/v2/search", handler)
+    server = TestServer(app)
+    await server.start_server()
+    try:
+        yield str(server.make_url("/v2")), seen
+    finally:
+        await server.close()
+
+
+def _http_tool(base_url: str, **config) -> FirecrawlSearchTool:
+    return FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=DUMMY_KEY, base_url=base_url, **config))
 
 
 def _mock_session(status: int, payload: dict, reason: str = "OK") -> MagicMock:
@@ -89,7 +120,7 @@ def test_to_item_falls_back_to_url_for_title():
 
 def test_build_body_defaults(tool):
     body = tool._build_body("python", FirecrawlSearchToolInputSchema(queries=["python"]))
-    assert body == {"query": "python", "limit": 5, "sources": ["web"], "origin": "atomic-agents"}
+    assert body == {"query": "python", "limit": 5, "sources": ["web"]}
 
 
 def test_build_body_with_options():
@@ -244,24 +275,70 @@ async def test_run_async_raises_when_every_query_fails(tool):
 
 
 @pytest.mark.asyncio
-async def test_run_async_end_to_end_with_mocked_session(tool):
-    session = _mock_session(200, {"success": True, "data": {"web": [WEB_HIT]}})
+async def test_http_round_trip():
+    def respond(body):
+        return web.json_response(
+            {"success": True, "data": {"web": [{**CONTENT_HIT, "url": f"https://example.com/{body['query']}"}]}}
+        )
 
-    class FakeSession:
-        def __init__(self, headers=None, timeout=None):
-            self.headers = headers
+    async with fake_firecrawl(respond) as (base_url, seen):
+        out = await _http_tool(base_url).run_async(FirecrawlSearchToolInputSchema(queries=["agents"], include_content=True))
 
-        async def __aenter__(self):
-            return session
+    assert [r.url for r in out.results] == ["https://example.com/agents"]
+    assert out.results[0].content.startswith("# Agent guide")
+    assert seen[0]["headers"]["Authorization"] == f"Bearer {DUMMY_KEY}"
+    assert seen[0]["body"]["scrapeOptions"] == {"formats": ["markdown"], "onlyMainContent": True}
 
-        async def __aexit__(self, *args):
-            return False
 
-    with patch("tool.firecrawl_search.aiohttp.ClientSession", FakeSession):
-        out = await tool.run_async(FirecrawlSearchToolInputSchema(queries=["python"], include_content=True))
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"success": True, "data": None},
+        {"success": True},
+        {"success": True, "data": {"web": {"url": "https://example.com/not-a-list"}}},
+        {"success": True, "data": {"web": None}},
+        {"success": True, "data": [WEB_HIT]},
+    ],
+)
+async def test_http_malformed_success_response_raises(payload):
+    """A 200 with success=true but no usable result list is an error, not an empty result."""
+    async with fake_firecrawl(lambda body: web.json_response(payload)) as (base_url, _):
+        with pytest.raises(Exception, match="unexpected response shape for 'web' results"):
+            await _http_tool(base_url).run_async(FirecrawlSearchToolInputSchema(queries=["q"]))
 
-    assert [r.url for r in out.results] == ["https://www.python.org/"]
-    assert session.post.call_args[1]["json"]["scrapeOptions"]["formats"] == ["markdown"]
+
+@pytest.mark.asyncio
+async def test_http_non_json_error_page_reports_status():
+    def respond(body):
+        return web.Response(status=502, text="<html>Bad Gateway</html>", content_type="text/html")
+
+    async with fake_firecrawl(respond) as (base_url, _):
+        with pytest.raises(Exception, match="Firecrawl search failed for 'q': 502 Bad Gateway"):
+            await _http_tool(base_url).run_async(FirecrawlSearchToolInputSchema(queries=["q"]))
+
+
+@pytest.mark.asyncio
+async def test_http_dummy_key_kept_out_of_repr_errors_and_logs(caplog):
+    """Even when the provider echoes the key back, it never reaches repr, raised errors, or logs."""
+
+    def respond(body):
+        if body["query"] == "bad":
+            return web.json_response({"success": False, "error": f"Invalid token {DUMMY_KEY}"}, status=401)
+        return web.json_response({"success": True, "data": {"web": [WEB_HIT]}})
+
+    async with fake_firecrawl(respond) as (base_url, _):
+        tool = _http_tool(base_url)
+        with caplog.at_level(logging.WARNING, logger="tool.firecrawl_search"):
+            out = await tool.run_async(FirecrawlSearchToolInputSchema(queries=["bad", "good"]))
+        with pytest.raises(Exception) as raised:
+            await tool.run_async(FirecrawlSearchToolInputSchema(queries=["bad"]))
+
+    assert [r.query for r in out.results] == ["good"]
+    assert "401 Invalid token [redacted]" in caplog.text
+    assert "401 Invalid token [redacted]" in str(raised.value)
+    for text in (caplog.text, str(raised.value), repr(raised.value), repr(tool), repr(tool.config), str(tool.config)):
+        assert DUMMY_KEY not in text
 
 
 @pytest.mark.asyncio
@@ -303,7 +380,7 @@ async def test_run_async_requires_api_key(monkeypatch):
 def test_api_key_falls_back_to_environment(monkeypatch):
     monkeypatch.setenv("FIRECRAWL_API_KEY", "env-key")
     tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig())
-    assert tool.api_key == "env-key"
+    assert tool._api_key == "env-key"
 
 
 def test_run_invokes_run_async(tool):

@@ -15,7 +15,7 @@ Searches the web or recent news through the [Firecrawl Search](https://www.firec
 2. Or copy the `tool/` folder directly into your project.
 
 ## Configuration
-- `api_key` (str): Firecrawl API key. Falls back to the `FIRECRAWL_API_KEY` environment variable when empty.
+- `api_key` (str): Firecrawl API key. Falls back to the `FIRECRAWL_API_KEY` environment variable when empty. Stored as a secret and kept out of reprs, raised errors, and logs.
 - `base_url` (str): API base URL (default `https://api.firecrawl.dev/v2`).
 - `location` (str, optional): location to localise results, e.g. `Germany`.
 - `time_range` (str, optional): `day`, `week`, `month`, or `year`. Only applies to web results.
