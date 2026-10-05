@@ -111,6 +111,8 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
     # when it is long enough that replacing it cannot mangle ordinary words.
     KEY_PATTERN = re.compile(r"\bfc-[0-9a-f]{32}\b", re.IGNORECASE)
     MIN_REDACTED_KEY_LENGTH = 8
+    # A result is only kept when its URL is http(s) with a host.
+    RESULT_URL_PATTERN = re.compile(r"https?://[^\s/?#]+", re.IGNORECASE)
 
     def __init__(self, config: FirecrawlSearchToolConfig = FirecrawlSearchToolConfig()):
         super().__init__(config)
@@ -130,7 +132,7 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
     def _to_item(cls, hit: Any, query: str, max_content_chars: Optional[int] = None) -> Optional[FirecrawlSearchResultItem]:
         """Normalise one result, or return None when it has no http(s) URL."""
         url = hit.get("url") if isinstance(hit, dict) else None
-        if not str(url).startswith(("http://", "https://")):
+        if not cls.RESULT_URL_PATTERN.match(str(url)):
             return None
         content = cls._first_text(hit.get("markdown"))
         return FirecrawlSearchResultItem(

@@ -152,6 +152,10 @@ def test_to_item_drops_badly_typed_fields(field, value, attribute, expected):
     assert getattr(item, attribute) == expected
 
 
+def test_to_item_accepts_uppercase_scheme():
+    assert FirecrawlSearchTool._to_item({"url": "HTTPS://Example.com/a"}, "q").url == "HTTPS://Example.com/a"
+
+
 @pytest.mark.parametrize(
     "hit",
     [
@@ -166,6 +170,9 @@ def test_to_item_drops_badly_typed_fields(field, value, attribute, expected):
         {"url": " https://example.com"},
         {"url": "javascript:alert(1)"},
         {"url": "ftp://example.com/file"},
+        {"url": "httpx://example.com"},
+        {"url": "https://"},
+        {"url": "http:///path-without-host"},
     ],
 )
 def test_to_item_without_usable_url_is_none(hit):
@@ -474,7 +481,7 @@ def test_key_kept_out_of_tool_and_config_state():
 def test_redaction_does_not_mangle_ordinary_text():
     """A one-letter key is not redacted (it would hit every 'a'), and fc- words that are not keys are left alone."""
     tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key="a"))
-    text = "Firecrawl search failed for 'fc-barcelona-2024'"
+    text = "Firecrawl search failed for 'fc-barcelona-2024' and 'fc-0123abcd'"
     assert tool._redact(text) == text
 
 
