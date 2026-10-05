@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+from pydantic import ValidationError
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -215,12 +216,49 @@ def test_http_error_without_json_body(tool):
     assert output.error == "FXMacroData returned 502 Bad Gateway"
 
 
-def test_non_https_base_url_is_refused():
-    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=SECRET, base_url="http://api.fxmacrodata.com/v1"))
-    with patch("tool.fxmacrodata.requests.get") as mock_get:
+# Regression: base_url problems used to surface mid-request (InvalidURL/ValueError); they now fail when the
+# config is built, so they can never reach a request.
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://", "https:///v1", "http://api.fxmacrodata.com/v1", "api.fxmacrodata.com/v1", "ftp://api.fxmacrodata.com", ""],
+)
+def test_invalid_base_url_is_rejected_by_config(base_url):
+    with pytest.raises(ValidationError, match="base_url must be an https:// URL with a host"):
+        FXMacroDataToolConfig(api_key=SECRET, base_url=base_url)
+
+
+def test_base_url_is_normalised_by_config():
+    assert FXMacroDataToolConfig(base_url=" https://example.test/v1/ ").base_url == "https://example.test/v1"
+
+
+# Regression: the full key appeared in the config's repr() and str().
+def test_config_repr_and_str_hide_the_key():
+    config = FXMacroDataToolConfig(api_key=SECRET)
+    assert SECRET not in repr(config)
+    assert SECRET not in str(config)
+    assert SECRET not in config.model_dump_json()
+
+
+# Regression: a successful response echoing the key copied it into metadata and the output repr.
+def test_key_echoed_in_a_successful_response_is_redacted():
+    payload = {"data": [{"note": f"row {SECRET}"}], "detail": "echo " + SECRET, f"field-{SECRET}": 1}
+    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=SECRET))
+    with patch("tool.fxmacrodata.requests.get", return_value=_response(200, payload)):
         output = tool.run(FXMacroDataToolInputSchema(endpoint="latest", currency="usd"))
-    mock_get.assert_not_called()
-    assert output.error == "The FXMacroData base URL must use HTTPS."
+
+    assert output.error is None
+    assert SECRET not in repr(output)
+    assert SECRET not in output.model_dump_json()
+    assert output.metadata["detail"] == "echo [redacted]"
+    assert output.data == [{"note": "row [redacted]"}]
+
+
+def test_key_echoed_in_a_catalogue_response_is_redacted():
+    payload = {"gdp": {"name": "GDP", "note": SECRET}}
+    tool = FXMacroDataTool(FXMacroDataToolConfig(api_key=SECRET))
+    with patch("tool.fxmacrodata.requests.get", return_value=_response(200, payload)):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="catalogue", currency="usd"))
+    assert output.data == {"gdp": {"name": "GDP", "note": "[redacted]"}}
 
 
 # Regression: a 302 from the HTTPS API to an unrelated HTTP host must not carry X-API-Key there.
@@ -312,6 +350,25 @@ def test_malformed_200_responses_return_an_error(tool, endpoint, payload, messag
     assert isinstance(output, FXMacroDataToolOutputSchema)
     assert message in output.error
     assert output.data == []
+
+
+# Regression: a present but malformed pagination value was normalised away and returned error=None.
+@pytest.mark.parametrize(
+    "pagination",
+    [[], False, 0, "", "page 1", {"has_more": "yes"}, {"total_count": True}, {"next_offset": "2"}, {"limit": 1.5}],
+)
+def test_present_malformed_pagination_is_an_error(tool, pagination):
+    with patch("tool.fxmacrodata.requests.get", return_value=_response(200, {"data": [], "pagination": pagination})):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="latest", currency="usd"))
+    assert "unexpected response body" in output.error
+    assert output.pagination is None
+
+
+def test_null_pagination_is_treated_as_absent(tool):
+    with patch("tool.fxmacrodata.requests.get", return_value=_response(200, {"data": [], "pagination": None})):
+        output = tool.run(FXMacroDataToolInputSchema(endpoint="latest", currency="usd"))
+    assert output.error is None
+    assert output.pagination is None
 
 
 def test_non_json_200_response_returns_an_error(tool):

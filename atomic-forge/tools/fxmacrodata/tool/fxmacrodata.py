@@ -6,7 +6,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
 import requests
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, SecretStr, field_validator
 
 from atomic_agents import BaseIOSchema, BaseTool, BaseToolConfig
 
@@ -34,6 +34,18 @@ FIELD_RULES = {
 }
 
 JsonObject = Dict[str, JsonValue]
+
+# Documented pagination fields and the exact JSON types each may hold. bool is listed
+# separately because it is a subclass of int and must not pass as a count.
+PAGINATION_TYPES = {
+    "limit": {int},
+    "offset": {int},
+    "returned_count": {int},
+    "total_count": {int},
+    "next_offset": {int, type(None)},
+    "has_more": {bool},
+    "page_includes_latest_available": {bool},
+}
 
 
 class FXMacroDataError(Exception):
@@ -111,12 +123,22 @@ class FXMacroDataToolOutputSchema(BaseIOSchema):
 class FXMacroDataToolConfig(BaseToolConfig):
     """Configuration for the FXMacroDataTool."""
 
-    api_key: str = Field(
-        default="",
+    api_key: SecretStr = Field(
+        default=SecretStr(""),
         description="FXMacroData API key. Falls back to the FXMACRODATA_API_KEY environment variable. Optional for USD data.",
     )
     base_url: str = Field(default="https://api.fxmacrodata.com/v1", description="FXMacroData API base URL (HTTPS only).")
     timeout: float = Field(default=30.0, ge=1.0, le=120.0, description="HTTP request timeout in seconds.")
+
+    @field_validator("base_url")
+    @classmethod
+    def require_https_host(cls, value: str) -> str:
+        """Reject anything but an https:// URL with a host, so a bad value fails here rather than mid-request."""
+        base_url = value.strip().rstrip("/")
+        parts = urlsplit(base_url)
+        if parts.scheme != "https" or not parts.hostname:
+            raise ValueError("base_url must be an https:// URL with a host, e.g. https://api.fxmacrodata.com/v1")
+        return base_url
 
 
 ####################
@@ -199,6 +221,15 @@ def response_object(payload: JsonValue) -> JsonObject:
     return payload
 
 
+def valid_pagination(value: JsonValue) -> bool:
+    """Absent or null is fine; anything else must be an object whose documented fields have their documented types."""
+    if value is None:
+        return True
+    if not isinstance(value, dict):
+        return False
+    return all(type(value[name]) in PAGINATION_TYPES[name] for name in PAGINATION_TYPES.keys() & value.keys())
+
+
 def metadata_fields(body: JsonObject) -> JsonObject:
     return {name: value for name, value in body.items() if name not in ("data", "pagination")}
 
@@ -206,10 +237,10 @@ def metadata_fields(body: JsonObject) -> JsonObject:
 def parse_rows(payload: JsonValue) -> Tuple[List[JsonObject], Optional[JsonObject], JsonObject]:
     """Split a row endpoint's body into rows, pagination and the remaining metadata."""
     body = response_object(payload)
-    rows, pagination = body.get("data"), body.get("pagination") or {}
-    if not is_object_list(rows) or not isinstance(pagination, dict):
+    rows, pagination = body.get("data"), body.get("pagination")
+    if not is_object_list(rows) or not valid_pagination(pagination):
         raise unexpected_body(body)
-    return rows, pagination or None, metadata_fields(body)
+    return rows, pagination, metadata_fields(body)
 
 
 def parse_catalogue(payload: JsonValue) -> JsonObject:
@@ -228,23 +259,29 @@ class FXMacroDataTool(BaseTool[FXMacroDataToolInputSchema, FXMacroDataToolOutput
 
     def __init__(self, config: FXMacroDataToolConfig = FXMacroDataToolConfig()):
         super().__init__(config)
-        self.api_key = (config.api_key or os.getenv("FXMACRODATA_API_KEY", "")).strip()
-        self.base_url = config.base_url.strip().rstrip("/")
+        self._api_key = (config.api_key.get_secret_value() or os.getenv("FXMACRODATA_API_KEY", "")).strip()
+        self.base_url = config.base_url
         self.timeout = config.timeout
 
     def redact(self, message: str) -> str:
         """Remove the API key from any text that leaves the tool."""
-        return message.replace(self.api_key, "[redacted]") if self.api_key else message
+        return message.replace(self._api_key, "[redacted]") if self._api_key else message
+
+    def redact_json(self, value: JsonValue) -> JsonValue:
+        """Redact the API key from every string in a response body, keys included."""
+        if isinstance(value, list):
+            return [self.redact_json(item) for item in value]
+        if isinstance(value, dict):
+            return self.redact_object(value)
+        return self.redact(value) if isinstance(value, str) else value
+
+    def redact_object(self, value: JsonObject) -> JsonObject:
+        return {self.redact(name): self.redact_json(item) for name, item in value.items()}
 
     def headers(self) -> Dict[str, str]:
-        if self.api_key and not API_KEY_PATTERN.match(self.api_key):
+        if self._api_key and not API_KEY_PATTERN.match(self._api_key):
             raise FXMacroDataError("The FXMacroData API key contains characters that cannot be sent in an HTTP header.")
-        return {"Accept": "application/json", **({"X-API-Key": self.api_key} if self.api_key else {})}
-
-    def request_url(self, path: str) -> str:
-        if urlsplit(self.base_url).scheme != "https":
-            raise FXMacroDataError("The FXMacroData base URL must use HTTPS.")
-        return f"{self.base_url}{path}"
+        return {"Accept": "application/json", **({"X-API-Key": self._api_key} if self._api_key else {})}
 
     def fetch(self, url: str, query: Dict[str, str]) -> JsonValue:
         """GET one URL. Redirects are never followed, so the key only goes to the configured HTTPS origin."""
@@ -271,9 +308,9 @@ class FXMacroDataTool(BaseTool[FXMacroDataToolInputSchema, FXMacroDataToolOutput
 
     def query_endpoint(self, params: FXMacroDataToolInputSchema) -> FXMacroDataToolOutputSchema:
         path, query = build_request(params)
-        url = self.request_url(path)
+        url = f"{self.base_url}{path}"
         display_url = requests.Request("GET", url, params=query).prepare().url
-        payload = self.fetch(url, query)
+        payload = self.redact_json(self.fetch(url, query))
         if params.endpoint == "catalogue":
             return FXMacroDataToolOutputSchema(endpoint=params.endpoint, url=display_url, data=parse_catalogue(payload))
         rows, pagination, metadata = parse_rows(payload)

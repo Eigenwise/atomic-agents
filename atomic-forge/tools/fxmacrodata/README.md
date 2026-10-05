@@ -17,8 +17,8 @@ USD releases, the USD release calendar and the indicator catalogue work without 
 2. Or copy the `tool/` folder directly into your project.
 
 ## Configuration
-- `api_key` (str): FXMacroData API key, sent in the `X-API-Key` header. Falls back to the `FXMACRODATA_API_KEY` environment variable; surrounding whitespace is ignored. Leave empty for keyless USD access. The key never appears in `url` or `error`.
-- `base_url` (str): API base URL (default `https://api.fxmacrodata.com/v1`). Must be HTTPS; redirects are not followed, so the key is only ever sent to this origin.
+- `api_key` (secret str): FXMacroData API key, hidden from the config repr, sent in the `X-API-Key` header. Falls back to the `FXMACRODATA_API_KEY` environment variable; surrounding whitespace is ignored. Leave empty for keyless USD access. The key never appears in `url`, `error` or any other output field, even if the API echoes it.
+- `base_url` (str): API base URL (default `https://api.fxmacrodata.com/v1`). Must be an `https://` URL with a host, checked when the config is created; redirects are not followed, so the key is only ever sent to this origin.
 - `timeout` (float): HTTP timeout in seconds (default 30).
 
 ## Input & Output Structure
