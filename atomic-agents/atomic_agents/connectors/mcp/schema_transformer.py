@@ -29,7 +29,8 @@ class SchemaTransformer:
     def _resolve_ref(ref_path: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]) -> Type:
         """Resolve a $ref to a Pydantic model."""
         # Extract ref name from path like "#/$defs/MyObject" or "#/definitions/ANode"
-        ref_name = ref_path.split("/")[-1]
+        # JSON Pointer decodes ~1 before ~0 so a literal ~1 is not decoded twice.
+        ref_name = ref_path.split("/")[-1].replace("~1", "/").replace("~0", "~")
 
         if ref_name in model_cache:
             return model_cache[ref_name]

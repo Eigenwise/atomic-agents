@@ -71,6 +71,30 @@ class TestSchemaTransformer:
 
 
 class TestCreateModelFromSchema:
+    @pytest.mark.parametrize("definitions_key", ["$defs", "definitions"])
+    @pytest.mark.parametrize(
+        "name, reference_token",
+        [("Item", "Item"), ("ns/Item", "ns~1Item"), ("ns~Item", "ns~0Item"), ("ns~1Item", "ns~01Item")],
+    )
+    def test_ref_names_with_json_pointer_escapes(self, definitions_key, name, reference_token):
+        """Escaped definition names retain nested types and validation for MCP tools."""
+        reference = {"$ref": f"#/{definitions_key}/{reference_token}"}
+        schema = {
+            "type": "object",
+            "properties": {"item": reference, "items": {"type": "array", "items": reference}},
+            "required": ["item", "items"],
+            definitions_key: {name: {"type": "object", "properties": {"count": {"type": "integer"}}, "required": ["count"]}},
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "ItemsInput", "load_items")
+
+        instance = model(tool_name="load_items", item={"count": 42}, items=[{"count": 7}])
+        assert instance.item.count == 42
+        assert instance.items[0].count == 7
+        with pytest.raises(ValueError):
+            model(tool_name="load_items", item={"count": "invalid"}, items=[])
+        with pytest.raises(ValueError):
+            model(tool_name="load_items", item={"count": 42}, items=[{}])
+
     @pytest.mark.parametrize(
         "prop_schema, valid_value",
         [
