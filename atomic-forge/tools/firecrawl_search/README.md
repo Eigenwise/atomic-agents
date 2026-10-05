@@ -25,14 +25,14 @@ Searches the web or recent news through the [Firecrawl Search](https://www.firec
 ## Input & Output Structure
 
 ### Input Schema
-- `queries` (list[str], at least one): search queries to run. Operators such as `site:`, `"exact phrase"`, `-term`, and `filetype:pdf` are supported.
+- `queries` (list[str], at least one): search queries to run. Duplicates are sent once. Operators such as `site:`, `"exact phrase"`, `-term`, and `filetype:pdf` are supported.
 - `search_type` (str): `web` or `news`. Default `web`.
 - `max_results_per_query` (int): 1-100 (default 5, kept low because each result can carry a full page with `include_content`).
 - `include_content` (bool): also return each result page as Markdown (default `False`).
 
 ### Output Schema
-- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without a usable URL are skipped, and badly typed optional fields are left empty.
-- `failed_queries`: queries that failed while others returned results. The reason for each is logged as a warning.
+- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without an http(s) URL are skipped, and badly typed optional fields are left empty.
+- `failures`: queries that failed while others returned results, each with `query` and `error` (the HTTP status and the API's error message, with any key redacted). They are also logged as warnings.
 
 ## Usage
 If no query returns results and at least one failed (for example a wrong API key, no credits, or a malformed response), `run` raises the first error instead of returning an empty list. Redirects are not followed; they are reported as errors.

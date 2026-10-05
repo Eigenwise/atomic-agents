@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Literal, Optional, Tuple
 
 import aiohttp
 from pydantic import Field, SecretStr, field_validator
@@ -61,12 +61,19 @@ class FirecrawlSearchResultItem(BaseIOSchema):
         return value if type(value) is int and value > 0 else None
 
 
+class FirecrawlSearchFailure(BaseIOSchema):
+    """A query that failed while other queries returned results."""
+
+    query: str = Field(..., description="The query that failed.")
+    error: str = Field(..., description="Why it failed, e.g. an HTTP status and the API's error message.")
+
+
 class FirecrawlSearchToolOutputSchema(BaseIOSchema):
     """Output of the Firecrawl search tool."""
 
     results: List[FirecrawlSearchResultItem] = Field(..., description="Matching results across all queries.")
-    failed_queries: List[str] = Field(
-        default_factory=list, description="Queries that failed while others succeeded. Details are logged."
+    failures: List[FirecrawlSearchFailure] = Field(
+        default_factory=list, description="Queries that failed while others returned results, with the reason."
     )
 
 
@@ -100,9 +107,9 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
     """Tool for searching the web and news via the Firecrawl Search API."""
 
     TIME_RANGES = {"day": "qdr:d", "week": "qdr:w", "month": "qdr:m", "year": "qdr:y"}
-    # Anything shaped like a Firecrawl key is redacted from error and log text, plus the configured key itself
+    # Anything in the Firecrawl key format is redacted from error and log text, plus the configured key itself
     # when it is long enough that replacing it cannot mangle ordinary words.
-    KEY_PATTERN = re.compile(r"fc-[A-Za-z0-9]{8,}")
+    KEY_PATTERN = re.compile(r"\bfc-[0-9a-f]{32}\b", re.IGNORECASE)
     MIN_REDACTED_KEY_LENGTH = 8
 
     def __init__(self, config: FirecrawlSearchToolConfig = FirecrawlSearchToolConfig()):
@@ -121,9 +128,9 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
 
     @classmethod
     def _to_item(cls, hit: Any, query: str, max_content_chars: Optional[int] = None) -> Optional[FirecrawlSearchResultItem]:
-        """Normalise one result, or return None when it has no usable URL."""
-        url = cls._first_text(hit.get("url")) if isinstance(hit, dict) else None
-        if url is None:
+        """Normalise one result, or return None when it has no http(s) URL."""
+        url = hit.get("url") if isinstance(hit, dict) else None
+        if not str(url).startswith(("http://", "https://")):
             return None
         content = cls._first_text(hit.get("markdown"))
         return FirecrawlSearchResultItem(
@@ -152,8 +159,9 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
             text = re.sub(re.escape(key), "[redacted]", text, flags=re.IGNORECASE)
         return self.KEY_PATTERN.sub("[redacted]", text)
 
-    def _error(self, query: str, detail: str) -> Exception:
-        return Exception(self._redact(f"Firecrawl search failed for '{query}': {detail}"))
+    @staticmethod
+    def _error(query: str, detail: str) -> Exception:
+        return Exception(f"Firecrawl search failed for '{query}': {detail}")
 
     @staticmethod
     async def _read_json(resp: aiohttp.ClientResponse) -> Any:
@@ -164,26 +172,36 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
 
     def _failure(self, status: int, reason: Optional[str], data: Any) -> Optional[str]:
         """Return why a response is not a successful search (only a 200 whose body says success is true is),
-        or None when it is."""
+        or None when it is. Provider text is redacted here, where it enters the tool."""
         payload = data if isinstance(data, dict) else {}
         if status == 200 and payload.get("success") is True:
             return None
         return self._redact(f"{status} {payload.get('error') or reason}")
 
-    async def _post(self, session: aiohttp.ClientSession, query: str, params: FirecrawlSearchToolInputSchema) -> dict:
-        """Send one search request and return the successful response body.
+    async def _exchange(
+        self, session: aiohttp.ClientSession, query: str, params: FirecrawlSearchToolInputSchema
+    ) -> Tuple[Any, Optional[str]]:
+        """Send one search request and return the parsed body plus why it failed (None on success).
 
-        Errors are raised outside the except block, so the original aiohttp error (whose repr carries the request
-        headers) is not attached as context, and the provider body is dropped first, so a traceback that captures
-        locals cannot show a key the provider echoed back."""
+        Transport errors, timeouts and invalid URLs are turned into a failure reason here instead of propagating,
+        because aiohttp's own frames and errors hold the request headers, Authorization included."""
         try:
             async with session.post(
                 f"{self.base_url}/search", json=self._build_body(query, params), allow_redirects=False
             ) as resp:
                 payload = await self._read_json(resp)
-                failure = self._failure(resp.status, resp.reason, payload)
-        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
-            payload, failure = None, f"request failed: {type(error).__name__} {error}"
+                reason = resp.reason if resp.status != 200 else "response did not report success"
+                return payload, self._failure(resp.status, reason, payload)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+            return None, self._redact(f"request failed: {type(error).__name__} {str(error) or f'after {self.timeout:g}s'}")
+
+    async def _post(self, session: aiohttp.ClientSession, query: str, params: FirecrawlSearchToolInputSchema) -> dict:
+        """Return the body of a successful search response, or raise.
+
+        The raise happens in this frame, which holds neither the response nor an aiohttp error, and the body of a
+        failed response is dropped first, so a traceback that captures locals cannot show a key echoed back in an
+        error response."""
+        payload, failure = await self._exchange(session, query, params)
         if failure:
             payload = None
             raise self._error(query, failure)
@@ -214,19 +232,19 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
         """Merge per-query results. Raise when no query produced results and at least one failed, so a bad key,
         exhausted credits or a malformed response never looks like an empty search."""
         results: List[FirecrawlSearchResultItem] = []
-        failed_queries: List[str] = []
+        failures: List[FirecrawlSearchFailure] = []
         errors: List[Exception] = []
         for query, group in zip(queries, grouped):
             if isinstance(group, Exception):
-                failed_queries.append(query)
                 errors.append(group)
-                logger.warning("Firecrawl query '%s' failed: %s", query, self._redact(str(group)))
+                failures.append(FirecrawlSearchFailure(query=query, error=str(group)))
+                logger.warning("Firecrawl query '%s' failed: %s", query, failures[-1].error)
                 continue
             results.extend(group)
 
         if errors and not results:
             raise errors[0]
-        return FirecrawlSearchToolOutputSchema(results=results, failed_queries=failed_queries)
+        return FirecrawlSearchToolOutputSchema(results=results, failures=failures)
 
     async def run_async(self, params: FirecrawlSearchToolInputSchema) -> FirecrawlSearchToolOutputSchema:
         if not self._api_key.get_secret_value():
@@ -235,14 +253,16 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
                 "environment variable."
             )
 
+        # Duplicate queries would be billed twice and return the same results.
+        queries = list(dict.fromkeys(params.queries))
         # The Authorization header is built inline so no local variable holds the key.
         async with aiohttp.ClientSession(
             headers={"Authorization": f"Bearer {self._api_key.get_secret_value()}", "Content-Type": "application/json"},
             timeout=aiohttp.ClientTimeout(total=self.timeout),
         ) as session:
-            grouped = await asyncio.gather(*(self._fetch(session, q, params) for q in params.queries), return_exceptions=True)
+            grouped = await asyncio.gather(*(self._fetch(session, q, params) for q in queries), return_exceptions=True)
 
-        return self._collect(params.queries, grouped)
+        return self._collect(queries, grouped)
 
     def run(self, params: FirecrawlSearchToolInputSchema) -> FirecrawlSearchToolOutputSchema:
         with ThreadPoolExecutor() as executor:
