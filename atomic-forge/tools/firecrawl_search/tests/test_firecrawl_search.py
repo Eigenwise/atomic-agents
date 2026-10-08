@@ -392,6 +392,7 @@ def test_to_item_keeps_valid_http_urls(url: str) -> None:
         {"url": f"https://{'a' * 64}.com/"},
         {"url": "https://example.com../"},
         {"url": f"https://{('a' * 63 + '.') * 4}com/"},
+        {"url": f"https://{'a' * 63}.{'b' * 63}.{'c' * 63}.{'d' * 62}/"},  # 254 characters
         {"url": "https://a.com:1\\@b.com/"},
         {"url": "https://a.com:x@/"},
         {"url": "https://256.0.0.1/"},
