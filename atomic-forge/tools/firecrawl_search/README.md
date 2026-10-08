@@ -15,7 +15,7 @@ Searches the web or recent news through the [Firecrawl Search](https://www.firec
 2. Or copy the `tool/` folder directly into your project.
 
 ## Configuration
-- `api_key` (`SecretStr`, a plain string is accepted): Firecrawl API key. Falls back to the `FIRECRAWL_API_KEY` environment variable when empty. It is only sent in the `Authorization` header and is redacted from raised errors and log messages.
+- `api_key` (`SecretStr`, a plain string is accepted): Firecrawl API key. Falls back to the `FIRECRAWL_API_KEY` environment variable when empty. It is only sent in the `Authorization` header. Raised errors, log messages and `failures` redact the configured key (when it is at least 8 characters) and anything in Firecrawl's `fc-` key format.
 - `base_url` (str): API base URL (default `https://api.firecrawl.dev/v2`).
 - `location` (str, optional): location to localise results, e.g. `Germany`.
 - `time_range` (str, optional): `day`, `week`, `month`, or `year`. Only applies to web results.
@@ -31,8 +31,8 @@ Searches the web or recent news through the [Firecrawl Search](https://www.firec
 - `include_content` (bool): also return each result page as Markdown (default `False`).
 
 ### Output Schema
-- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without a well-formed http(s) URL (one with a host and no whitespace) are skipped, and badly typed optional fields are left empty.
-- `failures`: queries that failed while others returned results, each with `query` and `error` (the HTTP status and the API's error message). A key appearing in either is redacted. They are also logged as warnings.
+- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without a well-formed http(s) URL (a real host, a valid port, no whitespace or control characters) are skipped, and badly typed optional fields are left empty.
+- `failures`: queries that failed while others returned results, each with `query` and `error` (the HTTP status and the API's error message). Keys are redacted from both as described for `api_key`. They are also logged as warnings.
 
 ## Usage
 If no query returns results and at least one failed (for example a wrong API key, no credits, or a malformed response), `run` raises the first error instead of returning an empty list. Redirects are not followed; they are reported as errors.

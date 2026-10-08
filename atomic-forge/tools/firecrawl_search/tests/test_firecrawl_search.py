@@ -6,7 +6,7 @@ import socket
 import sys
 import traceback
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Awaitable, Callable, Dict, List, Sequence, Tuple, Union
+from typing import AsyncIterator, Awaitable, Callable, Dict, Iterator, List, Sequence, Tuple, TypedDict, Union
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -27,6 +27,14 @@ from tool.firecrawl_search import (  # noqa: E402
 
 Body = Dict[str, object]
 Responder = Callable[[Body], Union[web.Response, Awaitable[web.Response]]]
+
+
+class Seen(TypedDict):
+    """One request as the fake server received it."""
+
+    headers: Dict[str, str]
+    body: Body
+
 
 DUMMY_KEY = "fc-dummy0secret0key0123456789"  # a configured key in a custom format
 CANONICAL_KEY = "fc-0123456789abcdef0123456789abcdef"  # a key in Firecrawl's own format
@@ -61,19 +69,28 @@ CONTENT_HIT = {
 
 
 @pytest.fixture(autouse=True)
-def offline(monkeypatch):
-    """Keep the suite offline: any attempt to resolve a host other than the local test server fails the test."""
+def offline(monkeypatch) -> Iterator[List[str]]:
+    """Keep the suite offline. Resolving a host other than loopback raises gaierror, and connecting to a
+    non-loopback address raises OSError; both are recorded, and the test fails unless it expected them."""
     attempts: List[str] = []
     real_getaddrinfo = socket.getaddrinfo
+    real_connect = socket.socket.connect
 
-    def loopback_only(host, *args, **kwargs):
+    def resolve_loopback_only(host, *args, **kwargs):
         if host not in LOOPBACK_HOSTS:
             attempts.append(str(host))
             raise socket.gaierror("network access is disabled in these tests")
         return real_getaddrinfo(host, *args, **kwargs)
 
-    monkeypatch.setattr(socket, "getaddrinfo", loopback_only)
-    yield
+    def connect_loopback_only(sock, address):
+        if isinstance(address, tuple) and address[0] not in LOOPBACK_HOSTS:
+            attempts.append(str(address[0]))
+            raise OSError("network access is disabled in these tests")
+        return real_connect(sock, address)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve_loopback_only)
+    monkeypatch.setattr(socket.socket, "connect", connect_loopback_only)
+    yield attempts
     assert attempts == []
 
 
@@ -109,13 +126,13 @@ def respond_per_query(bad_query: str, bad: Responder, good: Responder) -> Respon
 # Test harness #
 ################
 @asynccontextmanager
-async def fake_firecrawl(respond: Responder) -> AsyncIterator[Tuple[str, List[Body]]]:
+async def fake_firecrawl(respond: Responder) -> AsyncIterator[Tuple[str, List[Seen]]]:
     """Serve POST /v2/search on a local aiohttp server; `respond(body)` builds each response."""
-    seen: List[Body] = []
+    seen: List[Seen] = []
 
     async def handler(request: web.Request) -> web.Response:
         body = await request.json()
-        seen.append({"headers": dict(request.headers), "body": body})
+        seen.append(Seen(headers=dict(request.headers), body=body))
         response = respond(body)
         return await response if asyncio.iscoroutine(response) else response
 
@@ -135,7 +152,7 @@ def http_tool(base_url: str, api_key: str = DUMMY_KEY, **config) -> FirecrawlSea
 
 async def search(
     respond: Responder, queries: Sequence[str] = ("q",), api_key: str = DUMMY_KEY, **params
-) -> Tuple[FirecrawlSearchToolOutputSchema, List[Body]]:
+) -> Tuple[FirecrawlSearchToolOutputSchema, List[Seen]]:
     """Run one search against a fake server and return (output, requests seen)."""
     async with fake_firecrawl(respond) as (base_url, seen):
         tool = http_tool(base_url, api_key)
@@ -229,6 +246,10 @@ def test_to_item_drops_badly_typed_fields(field, value, attribute, expected):
         "https://example.com:8443/a?b=c#d",
         "http://[::1]:8080/x",
         "https://user@example.com/",
+        "http://192.0.2.1:8080/x",
+        "https://müller.de/straße",
+        "https://xn--mller-kva.de/",
+        "https://example.com/%C3%BC%20x.pdf",
     ],
 )
 def test_to_item_keeps_valid_http_urls(url):
@@ -259,6 +280,22 @@ def test_to_item_keeps_valid_http_urls(url):
         {"url": "https://exa mple.com/a"},
         {"url": "https://example.com/a\n"},
         {"url": "https://example.com\t/a"},
+        {"url": "https://./"},
+        {"url": "https://-/"},
+        {"url": "https://%/"},
+        {"url": "https://_x.com/"},
+        {"url": "https://[:]/"},
+        {"url": "https://[zz]/"},
+        {"url": "https://a\x00b.com/"},
+        {"url": "https://example.com/a\x7f"},
+        {"url": "https://exa\u200bmple.com/"},
+        {"url": "https://example.com/\xa0"},
+        {"url": "https://example.com:abc/"},
+        {"url": "https://example.com:99999/"},
+        {"url": "https://example.com:65536/"},
+        {"url": "https://example.com:0/"},
+        {"url": "https://example.com:\u0664\u0664\u0663/"},
+        {"url": "https://a b@example.com/"},
     ],
 )
 def test_to_item_without_usable_url_is_none(hit):
@@ -413,6 +450,14 @@ async def test_non_json_bodies_raise_with_status(response, expected):
 
 
 @pytest.mark.asyncio
+async def test_deeply_nested_json_is_a_wrapped_failure():
+    """JSON too deep for the parser must fail like any other bad body, not escape with the response in scope."""
+    error = await search_error(respond_raw(status=200, text="[" * 200_000, content_type="application/json"))
+    assert str(error) == "Firecrawl search failed for 'q': 200 response did not report success"
+    assert_no_key(error_surfaces(error))
+
+
+@pytest.mark.asyncio
 async def test_redirect_is_not_followed():
     """A redirect, even to another server, is reported as an error; the query is never re-sent elsewhere."""
     async with fake_firecrawl(respond_hits("web", [WEB_HIT])) as (other_url, other_seen):
@@ -509,6 +554,25 @@ async def test_invalid_base_url_is_wrapped_and_no_frame_holds_the_key(base_url, 
     assert str(raised.value).startswith(f"Firecrawl search failed for 'q': request failed: {error_type} ")
     assert raised.value.__context__ is None
     assert_no_key(str(raised.value), repr(raised.value), *frame_locals(raised.value, is_outside_this_test_file))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base_url, blocked_host",
+    [
+        ("http://exa\nmple.com/v2", "example.com"),  # yarl drops the newline, so this resolves example.com
+        (f"http://{'a' * 70}.example.com/v2", f"{'a' * 70}.example.com"),
+    ],
+)
+async def test_unresolvable_base_url_is_wrapped(offline, base_url, blocked_host):
+    """A DNS failure is reported as a request failure; the offline guard answers the lookup, so nothing leaves."""
+    with pytest.raises(Exception) as raised:
+        await http_tool(base_url).run_async(FirecrawlSearchToolInputSchema(queries=["q"]))
+
+    assert str(raised.value).startswith("Firecrawl search failed for 'q': request failed: ClientConnectorDNSError ")
+    assert_no_key(str(raised.value), repr(raised.value), *frame_locals(raised.value, is_outside_this_test_file))
+    assert offline == [blocked_host]
+    offline.clear()
 
 
 ################
