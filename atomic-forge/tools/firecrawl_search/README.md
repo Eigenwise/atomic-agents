@@ -31,7 +31,7 @@ Searches the web or recent news through the [Firecrawl Search](https://www.firec
 - `include_content` (bool): also return each result page as Markdown (default `False`).
 
 ### Output Schema
-- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without a well-formed http(s) URL (a valid host name or IPv6 address, a valid port, no whitespace or control characters) are skipped, and badly typed optional fields are left empty.
+- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without a well-formed http(s) URL (a valid host name, IPv4 or IPv6 address, a valid port, no whitespace or control characters) are skipped, and badly typed optional fields are left empty.
 - `failures`: queries that failed while others returned results, each with `query` and `error` (the HTTP status and the API's error message). Keys are redacted from both as described for `api_key`. They are also logged as warnings.
 
 ## Usage

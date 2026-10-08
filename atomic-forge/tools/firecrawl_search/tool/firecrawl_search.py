@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import logging
 import os
 import re
@@ -112,17 +113,19 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
     # when it is long enough that replacing it cannot mangle ordinary words.
     KEY_PATTERN = re.compile(r"\bfc-[0-9a-f]{32}\b", re.IGNORECASE)
     MIN_REDACTED_KEY_LENGTH = 8
-    # Shape of a usable result URL: http(s), optional userinfo without a backslash (parsers disagree on what host
-    # "a.com\@b.com" means), a host or IPv6 literal, an optional port, and no whitespace anywhere. urlsplit then
-    # validates the port and the IPv6 literal, and _valid_host the host name.
+    # Shape of a usable result URL: http(s), optional userinfo, a host or IPv6 literal, an optional port, and no
+    # whitespace anywhere. No backslash or extra "@" before the path, since parsers disagree on what host
+    # "a.com\@b.com" or "a.com:1\@b.com" means. urlsplit then validates the port and the IPv6 literal, and
+    # _valid_host the host name.
     RESULT_URL_PATTERN = re.compile(
-        r"https?://(?:[^\s/?#@\\]*@)?(?:[^\s/?#@:\[\]]+|\[[0-9a-f:.]+\])(?::[^\s/?#]*)?(?:[/?#]\S*)?", re.IGNORECASE
+        r"https?://(?:[^\s/?#@\\]*@)?(?:[^\s/?#@:\[\]]+|\[[0-9a-f:.]+\])(?::[^\s/?#@\\]*)?(?:[/?#]\S*)?", re.IGNORECASE
     )
 
     # One DNS label: letters, digits, hyphens and underscores, starting and ending with a letter or digit. No DNS
     # lookup happens; this only rejects host names that cannot be valid, such as "example..com" or "a%.com".
     HOST_LABEL = r"[^\W_](?:[\w-]{0,61}[^\W_])?"
-    HOST_NAME_PATTERN = re.compile(rf"(?:{HOST_LABEL}\.)*{HOST_LABEL}\.?")
+    HOST_NAME_PATTERN = re.compile(rf"(?:{HOST_LABEL}\.)*{HOST_LABEL}")
+    MAX_HOST_NAME_LENGTH = 253
 
     def __init__(self, config: FirecrawlSearchToolConfig = FirecrawlSearchToolConfig()):
         super().__init__(config)
@@ -140,9 +143,23 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
 
     @classmethod
     def _valid_host(cls, host: Optional[str]) -> bool:
-        """True for an IPv6 literal (urlsplit has already validated it) or a host name made of non-empty labels of
-        letters, digits, hyphens and underscores that start and end with a letter or digit."""
-        return host is not None and (":" in host or cls.HOST_NAME_PATTERN.fullmatch(host) is not None)
+        """True for an IPv6 literal (urlsplit has already validated it), an IPv4 address, or a host name of at most
+        253 characters made of labels that start and end with a letter or digit, with one optional trailing dot."""
+        name = (host or "").removesuffix(".")
+        if ":" in name:
+            return True
+        if name.rsplit(".", 1)[-1].isdigit():
+            # A numeric last label is never a TLD, so only a real IPv4 address is usable (not 256.0.0.1 or 1.2.3).
+            return cls._is_ipv4(name)
+        return len(name) <= cls.MAX_HOST_NAME_LENGTH and cls.HOST_NAME_PATTERN.fullmatch(name) is not None
+
+    @staticmethod
+    def _is_ipv4(name: str) -> bool:
+        try:
+            ipaddress.IPv4Address(name)
+        except ValueError:
+            return False
+        return True
 
     @classmethod
     def _usable_url(cls, url: str) -> bool:

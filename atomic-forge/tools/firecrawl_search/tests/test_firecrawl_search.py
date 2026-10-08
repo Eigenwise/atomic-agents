@@ -329,6 +329,9 @@ def test_to_item_drops_badly_typed_fields(field: str, value: object, attribute: 
         "https://example.com./",
         "https://my_host.example.com/",
         f"https://{'a' * 63}.com/",
+        f"https://{'a' * 63}.{'b' * 63}.{'c' * 63}.{'d' * 61}/",
+        "https://1.2.3.4/",
+        "https://3com.example.123abc/",
     ],
 )
 def test_to_item_keeps_valid_http_urls(url: str) -> None:
@@ -387,6 +390,14 @@ def test_to_item_keeps_valid_http_urls(url: str) -> None:
         {"url": "https://-a.com/"},
         {"url": "https://a-.com/"},
         {"url": f"https://{'a' * 64}.com/"},
+        {"url": "https://example.com../"},
+        {"url": f"https://{('a' * 63 + '.') * 4}com/"},
+        {"url": "https://a.com:1\\@b.com/"},
+        {"url": "https://a.com:x@/"},
+        {"url": "https://256.0.0.1/"},
+        {"url": "https://1.2.3/"},
+        {"url": "https://999999/"},
+        {"url": "https://example.\u0661\u0662\u0663/"},
     ],
 )
 def test_to_item_without_usable_url_is_none(hit: object) -> None:
