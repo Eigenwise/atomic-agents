@@ -113,9 +113,10 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
     KEY_PATTERN = re.compile(r"\bfc-[0-9a-f]{32}\b", re.IGNORECASE)
     MIN_REDACTED_KEY_LENGTH = 8
     # Shape of a usable result URL: http(s), optional userinfo, a host that starts with a letter or digit (or an
-    # IPv6 literal), an ASCII port, and no whitespace anywhere. urlsplit then validates the port range and IPv6.
+    # IPv6 literal), an ASCII port, no whitespace anywhere, and no backslash before the path (parsers disagree on
+    # what host "a.com\@b.com" means). urlsplit then validates the port range and the IPv6 literal.
     RESULT_URL_PATTERN = re.compile(
-        r"https?://(?:[^\s/?#@]*@)?(?:[^\W_][^\s/?#@:\[\]]*|\[[0-9a-f:.]+\])(?::[0-9]*)?(?:[/?#]\S*)?", re.IGNORECASE
+        r"https?://(?:[^\s/?#@\\]*@)?(?:[^\W_][^\s/?#@:\[\]\\]*|\[[0-9a-f:.]+\])(?::[0-9]*)?(?:[/?#]\S*)?", re.IGNORECASE
     )
 
     def __init__(self, config: FirecrawlSearchToolConfig = FirecrawlSearchToolConfig()):

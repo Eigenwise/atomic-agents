@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import errno
 import logging
 import os
 import socket
@@ -75,6 +76,7 @@ def offline(monkeypatch) -> Iterator[List[str]]:
     attempts: List[str] = []
     real_getaddrinfo = socket.getaddrinfo
     real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
 
     def resolve_loopback_only(host, *args, **kwargs):
         if host not in LOOPBACK_HOSTS:
@@ -82,14 +84,23 @@ def offline(monkeypatch) -> Iterator[List[str]]:
             raise socket.gaierror("network access is disabled in these tests")
         return real_getaddrinfo(host, *args, **kwargs)
 
-    def connect_loopback_only(sock, address):
+    def blocked(address) -> bool:
         if isinstance(address, tuple) and address[0] not in LOOPBACK_HOSTS:
             attempts.append(str(address[0]))
+            return True
+        return False
+
+    def connect_loopback_only(sock, address):
+        if blocked(address):
             raise OSError("network access is disabled in these tests")
         return real_connect(sock, address)
 
+    def connect_ex_loopback_only(sock, address):
+        return errno.ECONNREFUSED if blocked(address) else real_connect_ex(sock, address)
+
     monkeypatch.setattr(socket, "getaddrinfo", resolve_loopback_only)
     monkeypatch.setattr(socket.socket, "connect", connect_loopback_only)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex_loopback_only)
     yield attempts
     assert attempts == []
 
@@ -250,6 +261,7 @@ def test_to_item_drops_badly_typed_fields(field, value, attribute, expected):
         "https://müller.de/straße",
         "https://xn--mller-kva.de/",
         "https://example.com/%C3%BC%20x.pdf",
+        "https://example.com/a\\b",
     ],
 )
 def test_to_item_keeps_valid_http_urls(url):
@@ -296,6 +308,10 @@ def test_to_item_keeps_valid_http_urls(url):
         {"url": "https://example.com:0/"},
         {"url": "https://example.com:\u0664\u0664\u0663/"},
         {"url": "https://a b@example.com/"},
+        {"url": "https://[v1.x]/"},
+        {"url": "https://[::1%25eth0]/"},
+        {"url": "https://a.com\\@evil.com/"},
+        {"url": "https://evil.com\\.example.com/"},
     ],
 )
 def test_to_item_without_usable_url_is_none(hit):
