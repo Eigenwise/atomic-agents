@@ -31,8 +31,8 @@ Searches the web or recent news through the [Firecrawl Search](https://www.firec
 - `include_content` (bool): also return each result page as Markdown (default `False`).
 
 ### Output Schema
-- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without an http(s) URL are skipped, and badly typed optional fields are left empty.
-- `failures`: queries that failed while others returned results, each with `query` and `error` (the HTTP status and the API's error message, with any key redacted). They are also logged as warnings.
+- `results`: a list of `FirecrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `description` (a query-relevant excerpt or snippet), `position`, `published` (news), and `content` (Markdown, when `include_content` is set). Results without a well-formed http(s) URL (one with a host and no whitespace) are skipped, and badly typed optional fields are left empty.
+- `failures`: queries that failed while others returned results, each with `query` and `error` (the HTTP status and the API's error message). A key appearing in either is redacted. They are also logged as warnings.
 
 ## Usage
 If no query returns results and at least one failed (for example a wrong API key, no credits, or a malformed response), `run` raises the first error instead of returning an empty list. Redirects are not followed; they are reported as errors.
