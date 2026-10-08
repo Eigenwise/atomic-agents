@@ -50,10 +50,10 @@ class FirecrawlSearchResultItem(BaseIOSchema):
     query: str = Field(..., description="The query that produced this result.")
     title: str = Field(..., description="Title of the result.")
     url: str = Field(..., description="URL of the result.")
-    description: Optional[str] = Field(None, description="Query-relevant excerpt or snippet for the result.")
-    position: Optional[int] = Field(None, description="Rank of the result.")
-    published: Optional[str] = Field(None, description="Publication date string (news only).")
-    content: Optional[str] = Field(None, description="Page content as Markdown (only when include_content is set).")
+    description: Optional[str] = Field(default=None, description="Query-relevant excerpt or snippet for the result.")
+    position: Optional[int] = Field(default=None, description="Rank of the result.")
+    published: Optional[str] = Field(default=None, description="Publication date string (news only).")
+    content: Optional[str] = Field(default=None, description="Page content as Markdown (only when include_content is set).")
 
     @field_validator("position", mode="before")
     @classmethod
@@ -112,12 +112,17 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
     # when it is long enough that replacing it cannot mangle ordinary words.
     KEY_PATTERN = re.compile(r"\bfc-[0-9a-f]{32}\b", re.IGNORECASE)
     MIN_REDACTED_KEY_LENGTH = 8
-    # Shape of a usable result URL: http(s), optional userinfo, a host that starts with a letter or digit (or an
-    # IPv6 literal), an ASCII port, no whitespace anywhere, and no backslash before the path (parsers disagree on
-    # what host "a.com\@b.com" means). urlsplit then validates the port range and the IPv6 literal.
+    # Shape of a usable result URL: http(s), optional userinfo without a backslash (parsers disagree on what host
+    # "a.com\@b.com" means), a host or IPv6 literal, an optional port, and no whitespace anywhere. urlsplit then
+    # validates the port and the IPv6 literal, and _valid_host the host name.
     RESULT_URL_PATTERN = re.compile(
-        r"https?://(?:[^\s/?#@\\]*@)?(?:[^\W_][^\s/?#@:\[\]\\]*|\[[0-9a-f:.]+\])(?::[0-9]*)?(?:[/?#]\S*)?", re.IGNORECASE
+        r"https?://(?:[^\s/?#@\\]*@)?(?:[^\s/?#@:\[\]]+|\[[0-9a-f:.]+\])(?::[^\s/?#]*)?(?:[/?#]\S*)?", re.IGNORECASE
     )
+
+    # One DNS label: letters, digits, hyphens and underscores, starting and ending with a letter or digit. No DNS
+    # lookup happens; this only rejects host names that cannot be valid, such as "example..com" or "a%.com".
+    HOST_LABEL = r"[^\W_](?:[\w-]{0,61}[^\W_])?"
+    HOST_NAME_PATTERN = re.compile(rf"(?:{HOST_LABEL}\.)*{HOST_LABEL}\.?")
 
     def __init__(self, config: FirecrawlSearchToolConfig = FirecrawlSearchToolConfig()):
         super().__init__(config)
@@ -134,13 +139,20 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
         return next((value for value in values if isinstance(value, str) and value), None)
 
     @classmethod
+    def _valid_host(cls, host: Optional[str]) -> bool:
+        """True for an IPv6 literal (urlsplit has already validated it) or a host name made of non-empty labels of
+        letters, digits, hyphens and underscores that start and end with a letter or digit."""
+        return host is not None and (":" in host or cls.HOST_NAME_PATTERN.fullmatch(host) is not None)
+
+    @classmethod
     def _usable_url(cls, url: str) -> bool:
-        """True for a printable http(s) URL with a real host and an in-range, non-zero port."""
+        """True for a printable http(s) URL with a valid host and an in-range, non-zero port."""
         if not (url.isprintable() and cls.RESULT_URL_PATTERN.fullmatch(url)):
             return False
         try:
             # urlsplit raises ValueError for an out-of-range port or an invalid IPv6 literal.
-            return urlsplit(url).port != 0
+            parts = urlsplit(url)
+            return parts.port != 0 and cls._valid_host(parts.hostname)
         except ValueError:
             return False
 
@@ -221,7 +233,8 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
         """Return the body of a successful search response, or raise.
 
         The raise happens in this frame, which only ever holds the redacted failure reason: no response, no aiohttp
-        error and no failed body, so a traceback that captures locals cannot show a key echoed back."""
+        error and no failed body, so a traceback that captures locals cannot show a key echoed back. The caller's
+        own inputs (the query and params) are in these frames as given, as they are in the caller's frames."""
         outcome = await self._exchange(session, query, params)
         if isinstance(outcome, str):
             raise self._error(query, outcome)

@@ -7,13 +7,26 @@ import socket
 import sys
 import traceback
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Awaitable, Callable, Dict, Iterator, List, Sequence, Tuple, TypedDict, Union
+from typing import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    TypedDict,
+    Union,
+)
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -30,6 +43,16 @@ Body = Dict[str, object]
 Responder = Callable[[Body], Union[web.Response, Awaitable[web.Response]]]
 
 
+Address = Union[Tuple[object, ...], str, bytes]
+AddrInfo = Tuple[
+    socket.AddressFamily,
+    socket.SocketKind,
+    int,
+    str,
+    Union[Tuple[str, int], Tuple[str, int, int, int], Tuple[int, bytes]],
+]
+
+
 class Seen(TypedDict):
     """One request as the fake server received it."""
 
@@ -42,6 +65,9 @@ CANONICAL_KEY = "fc-0123456789abcdef0123456789abcdef"  # a key in Firecrawl's ow
 KEYS = (DUMMY_KEY, DUMMY_KEY.upper(), CANONICAL_KEY, CANONICAL_KEY.upper())
 TOOL_FILE = os.path.join("tool", "firecrawl_search.py")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+# Inputs the caller passes in. They are in the tool's frames as given (as they are in the caller's own frames),
+# so the traceback-locals checks for a key that came in through the query skip these names.
+CALLER_INPUT_LOCALS = {"query", "queries", "params"}
 
 WEB_HIT = {
     "url": "https://www.python.org/",
@@ -70,7 +96,7 @@ CONTENT_HIT = {
 
 
 @pytest.fixture(autouse=True)
-def offline(monkeypatch) -> Iterator[List[str]]:
+def offline(monkeypatch: pytest.MonkeyPatch) -> Iterator[List[str]]:
     """Keep the suite offline. Resolving a host other than loopback raises gaierror, and connecting to a
     non-loopback address raises OSError; both are recorded, and the test fails unless it expected them."""
     attempts: List[str] = []
@@ -78,24 +104,26 @@ def offline(monkeypatch) -> Iterator[List[str]]:
     real_connect = socket.socket.connect
     real_connect_ex = socket.socket.connect_ex
 
-    def resolve_loopback_only(host, *args, **kwargs):
+    def resolve_loopback_only(
+        host: Union[bytes, str, None], port: Union[bytes, str, int, None], *args: int, **kwargs: int
+    ) -> Sequence[AddrInfo]:
         if host not in LOOPBACK_HOSTS:
             attempts.append(str(host))
             raise socket.gaierror("network access is disabled in these tests")
-        return real_getaddrinfo(host, *args, **kwargs)
+        return real_getaddrinfo(host, port, *args, **kwargs)
 
-    def blocked(address) -> bool:
+    def blocked(address: Address) -> bool:
         if isinstance(address, tuple) and address[0] not in LOOPBACK_HOSTS:
             attempts.append(str(address[0]))
             return True
         return False
 
-    def connect_loopback_only(sock, address):
+    def connect_loopback_only(sock: socket.socket, address: Address) -> None:
         if blocked(address):
             raise OSError("network access is disabled in these tests")
-        return real_connect(sock, address)
+        real_connect(sock, address)
 
-    def connect_ex_loopback_only(sock, address):
+    def connect_ex_loopback_only(sock: socket.socket, address: Address) -> int:
         return errno.ECONNREFUSED if blocked(address) else real_connect_ex(sock, address)
 
     monkeypatch.setattr(socket, "getaddrinfo", resolve_loopback_only)
@@ -119,9 +147,12 @@ def respond_hits(source: str, hits: Sequence[object]) -> Responder:
     return respond_json({"success": True, "data": {source: list(hits)}})
 
 
-def respond_raw(**response) -> Responder:
+def respond_raw(
+    status: int, text: Optional[str] = None, content_type: Optional[str] = None, location: Optional[str] = None
+) -> Responder:
     def respond(body: Body) -> web.Response:
-        return web.Response(**response)
+        headers = {"Location": location} if location else None
+        return web.Response(status=status, text=text, content_type=content_type, headers=headers)
 
     return respond
 
@@ -145,7 +176,9 @@ async def fake_firecrawl(respond: Responder) -> AsyncIterator[Tuple[str, List[Se
         body = await request.json()
         seen.append(Seen(headers=dict(request.headers), body=body))
         response = respond(body)
-        return await response if asyncio.iscoroutine(response) else response
+        if isinstance(response, web.Response):
+            return response
+        return await response
 
     app = web.Application()
     app.router.add_post("/v2/search", handler)
@@ -157,29 +190,60 @@ async def fake_firecrawl(respond: Responder) -> AsyncIterator[Tuple[str, List[Se
         await server.close()
 
 
-def http_tool(base_url: str, api_key: str = DUMMY_KEY, **config) -> FirecrawlSearchTool:
-    return FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=api_key, base_url=base_url, **config))
+def http_tool(base_url: str, api_key: str = DUMMY_KEY) -> FirecrawlSearchTool:
+    return FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=SecretStr(api_key), base_url=base_url))
+
+
+def search_input(
+    queries: Sequence[str],
+    search_type: Literal["web", "news"] = "web",
+    max_results_per_query: int = 5,
+    include_content: bool = False,
+) -> FirecrawlSearchToolInputSchema:
+    return FirecrawlSearchToolInputSchema(
+        queries=list(queries),
+        search_type=search_type,
+        max_results_per_query=max_results_per_query,
+        include_content=include_content,
+    )
 
 
 async def search(
-    respond: Responder, queries: Sequence[str] = ("q",), api_key: str = DUMMY_KEY, **params
+    respond: Responder,
+    queries: Sequence[str] = ("q",),
+    api_key: str = DUMMY_KEY,
+    search_type: Literal["web", "news"] = "web",
+    max_results_per_query: int = 5,
+    include_content: bool = False,
 ) -> Tuple[FirecrawlSearchToolOutputSchema, List[Seen]]:
     """Run one search against a fake server and return (output, requests seen)."""
+    params = search_input(queries, search_type, max_results_per_query, include_content)
     async with fake_firecrawl(respond) as (base_url, seen):
-        tool = http_tool(base_url, api_key)
-        out = await tool.run_async(FirecrawlSearchToolInputSchema(queries=list(queries), **params))
+        out = await http_tool(base_url, api_key).run_async(params)
     return out, seen
 
 
-async def search_error(respond: Responder, queries: Sequence[str] = ("q",), api_key: str = DUMMY_KEY, **params) -> Exception:
+async def search_error(respond: Responder, queries: Sequence[str] = ("q",), api_key: str = DUMMY_KEY) -> BaseException:
     with pytest.raises(Exception) as raised:
-        await search(respond, queries, api_key, **params)
+        await search(respond, queries, api_key)
     return raised.value
 
 
-def frame_locals(error: BaseException, keep: Callable[[str], bool]) -> List[str]:
+def kept_item(hit: object, query: str = "q", max_content_chars: Optional[int] = None) -> FirecrawlSearchResultItem:
+    """_to_item for a hit the test expects to be kept."""
+    result = FirecrawlSearchTool._to_item(hit, query, max_content_chars)
+    assert result is not None
+    return result
+
+
+def without_names(names: Dict[str, str], skip_names: Sequence[str]) -> Dict[str, str]:
+    return {name: value for name, value in names.items() if name not in skip_names}
+
+
+def frame_locals(error: BaseException, keep: Callable[[str], bool], skip_names: Sequence[str] = ()) -> List[str]:
+    """The captured locals of every frame in the error's traceback whose file passes `keep`."""
     stack = traceback.TracebackException.from_exception(error, capture_locals=True).stack
-    return [repr(frame.locals) for frame in stack if keep(frame.filename)]
+    return [repr(without_names(frame.locals or {}, skip_names)) for frame in stack if keep(frame.filename)]
 
 
 def is_tool_frame(filename: str) -> bool:
@@ -206,8 +270,8 @@ def assert_no_key(*texts: str) -> None:
 ##################
 # Result parsing #
 ##################
-def test_to_item_web():
-    item = FirecrawlSearchTool._to_item(WEB_HIT, "python")
+def test_to_item_web() -> None:
+    item = kept_item(WEB_HIT, "python")
     assert item == FirecrawlSearchResultItem(
         query="python",
         title="Welcome to Python.org",
@@ -217,14 +281,14 @@ def test_to_item_web():
     )
 
 
-def test_to_item_news_uses_snippet_and_date():
-    item = FirecrawlSearchTool._to_item(NEWS_HIT, "python")
+def test_to_item_news_uses_snippet_and_date() -> None:
+    item = kept_item(NEWS_HIT, "python")
     assert (item.description, item.published, item.position) == ("The Python core team shipped 3.14 today.", "2 days ago", 2)
 
 
-def test_to_item_content_and_truncation():
-    assert FirecrawlSearchTool._to_item(CONTENT_HIT, "q").content == CONTENT_HIT["markdown"]
-    assert FirecrawlSearchTool._to_item(CONTENT_HIT, "q", max_content_chars=7).content == "# Agent"
+def test_to_item_content_and_truncation() -> None:
+    assert kept_item(CONTENT_HIT, "q").content == CONTENT_HIT["markdown"]
+    assert kept_item(CONTENT_HIT, "q", max_content_chars=7).content == "# Agent"
 
 
 @pytest.mark.parametrize(
@@ -243,10 +307,10 @@ def test_to_item_content_and_truncation():
         ("markdown", {}, "content", None),
     ],
 )
-def test_to_item_drops_badly_typed_fields(field, value, attribute, expected):
+def test_to_item_drops_badly_typed_fields(field: str, value: object, attribute: str, expected: object) -> None:
     """One badly typed field must not discard the result or raise a raw ValidationError."""
-    item = FirecrawlSearchTool._to_item({"url": "https://example.com/a", field: value}, "q")
-    assert getattr(item, attribute) == expected
+    kept = kept_item({"url": "https://example.com/a", field: value})
+    assert getattr(kept, attribute) == expected
 
 
 @pytest.mark.parametrize(
@@ -262,10 +326,13 @@ def test_to_item_drops_badly_typed_fields(field, value, attribute, expected):
         "https://xn--mller-kva.de/",
         "https://example.com/%C3%BC%20x.pdf",
         "https://example.com/a\\b",
+        "https://example.com./",
+        "https://my_host.example.com/",
+        f"https://{'a' * 63}.com/",
     ],
 )
-def test_to_item_keeps_valid_http_urls(url):
-    assert FirecrawlSearchTool._to_item({"url": url}, "q").url == url
+def test_to_item_keeps_valid_http_urls(url: str) -> None:
+    assert kept_item({"url": url}).url == url
 
 
 @pytest.mark.parametrize(
@@ -312,17 +379,25 @@ def test_to_item_keeps_valid_http_urls(url):
         {"url": "https://[::1%25eth0]/"},
         {"url": "https://a.com\\@evil.com/"},
         {"url": "https://evil.com\\.example.com/"},
+        {"url": "https://ev\\il.com/"},
+        {"url": "https://example..com/a"},
+        {"url": "https://a%.com/a"},
+        {"url": "https://a%41b.com/a"},
+        {"url": "https://.example.com/"},
+        {"url": "https://-a.com/"},
+        {"url": "https://a-.com/"},
+        {"url": f"https://{'a' * 64}.com/"},
     ],
 )
-def test_to_item_without_usable_url_is_none(hit):
+def test_to_item_without_usable_url_is_none(hit: object) -> None:
     assert FirecrawlSearchTool._to_item(hit, "q") is None
 
 
 ################
 # Request body #
 ################
-def test_build_body_defaults():
-    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key="k"))
+def test_build_body_defaults() -> None:
+    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=SecretStr("k")))
     assert tool._build_body("python", FirecrawlSearchToolInputSchema(queries=["python"])) == {
         "query": "python",
         "limit": 5,
@@ -330,8 +405,8 @@ def test_build_body_defaults():
     }
 
 
-def test_build_body_with_options():
-    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key="k", location="Germany", time_range="week"))
+def test_build_body_with_options() -> None:
+    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=SecretStr("k"), location="Germany", time_range="week"))
     params = FirecrawlSearchToolInputSchema(queries=["python"], max_results_per_query=3, include_content=True)
     assert tool._build_body("python", params) == {
         "query": "python",
@@ -343,14 +418,14 @@ def test_build_body_with_options():
     }
 
 
-def test_build_body_skips_time_range_for_news():
+def test_build_body_skips_time_range_for_news() -> None:
     """The API's tbs filter only applies to web results."""
-    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key="k", time_range="day"))
+    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=SecretStr("k"), time_range="day"))
     body = tool._build_body("python", FirecrawlSearchToolInputSchema(queries=["python"], search_type="news"))
     assert body == {"query": "python", "limit": 5, "sources": ["news"]}
 
 
-def test_empty_queries_rejected():
+def test_empty_queries_rejected() -> None:
     with pytest.raises(ValidationError):
         FirecrawlSearchToolInputSchema(queries=[])
 
@@ -359,10 +434,10 @@ def test_empty_queries_rejected():
 # Round trips over real transport #
 ###################################
 @pytest.mark.asyncio
-async def test_web_round_trip():
+async def test_web_round_trip() -> None:
     out, seen = await search(respond_hits("web", [CONTENT_HIT]), queries=["agents"], include_content=True)
 
-    assert out == FirecrawlSearchToolOutputSchema(results=[FirecrawlSearchTool._to_item(CONTENT_HIT, "agents")])
+    assert out == FirecrawlSearchToolOutputSchema(results=[kept_item(CONTENT_HIT, "agents")])
     assert seen[0]["headers"]["Authorization"] == f"Bearer {DUMMY_KEY}"
     assert seen[0]["body"] == {
         "query": "agents",
@@ -373,40 +448,40 @@ async def test_web_round_trip():
 
 
 @pytest.mark.asyncio
-async def test_news_round_trip_reads_news_key_only():
+async def test_news_round_trip_reads_news_key_only() -> None:
     out, _ = await search(respond_json({"success": True, "data": {"web": [WEB_HIT], "news": [NEWS_HIT]}}), search_type="news")
     assert [r.url for r in out.results] == [NEWS_HIT["url"]]
 
 
 @pytest.mark.asyncio
-async def test_missing_source_key_is_an_empty_search():
+async def test_missing_source_key_is_an_empty_search() -> None:
     """The API omits the source key when there are no results; that is a real empty result."""
     out, _ = await search(respond_json({"success": True, "data": {}}))
     assert out == FirecrawlSearchToolOutputSchema(results=[], failures=[])
 
 
 @pytest.mark.asyncio
-async def test_results_trimmed_to_max_results():
+async def test_results_trimmed_to_max_results() -> None:
     hits = [{"url": f"https://example.com/{i}"} for i in range(5)]
     out, _ = await search(respond_hits("web", hits), max_results_per_query=2)
     assert [r.url for r in out.results] == ["https://example.com/0", "https://example.com/1"]
 
 
 @pytest.mark.asyncio
-async def test_invalid_hits_skipped_valid_ones_kept():
+async def test_invalid_hits_skipped_valid_ones_kept() -> None:
     hits = [1, "s", None, {"title": "x"}, {"url": "https://@/a"}, WEB_HIT, {"url": "https://example.com/b", "position": "N/A"}]
     out, _ = await search(respond_hits("web", hits))
     assert [(r.url, r.position) for r in out.results] == [("https://www.python.org/", 1), ("https://example.com/b", None)]
 
 
 @pytest.mark.asyncio
-async def test_all_hits_invalid_raises():
+async def test_all_hits_invalid_raises() -> None:
     error = await search_error(respond_hits("web", [1, None, {"title": "x"}, {"url": "https://:443/a"}]))
     assert str(error) == "Firecrawl search failed for 'q': 200 none of the 4 'web' results had a usable url"
 
 
 @pytest.mark.asyncio
-async def test_duplicate_queries_sent_once():
+async def test_duplicate_queries_sent_once() -> None:
     out, seen = await search(respond_hits("web", [WEB_HIT]), queries=["q", "q"])
     assert len(seen) == 1
     assert [r.query for r in out.results] == ["q"]
@@ -426,58 +501,60 @@ async def test_duplicate_queries_sent_once():
         {"success": True, "data": [WEB_HIT]},
     ],
 )
-async def test_malformed_success_response_raises(payload):
+async def test_malformed_success_response_raises(payload: Body) -> None:
     error = await search_error(respond_json(payload))
     assert str(error) == "Firecrawl search failed for 'q': 200 unexpected response shape for 'web' results"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [{"success": "false"}, {"success": "true"}, {"success": 1}, {}])
-async def test_success_must_be_literally_true(payload):
+async def test_success_must_be_literally_true(payload: Body) -> None:
     error = await search_error(respond_json({**payload, "data": {"web": [WEB_HIT]}}))
     assert str(error) == "Firecrawl search failed for 'q': 200 response did not report success"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status, reason", [(201, "Created"), (500, "Internal Server Error")])
-async def test_non_200_with_success_true_raises(status, reason):
+async def test_non_200_with_success_true_raises(status: int, reason: str) -> None:
     error = await search_error(respond_json({"success": True, "data": {"web": [WEB_HIT]}}, status=status))
     assert str(error) == f"Firecrawl search failed for 'q': {status} {reason}"
 
 
 @pytest.mark.asyncio
-async def test_provider_error_message_is_reported():
+async def test_provider_error_message_is_reported() -> None:
     error = await search_error(respond_json({"success": False, "error": "Payment required"}, status=402))
     assert str(error) == "Firecrawl search failed for 'q': 402 Payment required"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "response, expected",
+    "status, text, content_type, expected",
     [
-        ({"status": 502, "text": "<html>Bad Gateway</html>", "content_type": "text/html"}, "502 Bad Gateway"),
-        ({"status": 200, "text": ""}, "200 response did not report success"),
-        ({"status": 204}, "204 No Content"),
+        (502, "<html>Bad Gateway</html>", "text/html", "502 Bad Gateway"),
+        (200, "", None, "200 response did not report success"),
+        (204, None, None, "204 No Content"),
     ],
 )
-async def test_non_json_bodies_raise_with_status(response, expected):
-    error = await search_error(respond_raw(**response))
+async def test_non_json_bodies_raise_with_status(
+    status: int, text: Optional[str], content_type: Optional[str], expected: str
+) -> None:
+    error = await search_error(respond_raw(status, text, content_type))
     assert str(error) == f"Firecrawl search failed for 'q': {expected}"
 
 
 @pytest.mark.asyncio
-async def test_deeply_nested_json_is_a_wrapped_failure():
+async def test_deeply_nested_json_is_a_wrapped_failure() -> None:
     """JSON too deep for the parser must fail like any other bad body, not escape with the response in scope."""
-    error = await search_error(respond_raw(status=200, text="[" * 200_000, content_type="application/json"))
+    error = await search_error(respond_raw(200, "[" * 200_000, "application/json"))
     assert str(error) == "Firecrawl search failed for 'q': 200 response did not report success"
     assert_no_key(error_surfaces(error))
 
 
 @pytest.mark.asyncio
-async def test_redirect_is_not_followed():
+async def test_redirect_is_not_followed() -> None:
     """A redirect, even to another server, is reported as an error; the query is never re-sent elsewhere."""
     async with fake_firecrawl(respond_hits("web", [WEB_HIT])) as (other_url, other_seen):
-        error = await search_error(respond_raw(status=307, headers={"Location": f"{other_url}/search"}))
+        error = await search_error(respond_raw(307, location=f"{other_url}/search"))
 
     assert str(error) == "Firecrawl search failed for 'q': 307 Temporary Redirect"
     assert other_seen == []
@@ -487,7 +564,7 @@ async def test_redirect_is_not_followed():
 # Batch semantics #
 ###################
 @pytest.mark.asyncio
-async def test_partial_failure_reports_failures(caplog):
+async def test_partial_failure_reports_failures(caplog: pytest.LogCaptureFixture) -> None:
     rate_limited = respond_json({"success": False, "error": "Rate limit exceeded"}, status=429)
     with caplog.at_level(logging.WARNING, logger="tool.firecrawl_search"):
         out, _ = await search(respond_per_query("bad", rate_limited, respond_hits("web", [WEB_HIT])), queries=["bad", "good"])
@@ -506,7 +583,7 @@ async def test_partial_failure_reports_failures(caplog):
         ({"success": False, "error": "Rate limit exceeded"}, "200 Rate limit exceeded"),
     ],
 )
-async def test_empty_plus_failed_query_raises(bad, expected):
+async def test_empty_plus_failed_query_raises(bad: Body, expected: str) -> None:
     """No results anywhere plus a failure must not look like an empty search."""
     respond = respond_per_query("bad", respond_json(bad), respond_json({"success": True, "data": {}}))
     error = await search_error(respond, queries=["empty", "bad"])
@@ -514,7 +591,7 @@ async def test_empty_plus_failed_query_raises(bad, expected):
 
 
 @pytest.mark.asyncio
-async def test_every_query_failing_raises_first_error():
+async def test_every_query_failing_raises_first_error() -> None:
     error = await search_error(respond_json({"success": False, "error": "Unauthorized"}, status=401), queries=["a", "b"])
     assert str(error) == "Firecrawl search failed for 'a': 401 Unauthorized"
 
@@ -523,7 +600,7 @@ async def test_every_query_failing_raises_first_error():
 # Transport errors #
 ####################
 @pytest.mark.asyncio
-async def test_connection_error_is_wrapped_without_context():
+async def test_connection_error_is_wrapped_without_context() -> None:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -537,7 +614,7 @@ async def test_connection_error_is_wrapped_without_context():
 
 
 @pytest.mark.asyncio
-async def test_timeout_is_wrapped_with_query():
+async def test_timeout_is_wrapped_with_query() -> None:
     async def slow(body: Body) -> web.Response:
         await asyncio.sleep(1)
         return web.json_response({"success": True, "data": {"web": [WEB_HIT]}})
@@ -562,7 +639,7 @@ async def test_timeout_is_wrapped_with_query():
         ("http://user:pw@127.0.0.1:1/v2", "ValueError"),
     ],
 )
-async def test_invalid_base_url_is_wrapped_and_no_frame_holds_the_key(base_url, error_type):
+async def test_invalid_base_url_is_wrapped_and_no_frame_holds_the_key(base_url: str, error_type: str) -> None:
     """aiohttp raises for such URLs from frames whose locals hold the request headers; none of that may surface."""
     with pytest.raises(Exception) as raised:
         await http_tool(base_url).run_async(FirecrawlSearchToolInputSchema(queries=["q"]))
@@ -573,22 +650,23 @@ async def test_invalid_base_url_is_wrapped_and_no_frame_holds_the_key(base_url, 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "base_url, blocked_host",
-    [
-        ("http://exa\nmple.com/v2", "example.com"),  # yarl drops the newline, so this resolves example.com
-        (f"http://{'a' * 70}.example.com/v2", f"{'a' * 70}.example.com"),
-    ],
-)
-async def test_unresolvable_base_url_is_wrapped(offline, base_url, blocked_host):
-    """A DNS failure is reported as a request failure; the offline guard answers the lookup, so nothing leaves."""
+@pytest.mark.parametrize("base_url", ["http://localhost:9/v2", "http://local\nhost:9/v2"])  # yarl drops the newline
+async def test_unresolvable_base_url_is_wrapped(monkeypatch: pytest.MonkeyPatch, base_url: str) -> None:
+    """A DNS failure is reported as a request failure. The lookup is for localhost and is answered by a stub that
+    fails it, so no external host name is involved."""
+    lookups: List[str] = []
+
+    def unresolvable(host: Union[bytes, str, None], *args: object, **kwargs: object) -> Sequence[AddrInfo]:
+        lookups.append(str(host))
+        raise socket.gaierror("name resolution failed")
+
+    monkeypatch.setattr(socket, "getaddrinfo", unresolvable)
     with pytest.raises(Exception) as raised:
-        await http_tool(base_url).run_async(FirecrawlSearchToolInputSchema(queries=["q"]))
+        await http_tool(base_url).run_async(search_input(["q"]))
 
     assert str(raised.value).startswith("Firecrawl search failed for 'q': request failed: ClientConnectorDNSError ")
     assert_no_key(str(raised.value), repr(raised.value), *frame_locals(raised.value, is_outside_this_test_file))
-    assert offline == [blocked_host]
-    offline.clear()
+    assert lookups == ["localhost"]
 
 
 ################
@@ -598,7 +676,7 @@ async def test_unresolvable_base_url_is_wrapped(offline, base_url, blocked_host)
 @pytest.mark.parametrize(
     "echo", [DUMMY_KEY, f"Bearer {DUMMY_KEY}", DUMMY_KEY.upper(), {"token": DUMMY_KEY}, CANONICAL_KEY, CANONICAL_KEY.upper()]
 )
-async def test_echoed_key_kept_out_of_errors_and_logs(caplog, echo):
+async def test_echoed_key_kept_out_of_errors_and_logs(caplog: pytest.LogCaptureFixture, echo: object) -> None:
     """Even when the provider echoes a key back, it never reaches raised errors, tracebacks, logs or failures."""
     respond = respond_per_query(
         "bad", respond_json({"success": False, "error": echo}, status=401), respond_hits("web", [WEB_HIT])
@@ -623,7 +701,7 @@ def invalid_hits_echoing(key: str) -> Body:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("api_key", [DUMMY_KEY, CANONICAL_KEY])
 @pytest.mark.parametrize("build_body", [malformed_body_echoing, invalid_hits_echoing])
-async def test_rejected_success_body_not_kept_in_traceback_locals(api_key, build_body):
+async def test_rejected_success_body_not_kept_in_traceback_locals(api_key: str, build_body: Callable[[str], Body]) -> None:
     """A malformed or all-invalid success body is dropped before the raise, so captured locals cannot show a key."""
     error = await search_error(respond_json(build_body(api_key)), api_key=api_key)
     assert str(error).startswith("Firecrawl search failed for 'q': 200 ")
@@ -632,8 +710,9 @@ async def test_rejected_success_body_not_kept_in_traceback_locals(api_key, build
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("api_key", [DUMMY_KEY, CANONICAL_KEY])
-async def test_key_in_query_text_is_redacted_in_diagnostics(caplog, api_key):
-    """A query that contains the key (for example pasted by mistake) must not leak it through errors or logs."""
+async def test_key_in_query_text_is_redacted_in_diagnostics(caplog: pytest.LogCaptureFixture, api_key: str) -> None:
+    """A query that contains the key (for example pasted by mistake) must not leak it through errors, logs,
+    failures, or any tool-frame local other than the caller's own inputs."""
     query = f"why does {api_key} fail"
     respond = respond_per_query(
         query, respond_json({"success": False, "error": "Unauthorized"}, status=401), respond_hits("web", [WEB_HIT])
@@ -644,11 +723,13 @@ async def test_key_in_query_text_is_redacted_in_diagnostics(caplog, api_key):
 
     assert out.failures == [FirecrawlSearchFailure(query="why does [redacted] fail", error=str(error))]
     assert str(error) == "Firecrawl search failed for 'why does [redacted] fail': 401 Unauthorized"
-    assert_no_key(caplog.text, repr(out.failures), str(error), repr(error))
+    assert_no_key(caplog.text, repr(out.failures), str(error), repr(error), repr(error.__context__))
+    # Traceback locals: the caller's own inputs appear as given; nothing the tool derives from them may hold the key.
+    assert_no_key(*frame_locals(error, is_tool_frame, skip_names=sorted(CALLER_INPUT_LOCALS)))
 
 
-def test_key_kept_out_of_tool_and_config_state():
-    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=DUMMY_KEY))
+def test_key_kept_out_of_tool_and_config_state() -> None:
+    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=SecretStr(DUMMY_KEY)))
     assert_no_key(
         repr(tool),
         repr(tool.config),
@@ -660,15 +741,15 @@ def test_key_kept_out_of_tool_and_config_state():
     assert tool._api_key.get_secret_value() == DUMMY_KEY
 
 
-def test_redaction_does_not_mangle_ordinary_text():
+def test_redaction_does_not_mangle_ordinary_text() -> None:
     """A one-letter key is not redacted (it would hit every 'a'), and fc- words that are not keys are left alone."""
-    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key="a"))
+    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=SecretStr("a")))
     text = "Firecrawl search failed for 'fc-barcelona-2024' and 'fc-0123abcd'"
     assert tool._redact(text) == text
 
 
 @pytest.mark.asyncio
-async def test_missing_key_raises(monkeypatch):
+async def test_missing_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
     tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig())
 
@@ -676,14 +757,14 @@ async def test_missing_key_raises(monkeypatch):
         await tool.run_async(FirecrawlSearchToolInputSchema(queries=["q"]))
 
 
-def test_api_key_falls_back_to_environment(monkeypatch):
+def test_api_key_falls_back_to_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FIRECRAWL_API_KEY", "env-key")
     tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig())
     assert tool._api_key.get_secret_value() == "env-key"
 
 
-def test_run_invokes_run_async():
-    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key="k"))
+def test_run_invokes_run_async() -> None:
+    tool = FirecrawlSearchTool(config=FirecrawlSearchToolConfig(api_key=SecretStr("k")))
     sentinel = FirecrawlSearchToolOutputSchema(results=[])
     with patch.object(FirecrawlSearchTool, "run_async", AsyncMock(return_value=sentinel)):
         assert tool.run(FirecrawlSearchToolInputSchema(queries=["x"])) is sentinel
