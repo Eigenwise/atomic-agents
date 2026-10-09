@@ -1,10 +1,11 @@
 from enum import Enum
+from unittest.mock import Mock, call
 
 import pytest
 import json
 from typing import List, Dict, Union
 from pathlib import Path
-from pydantic import Field
+from pydantic import Field, ValidationError
 from atomic_agents.context import ChatHistory, Message
 from atomic_agents import BaseIOSchema, VideoURL
 import instructor
@@ -53,6 +54,12 @@ class MockMultimodalSchema(BaseIOSchema):
     images: List[instructor.Image] = Field(..., description="The images to analyze")
     pdfs: List[instructor.processing.multimodal.PDF] = Field(..., description="The PDFs to analyze")
     audio: instructor.processing.multimodal.Audio = Field(..., description="The audio to analyze")
+
+
+class MockImageSchema(BaseIOSchema):
+    """Test schema for serialized image paths."""
+
+    image: instructor.Image = Field(..., description="An image with a local path")
 
 
 class ColorEnum(str, Enum):
@@ -288,6 +295,148 @@ def test_dump_and_load_with_enum(history):
 def test_load_invalid_data(history):
     with pytest.raises(ValueError):
         history.load("invalid json")
+
+
+MISSING = object()
+
+
+@pytest.fixture
+def saved_history(history: ChatHistory) -> tuple[ChatHistory, List[Message], Message, str]:
+    history.add_message("user", InputSchema(test_field="Keep this message"))
+    return history, history.history, history.history[0], history.dump()
+
+
+@pytest.fixture
+def replacement_history() -> ChatHistory:
+    replacement = ChatHistory(max_messages=2)
+    replacement.current_turn_id = "replacement-turn"
+    replacement.add_message("user", InputSchema(test_field="Replacement user message"))
+    replacement.add_message("assistant", MockOutputSchema(test_field="Replacement assistant message"))
+    return replacement
+
+
+def _assert_history_unchanged(
+    history: ChatHistory, original_history: List[Message], original_message: Message, original_dump: str
+) -> None:
+    original_data = json.loads(original_dump)
+    assert history.history is original_history
+    assert history.history[0] is original_message
+    assert history.dump() == original_dump
+    assert history.max_messages == original_data["max_messages"]
+    assert history.current_turn_id == original_data["current_turn_id"]
+
+
+def test_load_invalid_json_preserves_existing_history(saved_history) -> None:
+    history = saved_history[0]
+    with pytest.raises(ValueError, match="^Invalid serialized data: ") as error:
+        history.load("invalid json")
+    assert type(error.value) is ValueError
+    _assert_history_unchanged(*saved_history)
+
+
+@pytest.mark.parametrize(
+    "path, value, error_type, error_match",
+    [
+        pytest.param(("max_messages",), MISSING, ValueError, "'max_messages'", id="missing_max_messages"),
+        pytest.param(("current_turn_id",), MISSING, ValueError, "'current_turn_id'", id="missing_current_turn_id"),
+        pytest.param(("history",), MISSING, ValueError, "'history'", id="missing_history"),
+        pytest.param(("history",), None, ValueError, "^Invalid serialized data: ", id="invalid_history"),
+        pytest.param(("history", 0, "content"), MISSING, ValueError, "'content'", id="missing_content"),
+        pytest.param(
+            ("history", 0, "content", "class_name"),
+            f"{InputSchema.__module__}.NonexistentSchema",
+            ValueError,
+            "NonexistentSchema",
+            id="unknown_class",
+        ),
+        pytest.param(
+            ("history", 0, "content", "data"), "invalid json", ValidationError, "Invalid JSON", id="invalid_content_json"
+        ),
+        pytest.param(("history", 0, "content", "data"), "{}", ValidationError, "test_field", id="invalid_content"),
+        pytest.param(("history", 1, "content", "data"), "{}", ValidationError, "test_field", id="later_invalid_content"),
+        pytest.param(("history", 0, "role"), None, ValidationError, "role", id="invalid_role"),
+        pytest.param(("history", 0, "turn_id"), [], ValidationError, "turn_id", id="invalid_turn_id"),
+        pytest.param(("history", 1, "role"), None, ValidationError, "role", id="later_invalid_role"),
+        pytest.param(("history", 1, "turn_id"), [], ValidationError, "turn_id", id="later_invalid_turn_id"),
+        pytest.param(
+            ("history", 1, "content", "class_name"),
+            "nonexistent_chat_history_module.InputSchema",
+            ModuleNotFoundError,
+            "nonexistent_chat_history_module",
+            id="later_missing_module",
+        ),
+    ],
+)
+def test_load_failure_preserves_existing_history(
+    saved_history, replacement_history, path, value, error_type, error_match
+) -> None:
+    history = saved_history[0]
+    replacement_data = json.loads(replacement_history.dump())
+    target = replacement_data
+    for field in path[:-1]:
+        target = target[field]
+    if value is MISSING:
+        del target[path[-1]]
+    else:
+        target[path[-1]] = value
+
+    with pytest.raises(error_type, match=error_match) as error:
+        history.load(json.dumps(replacement_data))
+    assert type(error.value) is error_type
+    _assert_history_unchanged(*saved_history)
+
+
+@pytest.mark.parametrize(
+    "normalization_error_type, error_type, error_match",
+    [
+        pytest.param(TypeError, ValueError, "^Invalid serialized data: late normalization failure$", id="wrapped_type_error"),
+        pytest.param(RuntimeError, RuntimeError, "^late normalization failure$", id="unwrapped_runtime_error"),
+    ],
+)
+def test_load_late_normalization_failure_preserves_existing_history(
+    saved_history, monkeypatch, normalization_error_type, error_type, error_match
+) -> None:
+    history = saved_history[0]
+    replacement = ChatHistory(max_messages=2)
+    replacement.current_turn_id = "replacement-turn"
+    for source in ("test/first.jpg", "test/late.jpg"):
+        replacement.add_message("user", MockImageSchema(image=instructor.Image(source=source, media_type="image/jpeg")))
+    normalize_path = Mock(side_effect=[Path("test/first.jpg"), normalization_error_type("late normalization failure")])
+    monkeypatch.setattr("atomic_agents.context.chat_history.Path", normalize_path)
+
+    with pytest.raises(error_type, match=error_match) as error:
+        history.load(replacement.dump())
+    assert type(error.value) is error_type
+    assert normalize_path.call_args_list == [call("test/first.jpg"), call("test/late.jpg")]
+    _assert_history_unchanged(*saved_history)
+
+
+def test_load_replaces_existing_history(history: ChatHistory, replacement_history: ChatHistory) -> None:
+    history.add_message("user", InputSchema(test_field="Old message"))
+    original_history = history.history
+
+    history.load(replacement_history.dump())
+
+    assert history.history is not original_history
+    assert history.dump() == replacement_history.dump()
+    assert isinstance(history.history[0].content, InputSchema)
+    assert isinstance(history.history[1].content, MockOutputSchema)
+    assert history.max_messages == 2
+    assert history.current_turn_id == "replacement-turn"
+
+
+@pytest.mark.parametrize("max_messages, current_turn_id", [(None, None), (0, "empty-turn")])
+def test_load_empty_history_replaces_existing_history(history, max_messages, current_turn_id):
+    history.add_message("user", InputSchema(test_field="Old message"))
+    replacement = ChatHistory(max_messages=max_messages)
+    replacement.current_turn_id = current_turn_id
+
+    history.load(replacement.dump())
+
+    assert history.history == []
+    assert history.dump() == replacement.dump()
+    assert history.max_messages == max_messages
+    assert history.current_turn_id == current_turn_id
 
 
 def test_get_class_from_string():
