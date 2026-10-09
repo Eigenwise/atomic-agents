@@ -131,31 +131,33 @@ def setup_client(provider):
     return setup()
 
 
-def main():
-    load_dotenv()
-
-    # History setup
-    history = ChatHistory()
-
-    # Prompt the user to choose a provider from one in the list below.
+def _provider_prompt():
+    """Build the styled provider menu, e.g. "[1]. openai / [2]. anthropic / ..."."""
     y = "bold yellow"
     b = "bold blue"
     g = "bold green"
     provider_inner_str = (
         f"{' / '.join(f'[[{g}]{i + 1}[/{g}]]. [{b}]{provider}[/{b}]' for i, provider in enumerate(providers_list))}"
     )
-    providers_str = f"[{y}]Choose a provider ({provider_inner_str}): [/{y}]"
+    return f"[{y}]Choose a provider ({provider_inner_str}): [/{y}]"
 
-    provider = console.input(providers_str).lower()
 
-    # Set up the client and model based on the chosen provider
-    client, model, model_api_parameters, assistant_role = setup_client(provider)
+def _choose_provider():
+    """Prompt the user to choose a provider by menu number or name."""
+    return console.input(_provider_prompt()).lower()
 
-    # Initialize history with an initial message from the assistant
+
+def _print_agent_message(message):
+    console.print(Text("Agent:", style="bold green"), end=" ")
+    console.print(Text(message, style="bold green"))
+
+
+def _build_agent(client, model, model_api_parameters, assistant_role):
+    """Create the agent with a history that starts with the assistant greeting."""
+    history = ChatHistory()
     initial_message = BasicChatOutputSchema(chat_message="Hello! How can I assist you today?")
     history.add_message(assistant_role, initial_message)
 
-    # Agent setup with specified configuration
     agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
         config=AgentConfig(
             client=client,
@@ -165,44 +167,58 @@ def main():
             model_api_parameters=model_api_parameters,
         )
     )
+    return agent, initial_message
 
-    # Generate the default system prompt for the agent
-    default_system_prompt = agent.system_prompt_generator.generate_prompt()
-    # Display the system prompt in a styled panel
-    console.print(Panel(default_system_prompt, width=console.width, style="bold cyan"), style="bold cyan")
 
-    # Display the initial message from the assistant
-    console.print(Text("Agent:", style="bold green"), end=" ")
-    console.print(Text(initial_message.chat_message, style="bold green"))
+def _print_token_usage(agent, model):
+    """Show the context token count (works with any provider)."""
+    token_info = agent.get_context_token_count()
+    console.print(f"[bold magenta]Token Usage ({model}):[/bold magenta]")
+    console.print(f"  Total: {token_info.total} tokens")
+    console.print(f"  System prompt: {token_info.system_prompt} tokens")
+    console.print(f"  History: {token_info.history} tokens")
+    if token_info.max_tokens:
+        console.print(f"  Max context: {token_info.max_tokens} tokens")
+    if token_info.utilization:
+        console.print(f"  Context utilization: {token_info.utilization:.1%}")
 
-    # Start an infinite loop to handle user inputs and agent responses
+
+def _handle_turn(agent, model, user_input):
+    """Handle one user input. Return False when the user wants to exit."""
+    command = user_input.lower()
+    if command in ["/exit", "/quit"]:
+        console.print("Exiting chat...")
+        return False
+    if command == "/tokens":
+        _print_token_usage(agent, model)
+        return True
+
+    response = agent.run(BasicChatInputSchema(chat_message=user_input))
+    _print_agent_message(response.chat_message)
+    return True
+
+
+def _chat_loop(agent, model):
+    """Read user inputs and print agent responses until the user exits."""
     while True:
-        # Prompt the user for input with a styled prompt
         user_input = console.input("[bold blue]You:[/bold blue] ")
-        # Check if the user wants to exit the chat
-        if user_input.lower() in ["/exit", "/quit"]:
-            console.print("Exiting chat...")
+        if not _handle_turn(agent, model, user_input):
             break
-        # Check if the user wants to see token count (works with any provider!)
-        if user_input.lower() == "/tokens":
-            token_info = agent.get_context_token_count()
-            console.print(f"[bold magenta]Token Usage ({model}):[/bold magenta]")
-            console.print(f"  Total: {token_info.total} tokens")
-            console.print(f"  System prompt: {token_info.system_prompt} tokens")
-            console.print(f"  History: {token_info.history} tokens")
-            if token_info.max_tokens:
-                console.print(f"  Max context: {token_info.max_tokens} tokens")
-            if token_info.utilization:
-                console.print(f"  Context utilization: {token_info.utilization:.1%}")
-            continue
 
-        # Process the user's input through the agent and get the response
-        input_schema = BasicChatInputSchema(chat_message=user_input)
-        response = agent.run(input_schema)
 
-        agent_message = Text(response.chat_message, style="bold green")
-        console.print(Text("Agent:", style="bold green"), end=" ")
-        console.print(agent_message)
+def main():
+    load_dotenv()
+
+    provider = _choose_provider()
+    client, model, model_api_parameters, assistant_role = setup_client(provider)
+    agent, initial_message = _build_agent(client, model, model_api_parameters, assistant_role)
+
+    # Display the default system prompt in a styled panel, then the greeting
+    default_system_prompt = agent.system_prompt_generator.generate_prompt()
+    console.print(Panel(default_system_prompt, width=console.width, style="bold cyan"), style="bold cyan")
+    _print_agent_message(initial_message.chat_message)
+
+    _chat_loop(agent, model)
 
 
 if __name__ == "__main__":

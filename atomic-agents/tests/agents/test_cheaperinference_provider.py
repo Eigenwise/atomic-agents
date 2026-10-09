@@ -4,13 +4,16 @@ All HTTP traffic is mocked. Real network transports raise if any test reaches th
 """
 
 import importlib.util
+import io
 import json
 import os
+from types import SimpleNamespace
 
 import httpx
 import instructor
 import openai
 import pytest
+from rich.console import Console
 
 from atomic_agents import AtomicAgent, AgentConfig, BasicChatInputSchema, BasicChatOutputSchema
 
@@ -258,3 +261,106 @@ class TestOtherProvidersUnchanged:
         assert client.mode == getattr(instructor.Mode, mode)
         if base_url:
             assert str(client.client.base_url) == base_url + "/"
+
+
+@pytest.fixture
+def captured_console(example, monkeypatch):
+    """Replace the example console with one that records output and reads scripted inputs."""
+    console = Console(file=io.StringIO(), width=200, force_terminal=False)
+    inputs = []
+    prompts = []
+
+    def _input(prompt=""):
+        prompts.append(prompt)
+        return inputs.pop(0)
+
+    monkeypatch.setattr(console, "input", _input)
+    monkeypatch.setattr(example, "console", console)
+    return console, inputs, prompts
+
+
+class _FakeAgent:
+    def __init__(self, token_info):
+        self.token_info = token_info
+        self.runs = []
+
+    def get_context_token_count(self):
+        return self.token_info
+
+    def run(self, input_schema):
+        self.runs.append(input_schema)
+        return BasicChatOutputSchema(chat_message=f"echo: {input_schema.chat_message}")
+
+
+class TestInteractiveFlow:
+    def test_provider_prompt_lists_numbered_providers(self, example):
+        prompt = example._provider_prompt()
+        for number, name in example.PROVIDER_NUMBERS.items():
+            assert f"[[bold green]{number}[/bold green]]. [bold blue]{name}[/bold blue]" in prompt
+
+    def test_choose_provider_lowercases_input(self, example, captured_console):
+        _, inputs, prompts = captured_console
+        inputs.append("CheaperInference")
+        assert example._choose_provider() == "cheaperinference"
+        assert prompts == [example._provider_prompt()]
+
+    @pytest.mark.parametrize("command", ["/exit", "/quit", "/EXIT"])
+    def test_exit_commands_stop_the_loop(self, example, captured_console, command):
+        console, _, _ = captured_console
+        agent = _FakeAgent(token_info=None)
+        assert example._handle_turn(agent, "m", command) is False
+        assert agent.runs == []
+        assert "Exiting chat..." in console.file.getvalue()
+
+    def test_tokens_command_prints_usage_without_model_call(self, example, captured_console):
+        console, _, _ = captured_console
+        token_info = SimpleNamespace(total=30, system_prompt=10, history=20, max_tokens=100, utilization=0.3)
+        agent = _FakeAgent(token_info)
+        assert example._handle_turn(agent, "gpt-5.4-mini", "/tokens") is True
+        output = console.file.getvalue()
+        assert agent.runs == []
+        assert "Token Usage (gpt-5.4-mini):" in output
+        assert "Total: 30 tokens" in output
+        assert "Max context: 100 tokens" in output
+        assert "Context utilization: 30.0%" in output
+
+    def test_tokens_command_skips_unknown_limits(self, example, captured_console):
+        console, _, _ = captured_console
+        token_info = SimpleNamespace(total=30, system_prompt=10, history=20, max_tokens=None, utilization=None)
+        example._handle_turn(_FakeAgent(token_info), "m", "/tokens")
+        output = console.file.getvalue()
+        assert "Max context" not in output
+        assert "Context utilization" not in output
+
+    def test_message_is_sent_to_agent_and_printed(self, example, captured_console):
+        console, _, _ = captured_console
+        agent = _FakeAgent(token_info=None)
+        assert example._handle_turn(agent, "m", "Hi") is True
+        assert [schema.chat_message for schema in agent.runs] == ["Hi"]
+        assert "Agent: echo: Hi" in console.file.getvalue()
+
+    def test_build_agent_starts_history_with_greeting(self, example, mocked_gateway):
+        (client, model, model_api_parameters, assistant_role), requests = mocked_gateway
+        agent, initial_message = example._build_agent(client, model, model_api_parameters, assistant_role)
+        assert initial_message.chat_message == "Hello! How can I assist you today?"
+        assert agent.model == "gpt-5.4-mini"
+        assert agent.model_api_parameters == {"max_tokens": 2048}
+        assert [message["role"] for message in agent.history.get_history()] == ["assistant"]
+        assert requests == []
+
+    def test_main_runs_one_turn_then_exits(self, example, monkeypatch, mocked_gateway, captured_console):
+        setup, requests = mocked_gateway
+        console, inputs, prompts = captured_console
+        monkeypatch.setattr(example, "load_dotenv", lambda: None)
+        monkeypatch.setitem(example.PROVIDER_SETUPS, "cheaperinference", lambda: setup)
+        inputs.extend(["9", "Hi", "/quit"])
+
+        example.main()
+
+        output = console.file.getvalue()
+        assert inputs == []
+        assert len(prompts) == 3
+        assert len(requests) == 1
+        assert "Agent: Hello! How can I assist you today?" in output
+        assert "Agent: Hello from the mock" in output
+        assert output.rstrip().endswith("Exiting chat...")
