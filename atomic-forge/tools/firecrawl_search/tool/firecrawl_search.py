@@ -121,10 +121,11 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
         r"https?://(?:[^\s/?#@\\]*@)?(?:[^\s/?#@:\[\]]+|\[[0-9a-f:.]+\])(?::[^\s/?#@\\]*)?(?:[/?#]\S*)?", re.IGNORECASE
     )
 
-    # One DNS label: letters, digits, hyphens and underscores, starting and ending with a letter or digit. No DNS
-    # lookup happens; this only rejects host names that cannot be valid, such as "example..com" or "a%.com".
-    HOST_LABEL = r"[^\W_](?:[\w-]{0,61}[^\W_])?"
-    HOST_NAME_PATTERN = re.compile(rf"(?:{HOST_LABEL}\.)*{HOST_LABEL}")
+    # One label of a host name in its ASCII (IDNA) form: letters, digits, hyphens and underscores, starting and ending
+    # with a letter or digit. The IDNA codec enforces the 63-byte label limit. No DNS lookup happens; this only
+    # rejects host names that cannot be valid, such as "example..com", "a%.com" or "aא.com".
+    HOST_LABEL = r"[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?"
+    HOST_NAME_PATTERN = re.compile(rf"(?:{HOST_LABEL}\.)*{HOST_LABEL}", re.IGNORECASE)
     MAX_HOST_NAME_LENGTH = 253
 
     def __init__(self, config: FirecrawlSearchToolConfig = FirecrawlSearchToolConfig()):
@@ -143,15 +144,28 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
 
     @classmethod
     def _valid_host(cls, host: Optional[str]) -> bool:
-        """True for an IPv6 literal (urlsplit has already validated it), an IPv4 address, or a host name of at most
-        253 characters made of labels that start and end with a letter or digit, with one optional trailing dot."""
+        """True for an IPv6 literal (urlsplit has already validated it), an IPv4 address, or a host name whose ASCII
+        (IDNA) form is at most 253 characters of labels that start and end with a letter or digit, with one optional
+        trailing dot. Unicode names are checked after encoding, which is what DNS sees."""
         name = (host or "").removesuffix(".")
         if ":" in name:
             return True
         if name.rsplit(".", 1)[-1].isdigit():
             # A numeric last label is never a TLD, so only a real IPv4 address is usable (not 256.0.0.1 or 1.2.3).
             return cls._is_ipv4(name)
-        return len(name) <= cls.MAX_HOST_NAME_LENGTH and cls.HOST_NAME_PATTERN.fullmatch(name) is not None
+        ascii_name = cls._idna(name)
+        return ascii_name is not None and cls.HOST_NAME_PATTERN.fullmatch(ascii_name) is not None
+
+    @classmethod
+    def _idna(cls, name: str) -> Optional[str]:
+        """The ASCII (IDNA) form of a host name, or None when it is longer than 253 characters or cannot be encoded:
+        the codec rejects labels that are empty or over 63 bytes once encoded, and Unicode labels that break the IDNA
+        rules, such as mixing left-to-right and right-to-left scripts."""
+        try:
+            ascii_name = name.encode("idna").decode("ascii")
+        except UnicodeError:
+            return None
+        return ascii_name if len(ascii_name) <= cls.MAX_HOST_NAME_LENGTH else None
 
     @staticmethod
     def _is_ipv4(name: str) -> bool:

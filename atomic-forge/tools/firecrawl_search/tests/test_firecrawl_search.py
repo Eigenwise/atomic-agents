@@ -331,6 +331,10 @@ def test_to_item_drops_badly_typed_fields(field: str, value: object, attribute: 
         f"https://{'a' * 63}.com/",
         f"https://{'a' * 63}.{'b' * 63}.{'c' * 63}.{'d' * 61}/",
         "https://1.2.3.4/",
+        "https://stra\u00dfe.de/",
+        "https://\u05e9\u05dc\u05d5\u05dd.co.il/",
+        "https://\u4f8b\u5b50.\u6d4b\u8bd5/",
+        f"https://{'\u00e9' * 20}.com/",
         "https://3com.example.123abc/",
     ],
 )
@@ -399,6 +403,9 @@ def test_to_item_keeps_valid_http_urls(url: str) -> None:
         {"url": "https://1.2.3/"},
         {"url": "https://999999/"},
         {"url": "https://example.\u0661\u0662\u0663/"},
+        {"url": "https://a\u05d0.com/a"},  # mixes left-to-right and right-to-left in one label
+        {"url": f"https://{'\u00e9' * 63}.com/"},  # 63 characters, but over 63 bytes once IDNA-encoded
+        {"url": f"https://{('\u00e9' * 20 + '.') * 10}com/"},  # under 253 characters, over 253 once encoded
     ],
 )
 def test_to_item_without_usable_url_is_none(hit: object) -> None:
