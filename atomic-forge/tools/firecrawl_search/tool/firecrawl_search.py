@@ -147,22 +147,30 @@ class FirecrawlSearchTool(BaseTool[FirecrawlSearchToolInputSchema, FirecrawlSear
         """True for an IPv6 literal (urlsplit has already validated it), an IPv4 address, or a host name whose ASCII
         (IDNA) form is at most 253 characters of labels that start and end with a letter or digit, with one optional
         trailing dot. Unicode names are checked after encoding, which is what DNS sees."""
-        name = (host or "").removesuffix(".")
+        name = host or ""
         if ":" in name:
             return True
-        if name.rsplit(".", 1)[-1].isdigit():
-            # A numeric last label is never a TLD, so only a real IPv4 address is usable (not 256.0.0.1 or 1.2.3).
-            return cls._is_ipv4(name)
         ascii_name = cls._idna(name)
-        return ascii_name is not None and cls.HOST_NAME_PATTERN.fullmatch(ascii_name) is not None
+        if ascii_name is None:
+            return False
+        # A numeric last label is never a TLD, so only a real IPv4 address is usable (not 256.0.0.1 or 1.2.3). Both
+        # forms are checked: encoding turns dots such as "。" into ".", and leaves digits such as "١٢٣" non-ASCII.
+        if cls._numeric_last_label(name.removesuffix("."), ascii_name):
+            return cls._is_ipv4(ascii_name)
+        return cls.HOST_NAME_PATTERN.fullmatch(ascii_name) is not None
+
+    @staticmethod
+    def _numeric_last_label(*names: str) -> bool:
+        return any(name.rsplit(".", 1)[-1].isdigit() for name in names)
 
     @classmethod
     def _idna(cls, name: str) -> Optional[str]:
-        """The ASCII (IDNA) form of a host name, or None when it is longer than 253 characters or cannot be encoded:
-        the codec rejects labels that are empty or over 63 bytes once encoded, and Unicode labels that break the IDNA
-        rules, such as mixing left-to-right and right-to-left scripts."""
+        """The ASCII (IDNA 2003, as Python's codec implements it) form of a host name without its trailing dot, or
+        None when it is longer than 253 characters or cannot be encoded: the codec rejects labels that are empty or
+        over 63 bytes once encoded, and Unicode labels that break the IDNA rules, such as mixing left-to-right and
+        right-to-left scripts. Encoding also turns dots such as "。" into "."."""
         try:
-            ascii_name = name.encode("idna").decode("ascii")
+            ascii_name = name.encode("idna").decode("ascii").removesuffix(".")
         except UnicodeError:
             return None
         return ascii_name if len(ascii_name) <= cls.MAX_HOST_NAME_LENGTH else None
