@@ -100,6 +100,7 @@ Each example is self-contained and demonstrates specific patterns and capabiliti
 - `calculator/` - Mathematical computation tool
 - `datetime_tool/` - Timezone-aware now / parse / convert / shift / diff
 - `fia_signals/` - Crypto market intelligence (regime, signals, yields, gas, trending, wallet risk)
+- `fxmacrodata/` - Macroeconomic releases, release calendars, FX rates, and COT positioning via the FXMacroData API
 - `hackernews_search/` - Hacker News search via the free Algolia API
 - `pdf_reader/` - PDF text + metadata extraction (local file or URL, page-range support)
 - `searxng_search/` - Privacy-focused search integration
