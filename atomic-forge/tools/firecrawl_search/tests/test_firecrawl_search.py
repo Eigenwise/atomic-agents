@@ -412,6 +412,7 @@ def test_to_item_keeps_valid_http_urls(url: str) -> None:
         {"url": "https://256.0.0\uff0e1/"},  # fullwidth dot: encodes to 256.0.0.1
         {"url": "https://1.2\u30023/"},  # ideographic dot: encodes to 1.2.3
         {"url": "https://a\uff61999999/"},  # halfwidth ideographic dot: numeric last label
+        {"url": "https://a\u2488./"},  # "\u2488" encodes to "1.", so this ends in an empty label
     ],
 )
 def test_to_item_without_usable_url_is_none(hit: object) -> None:
