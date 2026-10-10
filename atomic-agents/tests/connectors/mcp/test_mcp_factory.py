@@ -1,6 +1,8 @@
 import pytest
 from pydantic import BaseModel
 import asyncio
+from types import SimpleNamespace
+from mcp.types import CallToolResult, TextContent
 from atomic_agents.connectors.mcp import (
     fetch_mcp_tools,
     fetch_mcp_resources,
@@ -19,10 +21,174 @@ from atomic_agents.connectors.mcp import (
     MCPDefinitionService,
     MCPTransportType,
 )
+from atomic_agents.connectors.mcp.mcp_factory import _schema_from_structured_data, _structured_data_from_json_text
 
 
 class DummySession:
     pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed_output", [False, True])
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize("is_error", [False, True])
+@pytest.mark.parametrize("with_text", [False, True])
+async def test_tool_result_error_flag(monkeypatch, typed_output, as_dict, is_error, with_text):
+    """Tool execution errors must not become successful typed or generic outputs."""
+    definition = MCPToolDefinition(
+        name="SearchTool",
+        description="Search tool",
+        input_schema={"type": "object", "properties": {}},
+        output_schema=(
+            {"type": "object", "properties": {"count": {"type": "integer"}}, "required": ["count"]} if typed_output else None
+        ),
+    )
+    tool_result = CallToolResult(
+        content=(
+            [TextContent(type="text", text="Search unavailable"), TextContent(type="text", text="Try again later")]
+            if with_text
+            else []
+        ),
+        structuredContent={"count": 0},
+        isError=is_error,
+    )
+    response = tool_result.model_dump() if as_dict else tool_result
+
+    class Session:
+        async def call_tool(self, name, arguments):
+            assert name == "SearchTool"
+            assert arguments == {}
+            return response
+
+    async def fetch_definitions(session):
+        return [definition]
+
+    monkeypatch.setattr(MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fetch_definitions))
+    tools = await fetch_mcp_tools_async(client_session=Session())
+    tool = tools[0]()
+    params = tool.input_schema(tool_name="SearchTool")
+
+    if is_error:
+        with pytest.raises(RuntimeError, match="Failed to execute MCP tool 'SearchTool'") as exc:
+            await tool.arun(params)
+        if with_text:
+            assert "Search unavailable" in str(exc.value)
+            assert "Try again later" in str(exc.value)
+        else:
+            assert "MCP server reported a tool execution error" in str(exc.value)
+    else:
+        result = await tool.arun(params)
+        if typed_output:
+            assert result.count == 0
+        else:
+            expected_content = response["content"] if as_dict else tool_result.content
+            assert result.result == expected_content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed_output", [False, True])
+@pytest.mark.parametrize("with_content", [False, True])
+async def test_raw_dictionary_is_not_interpreted_as_mcp_error(monkeypatch, typed_output, with_content):
+    """An application payload may legitimately contain an isError field."""
+    raw_result = {"isError": True, "name": "test_value"}
+    if with_content:
+        raw_result["content"] = "article"
+    definition = MCPToolDefinition(
+        name="SearchTool",
+        description="Search tool",
+        input_schema={"type": "object", "properties": {}},
+        output_schema=(
+            {
+                "type": "object",
+                "properties": {"isError": {"type": "boolean"}, "name": {"type": "string"}},
+                "required": ["isError", "name"],
+            }
+            if typed_output
+            else None
+        ),
+    )
+
+    class Session:
+        async def call_tool(self, name, arguments):
+            return raw_result
+
+    async def fetch_definitions(session):
+        return [definition]
+
+    monkeypatch.setattr(MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fetch_definitions))
+    tool = (await fetch_mcp_tools_async(client_session=Session()))[0]()
+    result = await tool.arun(tool.input_schema(tool_name="SearchTool"))
+
+    if typed_output:
+        assert result.isError is True
+        assert result.name == "test_value"
+    else:
+        assert result.result == (raw_result["content"] if with_content else raw_result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("as_dict", [False, True])
+async def test_error_result_ignores_non_text_content_without_text(monkeypatch, as_dict):
+    """Non-text blocks must not break extraction of an MCP error message."""
+    definition = MCPToolDefinition(
+        name="SearchTool",
+        description="Search tool",
+        input_schema={"type": "object", "properties": {}},
+    )
+    if as_dict:
+        response = {
+            "isError": True,
+            "content": [
+                {"type": "text", "text": "Search unavailable"},
+                {"type": "image", "data": "aW1hZ2U=", "mimeType": "image/png", "text": None},
+            ],
+        }
+    else:
+        response = CallToolResult.model_construct(
+            isError=True,
+            content=[
+                TextContent(type="text", text="Search unavailable"),
+                SimpleNamespace(type="image", text=None),
+            ],
+        )
+
+    class Session:
+        async def call_tool(self, name, arguments):
+            return response
+
+    async def fetch_definitions(session):
+        return [definition]
+
+    monkeypatch.setattr(MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fetch_definitions))
+    tool = (await fetch_mcp_tools_async(client_session=Session()))[0]()
+
+    with pytest.raises(RuntimeError, match="Failed to execute MCP tool 'SearchTool'") as exc:
+        await tool.arun(tool.input_schema(tool_name="SearchTool"))
+    assert "Search unavailable" in str(exc.value)
+    assert "TypeError" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_error_result_uses_fallback_for_text_block_without_string(monkeypatch):
+    definition = MCPToolDefinition(
+        name="SearchTool",
+        description="Search tool",
+        input_schema={"type": "object", "properties": {}},
+    )
+    response = CallToolResult.model_construct(isError=True, content=[{"type": "text", "text": None}])
+
+    class Session:
+        async def call_tool(self, name, arguments):
+            return response
+
+    async def fetch_definitions(session):
+        return [definition]
+
+    monkeypatch.setattr(MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fetch_definitions))
+    tool = (await fetch_mcp_tools_async(client_session=Session()))[0]()
+
+    with pytest.raises(RuntimeError, match="MCP server reported a tool execution error"):
+        await tool.arun(tool.input_schema(tool_name="SearchTool"))
 
 
 def test_fetch_mcp_tools_no_endpoint_raises():
@@ -219,6 +385,25 @@ class MockContentResult(BaseModel):
     """Mock MCP result with content array"""
 
     content: list
+
+
+def test_structured_data_accepts_model_dump_and_rejects_other_values():
+    class OutputSchema(BaseModel):
+        count: int
+
+    class StructuredData(BaseModel):
+        count: int
+
+    result = _schema_from_structured_data(StructuredData(count=2), OutputSchema, "SearchTool")
+    assert result.count == 2
+
+    with pytest.raises(TypeError, match="unexpected type int"):
+        _schema_from_structured_data(42, OutputSchema, "SearchTool")
+
+
+@pytest.mark.parametrize("text", ["not JSON", "[]"])
+def test_structured_data_from_json_text_requires_an_object(text):
+    assert _structured_data_from_json_text(text, "SearchTool") is None
 
 
 @pytest.mark.asyncio
