@@ -179,7 +179,7 @@ class MCPFactory:
                     bound_working_directory = getattr(self, "working_directory", None)
 
                     # Get arguments, excluding tool_name
-                    arguments = params.model_dump(exclude={"tool_name"}, exclude_none=True)
+                    arguments = params.model_dump(exclude={"tool_name"}, exclude_unset=True)
 
                     async def _connect_and_call():
                         stack = AsyncExitStack()
