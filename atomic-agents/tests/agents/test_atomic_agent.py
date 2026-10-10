@@ -1,5 +1,7 @@
+import json
+
 import pytest
-from unittest.mock import Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 from enum import Enum
 from pydantic import BaseModel, Field
 from pydantic import ValidationError
@@ -1271,6 +1273,67 @@ def test_prepare_messages_keeps_system_for_openai(mock_instructor, mock_system_p
 # --- max_context_tokens and _trim_context tests ---
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["run", "run_stream", "run_async", "run_async_stream"])
+@pytest.mark.parametrize("input_size", [15, 40])
+@patch("atomic_agents.agents.atomic_agent.get_token_counter")
+async def test_context_budget_includes_new_input(
+    mock_get_token_counter, method, input_size, mock_instructor, mock_instructor_async, mock_system_prompt_generator
+):
+    """All completion APIs budget the actual request and preserve the latest input."""
+    history = ChatHistory()
+    history.add_message("user", BasicChatInputSchema(chat_message="o" * 20))
+    client = mock_instructor_async if "async" in method else mock_instructor
+    response = BasicChatOutputSchema(chat_message="Response")
+    if "async" in method:
+        client.chat.completions.create = AsyncMock(return_value=response)
+
+        async def partials(**kwargs):
+            yield response
+
+        client.chat.completions.create_partial = Mock(side_effect=partials)
+
+    def count_context(model, system_messages, history_messages, tools):
+        history_tokens = sum(len(json.loads(message["content"])["chat_message"]) for message in history_messages)
+        return TokenCountResult(total=10 + history_tokens, system_prompt=10, history=history_tokens, tools=0, model=model)
+
+    mock_get_token_counter.return_value.count_context.side_effect = count_context
+    agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
+        AgentConfig(
+            client=client,
+            model="gpt-5-mini",
+            history=history,
+            system_prompt_generator=mock_system_prompt_generator,
+            max_context_tokens=30,
+        )
+    )
+    user_input = BasicChatInputSchema(chat_message="n" * input_size)
+
+    async def invoke():
+        if method == "run":
+            agent.run(user_input)
+        elif method == "run_stream":
+            list(agent.run_stream(user_input))
+        elif method == "run_async":
+            await agent.run_async(user_input)
+        else:
+            async for _ in agent.run_async_stream(user_input):
+                pass
+
+    if input_size == 40:
+        with pytest.raises(ValueError, match="max_context_tokens"):
+            await invoke()
+        client.chat.completions.create.assert_not_called()
+        client.chat.completions.create_partial.assert_not_called()
+        assert history.history[-1].content == user_input
+    else:
+        await invoke()
+        completion = client.chat.completions.create_partial if "stream" in method else client.chat.completions.create
+        request_history = completion.call_args.kwargs["messages"][1:]
+        assert request_history == [{"role": "user", "content": user_input.model_dump_json()}]
+        assert count_context(agent.model, [], request_history, None).total <= agent.max_context_tokens
+
+
 def test_trim_context_no_op_when_max_context_tokens_unset(mock_instructor, mock_system_prompt_generator):
     """When max_context_tokens is None, _trim_context returns without any action."""
     history = ChatHistory()
@@ -1391,8 +1454,8 @@ def test_trim_context_raises_when_single_turn_exceeds_limit(
 
 
 @patch("atomic_agents.agents.atomic_agent.get_token_counter")
-def test_trim_context_called_before_user_message_in_run(mock_get_token_counter, mock_instructor, mock_system_prompt_generator):
-    """_trim_context runs before the new user message is added to history."""
+def test_trim_context_preserves_new_user_message_in_run(mock_get_token_counter, mock_instructor, mock_system_prompt_generator):
+    """Old turns can be trimmed while the new user input is preserved."""
     history = ChatHistory()
 
     # Existing turn in history
@@ -1424,7 +1487,7 @@ def test_trim_context_called_before_user_message_in_run(mock_get_token_counter, 
 
     agent.run(BasicChatInputSchema(chat_message="New message"))
 
-    # Old turn was trimmed BEFORE new message was added
+    # The old turn was trimmed and the new message was preserved.
     assert history.get_message_count() == 2  # assistant response + new user message
     assert history.history[0].content.chat_message == "New message"  # new message is first
 
