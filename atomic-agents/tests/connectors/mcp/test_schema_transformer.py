@@ -71,6 +71,77 @@ class TestSchemaTransformer:
 
 
 class TestCreateModelFromSchema:
+    @pytest.mark.parametrize(
+        "prop_schema, valid, invalid",
+        [
+            ({"type": "string", "enum": ["brief", "detailed"]}, "brief", "unknown"),
+            ({"type": "integer", "enum": [1, 2]}, 1, 3),
+            ({"enum": ["brief", None]}, None, "unknown"),
+            ({"type": "string", "const": "brief"}, "brief", "detailed"),
+            ({"type": "integer", "const": 0}, 0, 1),
+            ({"type": "boolean", "const": False}, False, True),
+            ({"const": None}, None, "unknown"),
+        ],
+    )
+    def test_scalar_value_constraints(self, prop_schema, valid, invalid):
+        """MCP parameter choices constrain both validation and the model-facing schema."""
+        schema = {"type": "object", "properties": {"mode": prop_schema}, "required": ["mode"]}
+        model = SchemaTransformer.create_model_from_schema(schema, "ModeInput", "configure")
+
+        assert model(tool_name="configure", mode=valid).mode == valid
+        with pytest.raises(ValueError):
+            model(tool_name="configure", mode=invalid)
+        emitted = model.model_json_schema()["properties"]["mode"]
+        choices = prop_schema.get("enum", [prop_schema.get("const")])
+        if len(choices) == 1:
+            assert emitted["const"] == choices[0]
+        else:
+            assert emitted["enum"] == choices
+
+    def test_array_item_enum(self):
+        """Enum constraints survive recursive conversion of tool parameter arrays."""
+        schema = {
+            "type": "object",
+            "properties": {"modes": {"type": "array", "items": {"type": "string", "enum": ["brief", "detailed"]}}},
+            "required": ["modes"],
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "ModesInput", "configure")
+
+        assert model(tool_name="configure", modes=["brief", "detailed"]).modes == ["brief", "detailed"]
+        with pytest.raises(ValueError):
+            model(tool_name="configure", modes=["unknown"])
+        assert model.model_json_schema()["properties"]["modes"]["items"]["enum"] == ["brief", "detailed"]
+
+    @pytest.mark.parametrize("definitions_key", ["$defs", "definitions"])
+    def test_referenced_enum(self, definitions_key):
+        """Enum definitions emitted by MCP servers remain scalar parameter choices."""
+        schema = {
+            "type": "object",
+            "properties": {"mode": {"$ref": f"#/{definitions_key}/Mode"}},
+            "required": ["mode"],
+            definitions_key: {"Mode": {"type": "string", "enum": ["brief", "detailed"]}},
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "ModeInput", "configure")
+
+        assert model(tool_name="configure", mode="brief").mode == "brief"
+        with pytest.raises(ValueError):
+            model(tool_name="configure", mode="unknown")
+        assert model.model_json_schema()["properties"]["mode"]["enum"] == ["brief", "detailed"]
+
+    def test_nullable_enum_with_default(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "mode": {"anyOf": [{"type": "string", "enum": ["brief", "detailed"]}, {"type": "null"}], "default": "brief"}
+            },
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "ModeInput", "configure")
+
+        assert model(tool_name="configure").mode == "brief"
+        assert model(tool_name="configure", mode=None).mode is None
+        with pytest.raises(ValueError):
+            model(tool_name="configure", mode="unknown")
+
     @pytest.mark.parametrize("definitions_key", ["$defs", "definitions"])
     @pytest.mark.parametrize(
         "name, reference_token",

@@ -43,7 +43,10 @@ class SchemaTransformer:
             model_name = ref_schema.get("title", ref_name)
             # Avoid infinite recursion by adding placeholder first
             model_cache[ref_name] = Any
-            model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
+            if ref_schema.get("type") == "object" or "properties" in ref_schema:
+                model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
+            else:
+                model, _ = SchemaTransformer.json_to_pydantic_field(ref_schema, True, root_schema, model_cache)
             model_cache[ref_name] = model
             return model
 
@@ -96,6 +99,13 @@ class SchemaTransformer:
         # Handle $ref
         if "$ref" in prop_schema:
             python_type = SchemaTransformer._resolve_ref(prop_schema["$ref"], root_schema, model_cache)
+        # Scalar value constraints must also appear in the model-facing schema.
+        elif "const" in prop_schema and isinstance(prop_schema["const"], (str, int, float, bool, type(None))):
+            python_type = Literal[prop_schema["const"]]
+        elif prop_schema.get("enum") and all(
+            isinstance(value, (str, int, float, bool, type(None))) for value in prop_schema["enum"]
+        ):
+            python_type = Literal[tuple(prop_schema["enum"])]
         # Handle oneOf/anyOf (unions)
         elif "oneOf" in prop_schema or "anyOf" in prop_schema:
             union_schemas = prop_schema.get("oneOf", prop_schema.get("anyOf", []))
