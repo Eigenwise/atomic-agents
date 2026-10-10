@@ -367,6 +367,25 @@ class TestToolDefinitionService:
         mock_session.list_resource_templates.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("code", [types.METHOD_NOT_FOUND, types.INTERNAL_ERROR])
+    async def test_resource_template_continuation_error_is_propagated(self, code):
+        mock_session = AsyncMock()
+        mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
+        error = McpError(types.ErrorData(code=code, message="Continuation failed"))
+        mock_session.list_resource_templates.side_effect = [
+            types.ListResourceTemplatesResult(
+                resourceTemplates=[types.ResourceTemplate(name="user", uriTemplate="users://{id}")],
+                nextCursor="next-page",
+            ),
+            error,
+        ]
+        with pytest.raises(McpError) as exc_info:
+            await MCPDefinitionService.fetch_resource_definitions_from_session(mock_session)
+        assert exc_info.value is error
+        assert mock_session.list_resource_templates.await_count == 2
+        assert mock_session.list_resource_templates.await_args.kwargs == {"cursor": "next-page"}
+
+    @pytest.mark.asyncio
     async def test_fetch_resource_definitions_from_session_propagates_template_errors(self):
         mock_session = AsyncMock()
         mock_session.list_resources.return_value = types.ListResourcesResult(

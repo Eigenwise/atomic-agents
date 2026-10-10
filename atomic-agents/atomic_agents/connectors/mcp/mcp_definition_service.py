@@ -4,7 +4,7 @@ import logging
 import re
 import shlex
 from contextlib import AsyncExitStack
-from typing import List, NamedTuple, Optional, Dict, Any, Callable, Awaitable
+from typing import List, NamedTuple, Optional, Dict, Any, Callable, Awaitable, TypeVar
 from enum import Enum
 
 from mcp import ClientSession, StdioServerParameters
@@ -19,14 +19,28 @@ from urllib.parse import unquote as decode_uri
 logger = logging.getLogger(__name__)
 
 
-async def _fetch_all_pages(list_page: Callable[..., Awaitable[Any]], items_attribute: str) -> List[Any]:
+PageType = TypeVar(
+    "PageType",
+    types.ListToolsResult,
+    types.ListResourcesResult,
+    types.ListResourceTemplatesResult,
+    types.ListPromptsResult,
+)
+ItemType = TypeVar("ItemType", types.Tool, types.Resource, types.ResourceTemplate, types.Prompt)
+
+
+async def _fetch_all_pages(
+    first_page: PageType,
+    list_next: Callable[[str], Awaitable[PageType]],
+    get_items: Callable[[PageType], List[ItemType]],
+) -> List[ItemType]:
     """Collect an MCP list response, following its opaque continuation cursors."""
-    response = await list_page()
-    items = list(getattr(response, items_attribute) or [])
+    response = first_page
+    items = list(get_items(response) or [])
     cursor = getattr(response, "nextCursor", None)
     while isinstance(cursor, str):
-        response = await list_page(cursor=cursor)
-        items.extend(getattr(response, items_attribute) or [])
+        response = await list_next(cursor)
+        items.extend(get_items(response) or [])
         cursor = getattr(response, "nextCursor", None)
     return items
 
@@ -175,7 +189,9 @@ class MCPDefinitionService:
             # `initialize` is idempotent – calling it twice is safe and
             # ensures the session is ready.
             await session.initialize()
-            mcp_tools = await _fetch_all_pages(session.list_tools, "tools")
+            mcp_tools = await _fetch_all_pages(
+                await session.list_tools(), lambda cursor: session.list_tools(cursor=cursor), lambda response: response.tools
+            )
             for mcp_tool in mcp_tools:
                 # Capture outputSchema if the MCP server provides one
                 output_schema = getattr(mcp_tool, "outputSchema", None)
@@ -260,14 +276,23 @@ class MCPDefinitionService:
 
         try:
             await session.initialize()
-            resources_iterable: List[types.Resource] = await _fetch_all_pages(session.list_resources, "resources")
+            resources_iterable = await _fetch_all_pages(
+                await session.list_resources(),
+                lambda cursor: session.list_resources(cursor=cursor),
+                lambda response: response.resources,
+            )
 
             try:
-                res_templates = await _fetch_all_pages(session.list_resource_templates, "resourceTemplates")
+                first_page = await session.list_resource_templates()
             except McpError as error:
                 if error.error.code != types.METHOD_NOT_FOUND:
                     raise
             else:
+                res_templates = await _fetch_all_pages(
+                    first_page,
+                    lambda cursor: session.list_resource_templates(cursor=cursor),
+                    lambda response: response.resourceTemplates,
+                )
                 for template in res_templates:
                     # Resource templates have no "input_schema" value and use URI templates with parameters.
                     resources_iterable.append(
@@ -380,7 +405,11 @@ class MCPDefinitionService:
         prompts: List[MCPPromptDefinition] = []
         try:
             await session.initialize()
-            mcp_prompts = await _fetch_all_pages(session.list_prompts, "prompts")
+            mcp_prompts = await _fetch_all_pages(
+                await session.list_prompts(),
+                lambda cursor: session.list_prompts(cursor=cursor),
+                lambda response: response.prompts,
+            )
             for mcp_prompt in mcp_prompts:
                 arguments: List[types.PromptArgument] = mcp_prompt.arguments or []
                 prompts.append(
