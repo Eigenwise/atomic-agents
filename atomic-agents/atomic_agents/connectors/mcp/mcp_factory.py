@@ -6,7 +6,7 @@ from contextlib import AsyncExitStack
 import shlex
 import types
 
-from pydantic import create_model, Field, BaseModel
+from pydantic import create_model, Field, BaseModel, TypeAdapter, ValidationError
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -54,6 +54,23 @@ class MCPPromptOutputSchema(BaseIOSchema):
 
 class MCPFactory:
     """Factory for creating MCP tool classes."""
+
+    @staticmethod
+    def _nullable_arguments(schema: Dict[str, Any]) -> set[str]:
+        """Check declared parameter types before optional fields are widened to accept None."""
+        nullable = set()
+        for name, prop_schema in schema.get("properties", {}).items():
+            if "enum" in prop_schema and None not in prop_schema["enum"]:
+                continue
+            if "const" in prop_schema and prop_schema["const"] is not None:
+                continue
+            field_type, _ = SchemaTransformer.json_to_pydantic_field(prop_schema, True, schema)
+            try:
+                TypeAdapter(field_type).validate_python(None)
+            except ValidationError:
+                continue
+            nullable.add(name)
+        return nullable
 
     def __init__(
         self,
@@ -179,7 +196,11 @@ class MCPFactory:
                     bound_working_directory = getattr(self, "working_directory", None)
 
                     # Get arguments, excluding tool_name
-                    arguments = params.model_dump(exclude={"tool_name"}, exclude_unset=True)
+                    arguments = {
+                        name: value
+                        for name, value in params.model_dump(exclude={"tool_name"}, exclude_unset=True).items()
+                        if value is not None or name in self._nullable_argument_names
+                    }
 
                     async def _connect_and_call():
                         stack = AsyncExitStack()
@@ -367,6 +388,7 @@ class MCPFactory:
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
                     "_has_typed_output_schema": has_typed_output_schema,
+                    "_nullable_argument_names": self._nullable_arguments(input_schema_dict),
                 }
 
                 # Create the class using new_class() for proper generic type support
