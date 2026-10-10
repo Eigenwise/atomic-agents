@@ -1,10 +1,10 @@
 """Module for transforming JSON schemas to Pydantic models."""
 
 import logging
-from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, cast
+from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
-from pydantic import Field, create_model
+from pydantic import BeforeValidator, Field, create_model
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
 
@@ -24,6 +24,33 @@ JSON_TYPE_MAP = {
 
 class SchemaTransformer:
     """Class for transforming JSON schemas to Pydantic models."""
+
+    @staticmethod
+    def _matches_scalar_type(value: Any, json_types: List[str]) -> bool:
+        """Match JSON scalar types without treating Python bools as numbers."""
+        if isinstance(value, bool):
+            return "boolean" in json_types
+        if isinstance(value, (int, float)):
+            return "number" in json_types or ("integer" in json_types and (isinstance(value, int) or value.is_integer()))
+        return (value is None and "null" in json_types) or (isinstance(value, str) and "string" in json_types)
+
+    @staticmethod
+    def _scalar_choice_type(prop_schema: Dict[str, Any], choices: List[Any]) -> Type:
+        """Intersect scalar choices with the declared type for validation and schema output."""
+        declared_type = prop_schema.get("type")
+        if declared_type is None:
+            return Literal[tuple(choices)]
+        json_types = declared_type if isinstance(declared_type, list) else [declared_type]
+        choices = [value for value in choices if SchemaTransformer._matches_scalar_type(value, json_types)]
+        if not choices:
+            raise ValueError("Scalar choices do not match the declared JSON Schema type")
+
+        def validate_type(value: Any) -> Any:
+            if not SchemaTransformer._matches_scalar_type(value, json_types):
+                raise ValueError("Value does not match the declared JSON Schema type")
+            return value
+
+        return Annotated[Literal[tuple(choices)], BeforeValidator(validate_type)]
 
     @staticmethod
     def _resolve_ref(ref_path: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]) -> Type:
@@ -100,11 +127,11 @@ class SchemaTransformer:
             python_type = SchemaTransformer._resolve_ref(prop_schema["$ref"], root_schema, model_cache)
         # Scalar value constraints must also appear in the model-facing schema.
         elif "const" in prop_schema and isinstance(prop_schema["const"], (str, int, float, bool, type(None))):
-            python_type = Literal[prop_schema["const"]]
+            python_type = SchemaTransformer._scalar_choice_type(prop_schema, [prop_schema["const"]])
         elif prop_schema.get("enum") and all(
             isinstance(value, (str, int, float, bool, type(None))) for value in prop_schema["enum"]
         ):
-            python_type = Literal[tuple(prop_schema["enum"])]
+            python_type = SchemaTransformer._scalar_choice_type(prop_schema, prop_schema["enum"])
         # Handle oneOf/anyOf (unions)
         elif "oneOf" in prop_schema or "anyOf" in prop_schema:
             union_schemas = prop_schema.get("oneOf", prop_schema.get("anyOf", []))
@@ -144,6 +171,8 @@ class SchemaTransformer:
                     python_type = Dict[str, Any]
 
         field_kwargs = {"description": description}
+        if ("const" in prop_schema or "enum" in prop_schema) and "type" in prop_schema:
+            field_kwargs["json_schema_extra"] = {"type": prop_schema["type"]}
         if required:
             field_kwargs["default"] = ...
         elif default is not None:

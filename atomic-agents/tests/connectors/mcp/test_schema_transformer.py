@@ -72,6 +72,49 @@ class TestSchemaTransformer:
 
 class TestCreateModelFromSchema:
     @pytest.mark.parametrize(
+        "prop_schema, valid, invalid, emitted_type, choices",
+        [
+            ({"type": "string", "enum": ["brief", None]}, "brief", None, "string", ["brief"]),
+            ({"type": "integer", "enum": [1, "two"]}, 1, "two", "integer", [1]),
+            ({"type": "integer", "enum": [1, True, 2.5]}, 1, True, "integer", [1]),
+            ({"type": "number", "enum": [1, 2.5, False]}, 2.5, False, "number", [1, 2.5]),
+            ({"type": "boolean", "enum": [False, 0, "false"]}, False, 0, "boolean", [False]),
+            ({"type": "integer", "enum": [1.0, 2.5]}, 1, 2.5, "integer", [1.0]),
+            ({"type": "boolean", "const": False}, False, 0, "boolean", [False]),
+        ],
+    )
+    def test_typed_scalar_choices(self, prop_schema, valid, invalid, emitted_type, choices):
+        """Choice constraints intersect the declared JSON type, including bool/number boundaries."""
+        schema = {"type": "object", "properties": {"mode": prop_schema}, "required": ["mode"]}
+        model = SchemaTransformer.create_model_from_schema(schema, "TypedModeInput", "configure")
+        assert model(tool_name="configure", mode=valid).mode == valid
+        with pytest.raises(ValueError):
+            model(tool_name="configure", mode=invalid)
+        emitted = model.model_json_schema()["properties"]["mode"]
+        assert emitted["type"] == emitted_type
+        assert emitted.get("enum", [emitted.get("const")]) == choices
+
+    @pytest.mark.parametrize("prop_schema", [{"type": "string", "const": None}, {"type": "integer", "enum": ["two"]}])
+    def test_incompatible_scalar_choices_reject_definition(self, prop_schema):
+        """An impossible type/choice combination never becomes an unrestricted input field."""
+        schema = {"type": "object", "properties": {"mode": prop_schema}, "required": ["mode"]}
+        with pytest.raises(ValueError, match="choices.*declared"):
+            SchemaTransformer.create_model_from_schema(schema, "InvalidModeInput", "configure")
+
+    def test_nullable_type_array_with_mixed_enum(self):
+        schema = {
+            "type": "object",
+            "properties": {"mode": {"type": ["string", "null"], "enum": ["brief", None, 1]}},
+            "required": ["mode"],
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "NullableModeInput", "configure")
+        assert model(tool_name="configure", mode="brief").mode == "brief"
+        assert model(tool_name="configure", mode=None).mode is None
+        with pytest.raises(ValueError):
+            model(tool_name="configure", mode=1)
+        assert model.model_json_schema()["properties"]["mode"]["enum"] == ["brief", None]
+
+    @pytest.mark.parametrize(
         "prop_schema, valid, invalid",
         [
             ({"type": "string", "enum": ["brief", "detailed"]}, "brief", "unknown"),
