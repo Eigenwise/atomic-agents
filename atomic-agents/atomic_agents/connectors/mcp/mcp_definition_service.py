@@ -4,7 +4,7 @@ import logging
 import re
 import shlex
 from contextlib import AsyncExitStack
-from typing import List, NamedTuple, Optional, Dict, Any
+from typing import List, NamedTuple, Optional, Dict, Any, Callable, Awaitable
 from enum import Enum
 
 from mcp import ClientSession, StdioServerParameters
@@ -17,6 +17,18 @@ from pydantic import AnyUrl
 from urllib.parse import unquote as decode_uri
 
 logger = logging.getLogger(__name__)
+
+
+async def _fetch_all_pages(list_page: Callable[..., Awaitable[Any]], items_attribute: str) -> List[Any]:
+    """Collect an MCP list response, following its opaque continuation cursors."""
+    response = await list_page()
+    items = list(getattr(response, items_attribute) or [])
+    cursor = getattr(response, "nextCursor", None)
+    while isinstance(cursor, str):
+        response = await list_page(cursor=cursor)
+        items.extend(getattr(response, items_attribute) or [])
+        cursor = getattr(response, "nextCursor", None)
+    return items
 
 
 class MCPTransportType(Enum):
@@ -163,8 +175,8 @@ class MCPDefinitionService:
             # `initialize` is idempotent – calling it twice is safe and
             # ensures the session is ready.
             await session.initialize()
-            response = await session.list_tools()
-            for mcp_tool in response.tools:
+            mcp_tools = await _fetch_all_pages(session.list_tools, "tools")
+            for mcp_tool in mcp_tools:
                 # Capture outputSchema if the MCP server provides one
                 output_schema = getattr(mcp_tool, "outputSchema", None)
                 definitions.append(
@@ -248,17 +260,15 @@ class MCPDefinitionService:
 
         try:
             await session.initialize()
-            response: types.ListResourcesResult = await session.list_resources()
-
-            resources_iterable: List[types.Resource] = list(response.resources or [])
+            resources_iterable: List[types.Resource] = await _fetch_all_pages(session.list_resources, "resources")
 
             try:
-                res_templates: types.ListResourceTemplatesResult = await session.list_resource_templates()
+                res_templates = await _fetch_all_pages(session.list_resource_templates, "resourceTemplates")
             except McpError as error:
                 if error.error.code != types.METHOD_NOT_FOUND:
                     raise
             else:
-                for template in res_templates.resourceTemplates:
+                for template in res_templates:
                     # Resource templates have no "input_schema" value and use URI templates with parameters.
                     resources_iterable.append(
                         types.Resource(
@@ -370,8 +380,8 @@ class MCPDefinitionService:
         prompts: List[MCPPromptDefinition] = []
         try:
             await session.initialize()
-            response: types.ListPromptsResult = await session.list_prompts()
-            for mcp_prompt in response.prompts:
+            mcp_prompts = await _fetch_all_pages(session.list_prompts, "prompts")
+            for mcp_prompt in mcp_prompts:
                 arguments: List[types.PromptArgument] = mcp_prompt.arguments or []
                 prompts.append(
                     MCPPromptDefinition(
