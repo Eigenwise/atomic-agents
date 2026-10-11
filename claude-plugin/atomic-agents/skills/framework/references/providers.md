@@ -29,7 +29,14 @@ Model IDs in this file are illustrative. Provider model names change often — c
 | OpenRouter | `instructor.from_openai(OpenAI(base_url=..., api_key=...))` | `Mode.TOOLS` | `"assistant"` | OpenAI-compatible |
 | MiniMax | `instructor.from_openai(OpenAI(base_url=..., api_key=...), mode=Mode.JSON)` | `Mode.JSON` | `"assistant"` | OpenAI-compatible |
 
-The `mode` value is passed to `AgentConfig(mode=...)` **and** sometimes to the Instructor factory itself. Match them.
+The `mode` value is passed to `AgentConfig(mode=...)` **and** sometimes to the Instructor factory itself. These are two different knobs:
+
+- The **factory** mode (e.g. `instructor.from_openai(..., mode=Mode.JSON)`) decides the API call format.
+- `AgentConfig(mode=...)` decides how the output schema is accounted for when counting tokens: modes that transmit the schema as a tool definition count it as a tool, the rest append it to the system message. It defaults to following the client.
+
+They must use the same mode family. `AgentConfig(mode=...)` is optional — omit it and the client's mode is used, so setting the factory mode alone is enough. Setting it explicitly to a mode from a different family than the client's logs a warning.
+
+This matters most for OpenAI-compatible hosts that do not speak the tools protocol: the factory needs `Mode.JSON`, and the accounting follows once `AgentConfig.mode` is left at its default or set to the same mode.
 
 ## OpenAI
 
