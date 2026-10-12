@@ -6,7 +6,7 @@ from contextlib import AsyncExitStack
 import shlex
 import types
 
-from pydantic import create_model, Field, BaseModel
+from pydantic import create_model, Field, BaseModel, ValidationError
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -27,6 +27,139 @@ from atomic_agents.connectors.mcp.mcp_definition_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+MCPToolResult = BaseModel | Dict[str, object]
+
+
+def _as_mcp_tool_result(tool_result: MCPToolResult) -> Optional[mcp.types.CallToolResult]:
+    if isinstance(tool_result, mcp.types.CallToolResult):
+        return tool_result
+    if isinstance(tool_result, BaseModel):
+        return None
+    try:
+        return mcp.types.CallToolResult.model_validate(tool_result)
+    except ValidationError:
+        return None
+
+
+def _mcp_text_block_text(item: object) -> Optional[str]:
+    if isinstance(item, mcp.types.TextContent):
+        return item.text
+    if isinstance(item, dict) and item.get("type") == "text":
+        text = item.get("text")
+        return text if isinstance(text, str) else None
+    return None
+
+
+def _mcp_error_text(content: List[object]) -> Optional[str]:
+    messages = [text for item in content if (text := _mcp_text_block_text(item)) is not None]
+    return "\n".join(messages).strip() or None
+
+
+def _mcp_tool_error_message(tool_result: MCPToolResult) -> Optional[str]:
+    parsed_result = _as_mcp_tool_result(tool_result)
+    if parsed_result is None or not parsed_result.isError:
+        return None
+
+    return _mcp_error_text(parsed_result.content) or "MCP server reported a tool execution error."
+
+
+def _schema_from_structured_data(data: object, output_schema: Type[BaseModel], tool_name: str) -> BaseModel:
+    if isinstance(data, dict):
+        return output_schema(**data)
+    model_dump = getattr(data, "model_dump", None)
+    if callable(model_dump):
+        return output_schema(**model_dump())
+
+    logger.error(
+        f"Unexpected structuredContent type for tool '{tool_name}': "
+        f"got {type(data).__name__}, expected dict or BaseModel. Content: {data!r}"
+    )
+    raise TypeError(
+        f"MCP tool '{tool_name}' returned structuredContent with unexpected type {type(data).__name__}. "
+        "Expected dict or BaseModel."
+    )
+
+
+def _structured_data_from_json_text(text: str, tool_name: str) -> Optional[Dict[str, object]]:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        preview = f"Content preview: {text[:200]!r}..." if len(text) > 200 else f"Content: {text!r}"
+        logger.debug(f"Tool '{tool_name}' content is not valid JSON: {e}. {preview}")
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    logger.debug(
+        f"Tool '{tool_name}' content parsed as JSON but was "
+        f"{type(parsed).__name__}, not dict. Trying other extraction methods."
+    )
+    return None
+
+
+def _content_item_data(item: object) -> Optional[Dict[str, object]]:
+    data = getattr(item, "data", None)
+    if isinstance(item, dict):
+        data = item.get("data")
+    return data if isinstance(data, dict) else None
+
+
+def _structured_data_from_content(
+    content: Union[List[object], Tuple[object, ...]], tool_name: str
+) -> Optional[Dict[str, object]]:
+    if not content:
+        return None
+    first_content = content[0]
+    text = getattr(first_content, "text", None)
+    if isinstance(first_content, dict):
+        text = first_content.get("text")
+    if isinstance(text, str):
+        structured_data = _structured_data_from_json_text(text, tool_name)
+        if structured_data is not None:
+            return structured_data
+    return _content_item_data(first_content)
+
+
+def _typed_mcp_model_output(tool_result: BaseModel, output_schema: Type[BaseModel], tool_name: str) -> BaseModel:
+    structured_data = getattr(tool_result, "structuredContent", None)
+    if structured_data is not None:
+        return _schema_from_structured_data(structured_data, output_schema, tool_name)
+    content = getattr(tool_result, "content", None)
+    if isinstance(content, (list, tuple)):
+        structured_data = _structured_data_from_content(content, tool_name)
+        if structured_data is not None:
+            return output_schema(**structured_data)
+    raise ValueError(f"MCP tool '{tool_name}' has outputSchema but returned unparseable result.")
+
+
+def _typed_mcp_dict_output(tool_result: Dict[str, object], output_schema: Type[BaseModel], tool_name: str) -> BaseModel:
+    if "structuredContent" in tool_result:
+        return _schema_from_structured_data(tool_result["structuredContent"], output_schema, tool_name)
+    content = tool_result.get("content")
+    if isinstance(content, dict):
+        return output_schema(**content)
+    return output_schema(**tool_result)
+
+
+def _typed_mcp_tool_output(
+    tool_result: MCPToolResult,
+    output_schema: Type[BaseModel],
+    tool_name: str,
+) -> BaseModel:
+    if isinstance(tool_result, BaseModel):
+        return _typed_mcp_model_output(tool_result, output_schema, tool_name)
+    return _typed_mcp_dict_output(tool_result, output_schema, tool_name)
+
+
+def _generic_mcp_tool_output(tool_result: MCPToolResult, output_schema: Type[BaseModel]) -> BaseModel:
+    if isinstance(tool_result, BaseModel) and hasattr(tool_result, "content"):
+        result_content = tool_result.content
+    elif isinstance(tool_result, dict) and "content" in tool_result:
+        result_content = tool_result["content"]
+    else:
+        result_content = tool_result
+    return output_schema(result=result_content)
 
 
 class MCPToolOutputSchema(BaseIOSchema):
@@ -239,102 +372,14 @@ class MCPFactory:
                             # Legacy behaviour – open a fresh connection per invocation.
                             tool_result = await _connect_and_call()
 
-                        # Process the result based on whether we have a typed output schema.
-                        # Extraction precedence for typed schemas:
-                        # 1. structuredContent attribute (MCP spec primary path)
-                        # 2. content[0].text parsed as JSON (some servers return JSON as text)
-                        # 3. content[0].data dict (structured data in content item)
-                        # 4. Dict with structuredContent/content keys
-                        # 5. Direct dict usage as fallback
+                        error_message = _mcp_tool_error_message(tool_result)
+                        if error_message is not None:
+                            raise ValueError(error_message)
+
                         has_typed_schema = getattr(self, "_has_typed_output_schema", False)
-                        BoundOutputSchema = self.output_schema
-
                         if has_typed_schema:
-                            # For typed output schemas, try to extract structured content
-                            # MCP tools with output schemas return structured data
-                            if isinstance(tool_result, BaseModel) and hasattr(tool_result, "structuredContent"):
-                                # Use structured content if available (MCP spec)
-                                structured_data = tool_result.structuredContent
-                                if isinstance(structured_data, dict):
-                                    return BoundOutputSchema(**structured_data)
-                                elif hasattr(structured_data, "model_dump"):
-                                    return BoundOutputSchema(**structured_data.model_dump())
-                                else:
-                                    # Unexpected type for structuredContent
-                                    logger.error(
-                                        f"Unexpected structuredContent type for tool '{bound_tool_name}': "
-                                        f"got {type(structured_data).__name__}, expected dict or BaseModel. "
-                                        f"Content: {structured_data!r}"
-                                    )
-                                    raise TypeError(
-                                        f"MCP tool '{bound_tool_name}' returned structuredContent with unexpected type "
-                                        f"{type(structured_data).__name__}. Expected dict or BaseModel."
-                                    )
-                            elif isinstance(tool_result, BaseModel) and hasattr(tool_result, "content"):
-                                # Try to parse content as structured data
-                                content = tool_result.content
-                                # Ensure content is a list/tuple before indexing
-                                if content and isinstance(content, (list, tuple)) and len(content) > 0:
-                                    first_content = content[0]
-                                    # Check for text content that might be JSON
-                                    if hasattr(first_content, "text"):
-                                        try:
-                                            parsed = json.loads(first_content.text)
-                                            if isinstance(parsed, dict):
-                                                return BoundOutputSchema(**parsed)
-                                            else:
-                                                logger.debug(
-                                                    f"Tool '{bound_tool_name}' content parsed as JSON but was "
-                                                    f"{type(parsed).__name__}, not dict. Trying other extraction methods."
-                                                )
-                                        except json.JSONDecodeError as e:
-                                            logger.debug(
-                                                f"Tool '{bound_tool_name}' content is not valid JSON: {e}. "
-                                                f"Content preview: {first_content.text[:200]!r}..."
-                                                if len(first_content.text) > 200
-                                                else f"Content: {first_content.text!r}"
-                                            )
-                                        except TypeError as e:
-                                            logger.warning(
-                                                f"Tool '{bound_tool_name}' content.text has unexpected type "
-                                                f"{type(first_content.text).__name__}: {e}"
-                                            )
-                                    # Check for structured content in the content item
-                                    if hasattr(first_content, "data") and isinstance(first_content.data, dict):
-                                        return BoundOutputSchema(**first_content.data)
-                            elif isinstance(tool_result, dict):
-                                if "structuredContent" in tool_result:
-                                    return BoundOutputSchema(**tool_result["structuredContent"])
-                                elif "content" in tool_result:
-                                    content = tool_result["content"]
-                                    if isinstance(content, dict):
-                                        return BoundOutputSchema(**content)
-                            # Fallback: try to use tool_result directly if it's a dict
-                            if isinstance(tool_result, dict):
-                                return BoundOutputSchema(**tool_result)
-                            # If we have a typed schema but couldn't extract structured content,
-                            # this is an error - we cannot fall through to generic handling
-                            # because the typed schema doesn't have a 'result' field.
-                            logger.error(
-                                f"Could not parse structured output for tool '{bound_tool_name}'. "
-                                f"Expected typed output but got: type={type(tool_result).__name__}, "
-                                f"value={tool_result!r}"
-                            )
-                            raise ValueError(
-                                f"MCP tool '{bound_tool_name}' has outputSchema but returned unparseable result. "
-                                f"Received type: {type(tool_result).__name__}. "
-                                f"Check MCP server implementation."
-                            )
-
-                        # Generic output schema handling (original behavior) - only for tools without typed schemas
-                        if isinstance(tool_result, BaseModel) and hasattr(tool_result, "content"):
-                            actual_result_content = tool_result.content
-                        elif isinstance(tool_result, dict) and "content" in tool_result:
-                            actual_result_content = tool_result["content"]
-                        else:
-                            actual_result_content = tool_result
-
-                        return BoundOutputSchema(result=actual_result_content)
+                            return _typed_mcp_tool_output(tool_result, self.output_schema, bound_tool_name)
+                        return _generic_mcp_tool_output(tool_result, self.output_schema)
 
                     except Exception as e:
                         logger.error(f"Error executing MCP tool '{bound_tool_name}': {e}", exc_info=True)
