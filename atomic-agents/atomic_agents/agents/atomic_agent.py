@@ -2,7 +2,7 @@ import instructor
 from instructor import Mode
 from instructor.processing.multimodal import Image, Audio, PDF
 from pydantic import BaseModel, Field
-from typing import Optional, Type, Generator, AsyncGenerator, get_args, get_origin, Dict, List, Callable, Any
+from typing import Optional, Type, Generator, AsyncGenerator, get_args, get_origin, Dict, List, Callable, Union, Any
 import logging
 from atomic_agents.context.chat_history import ChatHistory
 from atomic_agents.context.base_chat_history import BaseChatHistory
@@ -17,6 +17,42 @@ import json
 
 from instructor.dsl.partial import PartialBase
 from jiter import from_json
+
+# Instructor modes whose prepared request carries the output schema as a
+# tool/function definition instead of text inside the messages. Token accounting
+# must agree with the actual request, so these modes are counted with a tools
+# definition while all other modes append the schema to the system message.
+# Keep aligned with Instructor's per-mode request preparation; the parametrized
+# test in tests/agents/test_agent_mode_consistency.py prepares a request per
+# mode and asserts this set matches what is actually sent.
+# Mode.COHERE_TOOLS is deliberately absent: despite its name, its prepared
+# request embeds the schema in an instruction message and sends no tool.
+_TOOL_MODES = frozenset(
+    {
+        Mode.FUNCTIONS,
+        Mode.PARALLEL_TOOLS,
+        Mode.TOOLS,
+        Mode.TOOLS_STRICT,
+        Mode.RESPONSES_TOOLS,
+        Mode.RESPONSES_TOOLS_WITH_INBUILT_TOOLS,
+        Mode.ANTHROPIC_TOOLS,
+        Mode.ANTHROPIC_REASONING_TOOLS,
+        Mode.ANTHROPIC_PARALLEL_TOOLS,
+        Mode.MISTRAL_TOOLS,
+        Mode.VERTEXAI_TOOLS,
+        Mode.VERTEXAI_PARALLEL_TOOLS,
+        Mode.GEMINI_TOOLS,
+        Mode.GENAI_TOOLS,
+        Mode.XAI_TOOLS,
+        Mode.CEREBRAS_TOOLS,
+        Mode.FIREWORKS_TOOLS,
+        Mode.WRITER_TOOLS,
+        Mode.BEDROCK_TOOLS,
+    }
+)
+
+# Instructor multimodal objects that can be lowered to a chat-format content part.
+_InstructorMedia = Union[Image, Audio, PDF]
 
 
 def model_from_chunks_patched(cls, json_chunks, **kwargs):
@@ -91,7 +127,16 @@ class AgentConfig(BaseModel):
         ),
     )
     model_config = {"arbitrary_types_allowed": True}
-    mode: Mode = Field(default=Mode.TOOLS, description="The Instructor mode used for structured outputs (TOOLS, JSON, etc.).")
+    mode: Optional[Mode] = Field(
+        default=None,
+        description=(
+            "The Instructor mode used for structured outputs (TOOLS, JSON, etc.). "
+            "Drives token accounting only: modes that transmit the schema as a tool "
+            "definition count it as a tool, others append it to the system message. "
+            "When None, the client's mode is used; an explicit mode must agree with "
+            "the client's mode on how the schema is transmitted, or a warning is logged."
+        ),
+    )
     model_api_parameters: Optional[dict] = Field(None, description="Additional parameters passed to the API provider.")
     max_context_tokens: Optional[int] = Field(
         None,
@@ -194,15 +239,14 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self.system_prompt_generator = config.system_prompt_generator or SystemPromptGenerator()
         self.system_role = config.system_role
         self.assistant_role = config.assistant_role
-        if config.tool_result_role is not None:
-            self.tool_result_role = config.tool_result_role
-        else:
-            # Auto-detect: Gemini drops mid-conversation "system" messages,
-            # so default to "user" for Gemini backends (identified by assistant_role="model")
-            self.tool_result_role = "user" if config.assistant_role == "model" else "system"
+        self.tool_result_role = (
+            config.tool_result_role
+            if config.tool_result_role is not None
+            else self._default_tool_result_role(config.assistant_role)
+        )
         self.initial_history = self.history.copy()
         self.current_user_input = None
-        self.mode = config.mode
+        self.mode = self._resolve_mode(config)
         self.model_api_parameters = config.model_api_parameters or {}
         self.max_context_tokens = config.max_context_tokens
 
@@ -210,11 +254,86 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hook_handlers: Dict[str, List[Callable]] = {}
         self._hooks_enabled: bool = True
 
+    @staticmethod
+    def _default_tool_result_role(assistant_role: str) -> str:
+        """
+        Picks the role for tool results when AgentConfig does not override it.
+
+        Gemini drops mid-conversation "system" messages, so Gemini backends
+        (identified by assistant_role="model") receive tool results as user
+        messages; every other backend uses "system".
+        """
+        return "user" if assistant_role == "model" else "system"
+
     def reset_history(self):
         """
         Resets the history to its initial state.
         """
         self.history = self.initial_history.copy()
+
+    @staticmethod
+    def _client_mode(client: instructor.Instructor) -> Optional[Mode]:
+        """
+        The mode of an Instructor client, when it exposes one.
+
+        `AgentConfig` only accepts Instructor clients, but a client double or a
+        custom client can still lack a comparable `mode` attribute; None is
+        returned for them.
+        """
+        mode = getattr(client, "mode", None)
+        return mode if isinstance(mode, Mode) else None
+
+    @staticmethod
+    def _modes_disagree(config_mode: Mode, client_mode: Optional[Mode]) -> bool:
+        """
+        Whether the two modes transmit the output schema differently.
+
+        Only the transmission matters for token accounting: two modes that both
+        send the schema as a tool definition are accounted for identically even
+        when they target different providers.
+        """
+        if client_mode is None:
+            return False
+        return (config_mode in _TOOL_MODES) != (client_mode in _TOOL_MODES)
+
+    @staticmethod
+    def _warn_mode_mismatch(config_mode: Mode, client_mode: Mode) -> None:
+        """Warns that token accounting will silently disagree with the API calls."""
+        logging.getLogger(__name__).warning(
+            "AgentConfig.mode (%s) and the Instructor client's mode (%s) disagree on how the "
+            "output schema is transmitted, so token accounting will silently disagree with "
+            "the actual API calls. Create the Instructor client with %s as well, or omit "
+            "AgentConfig.mode to follow the client automatically.",
+            config_mode.name,
+            client_mode.name,
+            config_mode.name,
+        )
+
+    @staticmethod
+    def _resolve_mode(config: AgentConfig) -> Mode:
+        """
+        Resolves the effective Instructor mode used for token accounting.
+
+        The API call format is decided by the mode the Instructor client was created
+        with, so `AgentConfig.mode` follows the client by default. An explicitly
+        configured mode that disagrees with the client on how the schema is
+        transmitted warns, because token accounting then silently disagrees with
+        the actual API calls.
+
+        Args:
+            config (AgentConfig): Configuration for the chat agent.
+
+        Returns:
+            Mode: The mode to use for token accounting.
+        """
+        client_mode = AtomicAgent._client_mode(config.client)
+
+        if config.mode is None:
+            return client_mode if client_mode is not None else Mode.TOOLS
+
+        if AtomicAgent._modes_disagree(config.mode, client_mode):
+            AtomicAgent._warn_mode_mismatch(config.mode, client_mode)
+        return config.mode
 
     def add_tool_result(self, content: BaseIOSchema) -> None:
         """
@@ -394,9 +513,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         from instructor.processing.schema import generate_openai_schema
 
-        # Only return tools for TOOLS-based modes
-        tools_modes = {Mode.TOOLS, Mode.TOOLS_STRICT, Mode.PARALLEL_TOOLS}
-        if self.mode in tools_modes:
+        # Only return tools for modes that transmit the schema as a tool definition
+        if self.mode in _TOOL_MODES:
             return [
                 {
                     "type": "function",
@@ -447,39 +565,63 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             content = message.get("content")
 
             if isinstance(content, list):
-                # Multimodal content - convert to OpenAI format
-                serialized_content = []
-                for item in content:
-                    if isinstance(item, str):
-                        # Text content - wrap in OpenAI text format
-                        serialized_content.append({"type": "text", "text": item})
-                    elif isinstance(item, (Image, Audio, PDF)):
-                        # Multimodal object - use instructor's to_openai method
-                        try:
-                            serialized_content.append(item.to_openai(Mode.JSON))
-                        except Exception as e:
-                            # Log the error and use placeholder for token estimation
-                            logger = logging.getLogger(__name__)
-                            media_type = type(item).__name__
-                            logger.warning(
-                                f"Failed to serialize {media_type} for token counting: {e}. "
-                                f"Using placeholder for estimation."
-                            )
-                            serialized_content.append({"type": "text", "text": f"[{media_type.lower()} content]"})
-                    elif isinstance(item, dict):
-                        # get_history() emits pre-lowered content-part dicts (e.g. video).
-                        # LiteLLM's token counter only accepts text and image_url parts,
-                        # so estimate them with a placeholder.
-                        serialized_content.append({"type": "text", "text": f"[{item.get('type', 'unknown')} content]"})
-                    else:
-                        # Unknown type - convert to string
-                        serialized_content.append({"type": "text", "text": str(item)})
-                serialized.append({"role": message["role"], "content": serialized_content})
+                # Multimodal content - convert to the chat format the counter accepts
+                serialized.append(
+                    {
+                        "role": message["role"],
+                        "content": [self._token_count_content_part(item) for item in content],
+                    }
+                )
             else:
                 # Simple text content - keep as is
                 serialized.append(message)
 
         return serialized
+
+    @staticmethod
+    def _token_count_content_part(item: Union[str, _InstructorMedia, Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Converts one history content part to the chat format the token counter accepts.
+
+        Args:
+            item: A text part, an instructor multimodal object, or a content-part dict.
+                Anything else is counted as its string form.
+
+        Returns:
+            Dict[str, Any]: The content part in LiteLLM-compatible format.
+        """
+        if isinstance(item, str):
+            # Text content - wrap in OpenAI text format
+            return {"type": "text", "text": item}
+        if isinstance(item, (Image, Audio, PDF)):
+            return AtomicAgent._serialize_media_for_token_count(item)
+        if isinstance(item, dict):
+            # get_history() emits pre-lowered content-part dicts (e.g. video).
+            # LiteLLM's token counter only accepts text and image_url parts,
+            # so estimate them with a placeholder.
+            return {"type": "text", "text": f"[{item.get('type', 'unknown')} content]"}
+        # Unknown type - convert to string
+        return {"type": "text", "text": str(item)}
+
+    @staticmethod
+    def _serialize_media_for_token_count(item: _InstructorMedia) -> Dict[str, Any]:
+        """
+        Serializes an instructor media object to the chat format the token counter accepts.
+
+        LiteLLM's counter only accepts chat-format content parts, so media is normalized
+        to that format regardless of the agent's mode (Responses-format parts such as
+        input_image raise). Serialization failures degrade to a text placeholder so
+        counting still works.
+        """
+        try:
+            return item.to_openai(Mode.JSON)
+        except Exception as e:
+            # Log the error and use placeholder for token estimation
+            media_type = type(item).__name__
+            logging.getLogger(__name__).warning(
+                f"Failed to serialize {media_type} for token counting: {e}. Using placeholder for estimation."
+            )
+            return {"type": "text", "text": f"[{media_type.lower()} content]"}
 
     def get_context_token_count(self) -> TokenCountResult:
         """

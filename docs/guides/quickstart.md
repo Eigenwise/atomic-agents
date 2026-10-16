@@ -422,6 +422,13 @@ export GEMINI_API_KEY="your-gemini-key"
 export OPENROUTER_API_KEY="your-openrouter-key"
 ```
 
+> **Instructor modes for OpenAI-compatible hosts:** hosts that do not speak the tools protocol — custom
+> `base_url` endpoints, local servers, and gateways — need `mode=instructor.Mode.JSON` on the Instructor
+> factory. `AgentConfig(mode=...)` follows the client automatically, so setting the factory mode alone is
+> enough; setting it explicitly to a mode from a different family than the client's logs a warning. See the
+> providers reference (`claude-plugin/atomic-agents/skills/framework/references/providers.md`) for the
+> per-provider values.
+
 ## Running the Examples
 
 To run any of these examples:
