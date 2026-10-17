@@ -148,6 +148,7 @@ The Atomic Forge ships with several pre-built tools:
 - **arXiv Search**: Search arXiv for academic papers (free public API)
 - **BoCha Search**: Web search
 - **Calculator**: Perform mathematical calculations
+- **Darkmoon Pentest**: Run Darkmoon autonomous pentests and read campaigns and findings from a self-hosted Darkmoon dashboard (a Pro feature)
 - **DateTime**: Timezone-aware now / parse / convert / shift / diff (no key required)
 - **Fía Signals**: Crypto market intelligence — market regime, trading signals, DeFi yields, gas prices, Solana trending tokens, and wallet risk scoring
 - **Firecrawl Search**: Web and news search via the Firecrawl API, with optional page content as Markdown
