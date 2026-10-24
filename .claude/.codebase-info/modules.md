@@ -1,6 +1,6 @@
 # Key Modules
 
-*Last Updated: 2026-10-21*
+*Last Updated: 2026-10-24*
 
 ## Core framework — `atomic-agents/atomic_agents/`
 
@@ -56,7 +56,8 @@
   Instructor-to-semconv provider map, None filtering, best-effort attribute collection, OpenInference context seam,
   `using_conversation`), `agent_spans.py` (four `AtomicAgent.run*` wrappers, stream cursors, run state),
   `tool_spans.py` (`BaseTool` wrappers via `__subclasses__` walk + wrapped `__init_subclass__`, re-entrancy guard),
-  `installation.py` (install / uninstall / replace-in-place), `llm_attempt_spans.py` (Instructor hook handlers).
+  `installation.py` (install / uninstall / replace-in-place), `llm_attempt_spans.py` (Instructor hook handlers),
+  `message_payloads.py` (opt-in canonical chat text/tool parts, privacy gates, bounded complete JSON).
 - **Contract:** `instrument(tracer_provider=, config=TracingConfig | PayloadVisibility | None, **options)` /
   `uninstrument()` / `is_instrumented_by_opentelemetry`. Same arguments: no-op; different provider or config:
   replaced in place with a WARNING, `None` keeps the installed value; in-flight spans finish on their original
@@ -71,10 +72,17 @@
   event; `error.type` on failures; cancellation = `atomic_agents.cancelled`, never ERROR. Spans always attach to the
   current context. `llm_spans=False` keeps totals and drops chat spans.
 - **Config:** `TracingConfig(hide_inputs, hide_outputs, max_attribute_length=4096, openinference_attributes=None,
-  llm_spans=True)`; env `ATOMIC_AGENTS_TRACE_HIDE_INPUTS/_OUTPUTS` (fallback `OPENINFERENCE_HIDE_*`),
-  `ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH` (tolerant, 4096 fallback), `ATOMIC_AGENTS_TRACE_LLM_SPANS`. Under
+  llm_spans=True, capture_messages=False)`; env `ATOMIC_AGENTS_TRACE_HIDE_INPUTS/_OUTPUTS` (fallback `OPENINFERENCE_HIDE_*`),
+  `ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH` (tolerant, 4096 fallback), `ATOMIC_AGENTS_TRACE_LLM_SPANS`,
+  `ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES` (opt-in for `true` or `1`, case-insensitive). Under
   `hide_outputs` every exception becomes `<Type>: <N> attempts (__REDACTED__)`. Nothing in `atomic_agents/__init__.py`
   imports the package.
+- **Message capture:** `capture_messages=True` adds `gen_ai.input.messages` / `gen_ai.output.messages` to chat
+  attempt spans for supported OpenAI-compatible ChatCompletion text, tool calls and tool replies. Directional
+  hiding, disabled LLM spans and suppression prevent content access. Compact JSON preserves message/choice order;
+  an attribute exceeding `max_attribute_length` is omitted whole, rather than truncated. Native Responses/Anthropic
+  shapes, streams and non-text media/reasoning are omitted; existing usage and legacy payload behavior stay unchanged.
+  Live backend ingestion is unverified.
 - **Tests:** `atomic-agents/tests/observability/` (in-memory exporter; `instructor_transport.py` builds real Instructor
   clients over `httpx.MockTransport`; `test_instructor_modes.py` covers TOOLS/JSON/JSON_SCHEMA/RESPONSES_TOOLS).
 

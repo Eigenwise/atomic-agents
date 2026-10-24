@@ -51,6 +51,11 @@ providers and external tools.
   the same client keep running; `AtomicAgent.clear_hooks()` removes only its own. Set `llm_spans=False` (or
   `ATOMIC_AGENTS_TRACE_LLM_SPANS=false`) when a provider instrumentor also emits LLM spans. See
   `docs/guides/observability.md` and the `phoenix-tracing` example.
+- Optional `TracingConfig(capture_messages=True)` (or `ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES=true`) records standard
+  `gen_ai.input.messages` / `gen_ai.output.messages` JSON on chat attempt spans for supported ChatCompletion text
+  and tool parts. Capture is off by default. Hiding wins before content access; oversized complete JSON attributes
+  are omitted, and unsupported native formats/streams/media are not converted. Exporter setup remains app-owned;
+  backend presentation is unverified.
 - Forge tools that run their async body through a `ThreadPoolExecutor` submit via
   `contextvars.copy_context().run` so the caller's OpenTelemetry context (and the tracing re-entrancy guard)
   survives in the pool thread.
