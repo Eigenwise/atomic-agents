@@ -1,4 +1,5 @@
 import asyncio
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from types import SimpleNamespace
@@ -89,6 +90,96 @@ def retry_script(hooks, kwargs):
 
 def run_agent(client):
     return agent(client).run(Question(question="test"))
+
+
+@pytest.mark.parametrize("mode", [instructor.Mode.TOOLS, instructor.Mode.JSON, instructor.Mode.JSON_SCHEMA])
+def test_opt_in_real_transport_messages_follow_attempts(exporter, mode):
+    installation.install(config=TracingConfig(capture_messages=True, max_attribute_length=20000))
+    client = instructor_client(mode, [ScriptedResponse(arguments='{"answer": {"secret": "retry"}}'), ScriptedResponse()])
+    assert run_agent(client).answer == "42"
+    first, second, parent = finished_spans(exporter, 3)
+    assert "gen_ai.output.messages" in first.attributes
+    first_messages = json.loads(first.attributes["gen_ai.output.messages"])
+    second_messages = json.loads(second.attributes["gen_ai.output.messages"])
+    assert "retry" in str(first_messages)
+    assert "retry" not in str(second_messages)
+    assert "42" in str(second_messages)
+    assert json.loads(first.attributes["gen_ai.input.messages"])[-1]["role"] == "user"
+    assert first.parent.span_id == second.parent.span_id == parent.context.span_id
+    assert parent.attributes["gen_ai.usage.input_tokens"] == 6
+    assert parent.attributes["atomic_agents.llm.attempts"] == 2
+    assert "gen_ai.output.messages" not in parent.attributes
+    expected_part = "tool_call" if mode == instructor.Mode.TOOLS else "text"
+    assert second_messages[0]["parts"][0]["type"] == expected_part
+
+
+@pytest.mark.parametrize("hide_inputs, hide_outputs", [(False, False), (True, False), (False, True), (True, True)])
+def test_message_visibility_directions(exporter, hide_inputs, hide_outputs):
+    installation.install(config=TracingConfig(capture_messages=True, hide_inputs=hide_inputs, hide_outputs=hide_outputs))
+    run_agent(instructor_client(instructor.Mode.TOOLS, [ScriptedResponse()]))
+    child, parent = finished_spans(exporter, 2)
+    assert ("gen_ai.input.messages" in child.attributes) is not hide_inputs
+    assert ("gen_ai.output.messages" in child.attributes) is not hide_outputs
+
+
+@pytest.mark.parametrize("enabled", [None, False])
+def test_message_capture_default_and_explicit_disabled(exporter, enabled):
+    if enabled is not None:
+        installation.install(config=TracingConfig(capture_messages=enabled))
+    run_agent(instructor_client(instructor.Mode.JSON, [ScriptedResponse()]))
+    child, parent = finished_spans(exporter, 2)
+    assert "gen_ai.input.messages" not in child.attributes
+    assert "gen_ai.output.messages" not in child.attributes
+
+
+def test_capture_with_attempt_spans_disabled_keeps_totals(exporter):
+    installation.install(config=TracingConfig(capture_messages=True, llm_spans=False))
+    run_agent(instructor_client(instructor.Mode.TOOLS, [ScriptedResponse()]))
+    (parent,) = finished_spans(exporter, 1)
+    assert parent.attributes["gen_ai.usage.input_tokens"] == 3
+    assert "gen_ai.input.messages" not in parent.attributes
+    assert "gen_ai.output.messages" not in parent.attributes
+
+
+def test_native_responses_capture_is_omitted(exporter):
+    installation.install(config=TracingConfig(capture_messages=True))
+    run_agent(instructor_client(instructor.Mode.RESPONSES_TOOLS, [ScriptedResponse()]))
+    child, parent = finished_spans(exporter, 2)
+    assert "gen_ai.output.messages" not in child.attributes
+    assert parent.attributes["gen_ai.usage.input_tokens"] == 3
+
+
+def test_concurrent_message_capture_stays_with_own_run(exporter):
+    installation.install(config=TracingConfig(capture_messages=True))
+    client = scripted_client(retry_script)
+
+    async def complete(configured, text):
+        client.hooks.emit_completion_arguments(model="test-model", messages=[{"role": "user", "content": text}])
+        await asyncio.sleep(0)
+        client.hooks.emit_completion_response(
+            SimpleNamespace(
+                model="response-model",
+                usage=usage(),
+                choices=[SimpleNamespace(message={"role": "assistant", "content": text})],
+            )
+        )
+        return Answer(answer=text)
+
+    async def gather():
+        await asyncio.gather(*(agent_spans._trace_agent_async_call(complete)(agent(client), text) for text in ["one", "two"]))
+
+    asyncio.run(gather())
+    children = [span for span in exporter.get_finished_spans() if span.name == "chat test-model"]
+    assert len(children) == 2
+    for child in children:
+        assert "gen_ai.input.messages" in child.attributes
+        request = json.loads(child.attributes["gen_ai.input.messages"])
+        response_messages = json.loads(child.attributes["gen_ai.output.messages"])
+        assert request[0]["parts"] == response_messages[0]["parts"]
+    assert {json.loads(child.attributes["gen_ai.input.messages"])[0]["parts"][0]["content"] for child in children} == {
+        "one",
+        "two",
+    }
 
 
 def test_retry_spans_usage_validation_and_parentage(exporter):

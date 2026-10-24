@@ -18,6 +18,7 @@ from opentelemetry.util.types import AttributeValue
 from atomic_agents.agents.atomic_agent import AtomicAgent
 
 from . import installation
+from .message_payloads import write_messages
 from .span_attributes import _best_effort_attributes, _optional_attributes, _provider_attributes, _without_none
 from .span_payloads import _bounded_text, _failure_message, _record_failure, _write_payload
 from .tracing_config import TracingConfig
@@ -204,6 +205,7 @@ def _completion_kwargs(*args: object, **kwargs: object) -> None:
         f"chat {model}" if model else "chat", kind=SpanKind.CLIENT, attributes=_without_none(attributes)
     )
     _attach_attempt(run)
+    write_messages(run.open_attempt, kwargs.get("messages"), "input", run.config)
 
 
 def _request_model(kwargs: dict[str, object]) -> str | None:
@@ -238,6 +240,8 @@ def _completion_response(response: _Response, **kwargs: object) -> None:
     for key, value in usage.items():
         run.usage_totals[key] = run.usage_totals.get(key, 0) + value
     _complete_response_attempt(run, usage, attributes)
+    if run.open_attempt is not None:
+        write_messages(run.open_attempt, response, "output", run.config)
 
 
 def _complete_response_attempt(run: _AgentRun, usage: dict[str, int], attributes: dict[str, AttributeValue]) -> None:
