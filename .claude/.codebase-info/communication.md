@@ -1,6 +1,6 @@
 # Communication & Integrations
 
-*Last Updated: 2026-10-21*
+*Last Updated: 2026-10-24*
 
 The framework exposes no HTTP API of its own; "communication" here means how it talks to LLM
 providers and external tools.
@@ -37,6 +37,8 @@ providers and external tools.
 - Built on Instructor's hook system: `register_hook(event, handler)`, `unregister_hook`,
   `clear_hooks`. Events include `parse:error`, `completion:kwargs`, `completion:response`,
   `token:counted`. See the `hooks-example` example and `docs/guides/hooks.md`.
+- `disable_hooks()` detaches this agent's registered Instructor callbacks. Registrations made while disabled stay
+  paused; `enable_hooks()` restores the remaining callbacks. Direct client callbacks and tracing hooks remain independent.
 - OpenTelemetry tracing (`atomic_agents.observability`, `observability` extra = `opentelemetry-api` only): an AGENT
   span per `AtomicAgent` run, a TOOL span per `BaseTool` run and one CLIENT `chat` span per Instructor attempt
   (driven by Instructor hooks registered once per client), all with OpenTelemetry GenAI attributes; OpenInference

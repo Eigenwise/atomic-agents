@@ -1,6 +1,6 @@
 # Patterns & Conventions
 
-*Last Updated: 2026-10-20*
+*Last Updated: 2026-10-24*
 
 ## Atomicity
 Build with small, single-purpose, composable parts ("LEGO blocks"): each agent, tool, and context
@@ -11,6 +11,8 @@ the next's input. See `atomic-examples/deep-research` and `orchestration-agent`.
 - Every input and output is a `BaseIOSchema` (Pydantic) subclass with a **required docstring** (used
   as the LLM-facing description). Naming: `<Thing>InputSchema` / `<Thing>OutputSchema`.
 - Agents are parameterized by schemas via PEP 695 generics: `AtomicAgent[InputSchema, OutputSchema]`.
+- Fully specialized generic agent subclasses resolve their concrete schemas through intermediate bases per instance.
+  Different specializations keep independent input/output bindings; untyped agents retain the basic chat defaults.
 - Structured output is enforced by Instructor through `response_model=OutputSchema`.
 - Streaming completion accepts field names when reconstructing output schemas with aliases.
 - Tool messages use Pydantic JSON-mode serialization, including JSON-only field serializers.
