@@ -76,6 +76,92 @@ class TestSchemaTransformer:
 
 
 class TestCreateModelFromSchema:
+    @pytest.mark.parametrize("required", [True, False])
+    @pytest.mark.parametrize(
+        "prop_schema",
+        [
+            {"enum": [1, "bad"], "anyOf": [{"type": "integer"}]},
+            {"enum": [1, 2.5, "bad"], "oneOf": [{"type": "integer"}, {"type": "number"}]},
+            {"enum": [1, 2, 3, "bad"], "allOf": [{"type": "number"}, {"minimum": 2}]},
+            {"const": 1, "anyOf": [{"type": "integer"}]},
+            {"const": 2.5, "oneOf": [{"type": "integer"}, {"type": "number"}]},
+            {"const": 3, "allOf": [{"type": "number"}, {"minimum": 2}]},
+            {"enum": [True, 1, "bad"], "anyOf": [{"type": "boolean"}, {"type": "integer"}]},
+            {"enum": [1, 2], "const": 2},
+            {"enum": [1, "bad"], "anyOf": [{"$ref": "#/$defs/Integer"}]},
+            {
+                "enum": [0, 1, 2, 3],
+                "anyOf": [{"type": "integer"}, {"type": "string"}],
+                "oneOf": [{"const": 1}, {"const": 2}],
+                "allOf": [{"minimum": 2}],
+            },
+            {"enum": [1, "bad"], "anyOf": [False, {"type": "integer"}]},
+            {"enum": ["brief", None, 1], "anyOf": [{"type": "string"}, {"type": "null"}]},
+            {"const": None, "anyOf": [{"type": "string"}, {"type": "null"}]},
+        ],
+    )
+    def test_scalar_choices_intersect_compositions_in_validation_and_emitted_schema(self, prop_schema, required):
+        schema = {
+            "type": "object",
+            "properties": {"value": prop_schema},
+            "required": ["value"] if required else [],
+            "$defs": {"Integer": {"type": "integer"}},
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "ComposedChoiceInput", "choose")
+        advertised = Draft202012Validator(schema)
+        emitted = Draft202012Validator(model.model_json_schema())
+        for value in [None, True, False, 0, 1, 1.0, 2, 2.5, 3, "brief", "bad", "unknown", [], {}]:
+            payload = {"tool_name": "choose", "value": value}
+            # Optional fields retain the transformer's existing local None allowance.
+            allowed = advertised.is_valid(payload) or (not required and value is None)
+            assert emitted.is_valid(payload) == allowed
+            if allowed:
+                assert model.model_validate(payload).value == value
+            else:
+                with pytest.raises(ValidationError):
+                    model.model_validate(payload)
+
+    @pytest.mark.parametrize(
+        "prop_schema",
+        [
+            {"const": "bad", "anyOf": [{"type": "integer"}]},
+            {"const": 1, "oneOf": [{"type": "integer"}, {"type": "number"}]},
+            {"enum": [1], "allOf": [{"minimum": 2}]},
+        ],
+    )
+    def test_composition_with_no_admissible_scalar_choice_rejects_definition(self, prop_schema):
+        schema = {"type": "object", "properties": {"value": prop_schema}, "required": ["value"]}
+        with pytest.raises(ValueError, match="choices"):
+            SchemaTransformer.create_model_from_schema(schema, "ImpossibleChoiceInput", "choose")
+
+    @pytest.mark.parametrize("ref_first", [True, False])
+    def test_scalar_choice_composition_unresolved_reference_keeps_known_sibling_constraint(self, ref_first):
+        branch = {"$ref": "https://example.invalid/schema.json", "type": "integer"}
+        if not ref_first:
+            branch = dict(reversed(branch.items()))
+        schema = {
+            "type": "object",
+            "properties": {"value": {"enum": [1, "bad"], "anyOf": [branch]}},
+            "required": ["value"],
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "UnresolvedChoiceInput", "choose")
+        assert model(tool_name="choose", value=1).value == 1
+        with pytest.raises(ValidationError):
+            model(tool_name="choose", value="bad")
+        assert not Draft202012Validator(model.model_json_schema()).is_valid({"tool_name": "choose", "value": "bad"})
+
+    def test_scalar_choice_composition_unresolved_reference_alone_preserves_fallback(self):
+        schema = {
+            "type": "object",
+            "properties": {"value": {"enum": [1, "brief"], "anyOf": [{"$ref": "#/$defs/Missing"}]}},
+            "required": ["value"],
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "UnresolvedChoiceInput", "choose")
+        assert model(tool_name="choose", value=1).value == 1
+        assert model(tool_name="choose", value="brief").value == "brief"
+        with pytest.raises(ValidationError):
+            model(tool_name="choose", value="other")
+
     @pytest.mark.parametrize(
         "prop_schema, invalid",
         [
