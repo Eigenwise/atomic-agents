@@ -1,6 +1,6 @@
 # Technology Landscape
 
-*Last Updated: 2026-10-19*
+*Last Updated: 2026-10-21*
 
 ## Source-of-Truth Files
 
@@ -38,12 +38,16 @@
 
 - **CI (GitHub Actions):**
   - `code-quality.yml` — on push/PR to `main`/`v2.0`, three jobs: `quality` (`uv sync`,
-    `black --check` and `flake8` across all four project directories, then
+    `black --check` and `flake8` across all four project directories, a focused Pyright 1.1.414 constructor check, then
     `pytest --cov=atomic_agents` for the core); `fresh-install` (build the wheel, install
-    it with the observability extra into a clean venv without the lockfile, import every module under
-    `atomic_agents`, which is what a new user's `pip install` sees); `lowest-versions` (resolve runtime
-    dependencies with `uv pip compile --resolution lowest-direct`, install current pytest tooling, run
-    the suite, so every declared floor is a tested floor).
+    it with the `observability` extra plus `opentelemetry-sdk` into a clean venv without the lockfile, prove
+    `openinference` is not importable, run a real `instructor.from_openai` client over `httpx.MockTransport`
+    through a tool and an agent and assert the GenAI span names, usage keys and the absence of every OpenInference
+    key, then import every module under `atomic_agents`); `lowest-versions` (resolve the runtime dependencies plus
+    the `observability` and `phoenix` extras with `uv pip compile --resolution lowest-direct`, install current pytest
+    tooling plus `opentelemetry-instrumentation==0.51b0` compatible with the OpenTelemetry API floor, then run the
+    suite). Observability tests exercise real installed discovery metadata, the auto-loader and enabled/disabled
+    launcher subprocesses with local exporters; no live model/backend calls are needed.
   - `docs.yml` — on push to `main`: build Sphinx docs, run
     `scripts/generate_llms_files.py` (spec-compliant `llms.txt` index + `llms-*.txt`
     bundles, copied to the site root), deploy to GitHub Pages. The docs version needs

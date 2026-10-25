@@ -1,6 +1,6 @@
 # Patterns & Conventions
 
-*Last Updated: 2026-10-19*
+*Last Updated: 2026-10-24*
 
 ## Atomicity
 Build with small, single-purpose, composable parts ("LEGO blocks"): each agent, tool, and context
@@ -11,6 +11,8 @@ the next's input. See `atomic-examples/deep-research` and `orchestration-agent`.
 - Every input and output is a `BaseIOSchema` (Pydantic) subclass with a **required docstring** (used
   as the LLM-facing description). Naming: `<Thing>InputSchema` / `<Thing>OutputSchema`.
 - Agents are parameterized by schemas via PEP 695 generics: `AtomicAgent[InputSchema, OutputSchema]`.
+- Fully specialized generic agent subclasses resolve their concrete schemas through intermediate bases per instance.
+  Different specializations keep independent input/output bindings; untyped agents retain the basic chat defaults.
 - Structured output is enforced by Instructor through `response_model=OutputSchema`.
 - Streaming completion accepts field names when reconstructing output schemas with aliases.
 - Tool messages use Pydantic JSON-mode serialization, including JSON-only field serializers.
@@ -55,6 +57,7 @@ the next's input. See `atomic-examples/deep-research` and `orchestration-agent`.
 - MCP tests use real SDK result models with mocked transport/session boundaries. Synthetic execution against production filenames is not used to increase coverage.
 
 ## Configuration
+- Use explicit `Field(default=...)` for public config defaults so static type checkers infer optional constructor arguments. The AgentConfig constructor regression covers direct calls and typed settings unpacking.
 - Omitted `BaseTool`, `BaseResource`, and `BasePrompt` configurations are created per instance.
   Explicitly supplied configuration objects retain their identity.
 - Runtime config is explicit via `AgentConfig` (client, model, history, roles, mode,

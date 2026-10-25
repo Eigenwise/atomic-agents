@@ -79,7 +79,7 @@ def setup_client(provider):
             MiniMaxClient(base_url="https://api.minimax.io/v1", api_key=api_key),
             mode=instructor.Mode.JSON,
         )
-        model = "MiniMax-M3"
+        model = "MiniMax-M3.1-Flash"  # Use "MiniMax-M3" for the alternative text model.
         model_api_parameters = {"max_tokens": 2048}
         assistant_role = "assistant"
     elif provider == "8" or provider == "edenai":

@@ -1,6 +1,6 @@
 # Entry Points
 
-*Last Updated: 2026-10-15*
+*Last Updated: 2026-10-21*
 
 ## 1. Library API (the primary entry point)
 
@@ -49,11 +49,21 @@ MCP server tools/resources/prompts become agent components via `atomic_agents.co
 | `fastapi-memory` | multi-user / multi-session memory behind a FastAPI service |
 | `persistent-memory` | custom `BaseChatHistory` backend: cross-session recall via stdlib `sqlite3` (no extra deps) |
 | `hooks-example` | monitoring, error handling, retry via hooks |
-| `phoenix-tracing` | Arize Phoenix traces: planner agent -> calculator tool -> answer agent under one CHAIN span, via `register(auto_instrument=True)` |
+| `phoenix-tracing` | Arize Phoenix traces: planner agent -> calculator tool -> answer agent under one CHAIN span, via `register(auto_instrument=True)`; depends on `atomic-agents[phoenix]` and sets `ATOMIC_AGENTS_TRACE_LLM_SPANS=false` because the OpenAI instrumentor owns LLM spans there |
 | `basic-multimodal` / `nested-multimodal` | images / PDFs in (nested) schemas |
 | `basic-pdf-analysis` | PDF analysis with a multimodal model |
 | `youtube-summarizer` / `youtube-to-recipe` | transcript → summary / structured recipe |
 | `dspy-integration` | combining DSPy with Atomic Agents |
+
+## 5. OpenTelemetry discovery
+
+`atomic_agents.observability:AtomicAgentsInstrumentor` is registered as `atomic_agents` in both
+`openinference_instrumentor` (Phoenix) and `opentelemetry_instrumentor` (the standard
+`opentelemetry-instrument` launcher). Both use the same installation state. The launcher needs
+its own SDK/exporter setup; only `opentelemetry-api` is required for the instrumentor, and
+`opentelemetry-bootstrap` does not install Atomic Agents. Set `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=atomic_agents`
+to disable launcher discovery; `ATOMIC_AGENTS_TRACE_*` environment variables configure hiding, size cap and
+LLM attempt spans on both automatic paths. See `docs/guides/observability.md`.
 
 ## Representative Flow
 

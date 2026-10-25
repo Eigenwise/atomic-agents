@@ -15,7 +15,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "atomic-agents[observability]",
+    "atomic-agents[phoenix]",
     "arize-phoenix-otel>=0.17.0,<1.0.0",
     "openinference-instrumentation-openai>=0.1.30,<0.2.0",
     "instructor>=1.17.0,<2",

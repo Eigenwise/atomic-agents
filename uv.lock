@@ -267,7 +267,7 @@ wheels = [
 
 [[package]]
 name = "atomic-agents"
-version = "2.13.0"
+version = "2.15.0"
 source = { editable = "." }
 dependencies = [
     { name = "gitpython" },
@@ -284,6 +284,9 @@ dependencies = [
 
 [package.optional-dependencies]
 observability = [
+    { name = "opentelemetry-api" },
+]
+phoenix = [
     { name = "openinference-instrumentation" },
     { name = "openinference-semantic-conventions" },
     { name = "opentelemetry-api" },
@@ -299,6 +302,7 @@ dev = [
     { name = "openai" },
     { name = "openinference-instrumentation" },
     { name = "openinference-semantic-conventions" },
+    { name = "opentelemetry-instrumentation" },
     { name = "opentelemetry-sdk" },
     { name = "pdoc3" },
     { name = "pre-commit" },
@@ -319,9 +323,10 @@ requires-dist = [
     { name = "instructor", specifier = ">=1.17.0,<2" },
     { name = "litellm", specifier = ">=1.50.0,<2.0.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.8.0,<2" },
-    { name = "openinference-instrumentation", marker = "extra == 'observability'", specifier = ">=0.1.38,<0.2.0" },
-    { name = "openinference-semantic-conventions", marker = "extra == 'observability'", specifier = ">=0.1.20,<0.2.0" },
+    { name = "openinference-instrumentation", marker = "extra == 'phoenix'", specifier = ">=0.1.38,<0.2.0" },
+    { name = "openinference-semantic-conventions", marker = "extra == 'phoenix'", specifier = ">=0.1.20,<0.2.0" },
     { name = "opentelemetry-api", marker = "extra == 'observability'", specifier = ">=1.30.0,<2.0.0" },
+    { name = "opentelemetry-api", marker = "extra == 'phoenix'", specifier = ">=1.30.0,<2.0.0" },
     { name = "pydantic", specifier = ">=2.11.4,<3.0.0" },
     { name = "pyfiglet", specifier = ">=1.0.2,<2.0.0" },
     { name = "pyyaml", specifier = ">=6.0.2,<7.0.0" },
@@ -329,7 +334,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.7.1,<14.0.0" },
     { name = "textual", specifier = ">=5.3.0,<6.0.0" },
 ]
-provides-extras = ["observability"]
+provides-extras = ["observability", "phoenix"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -341,6 +346,7 @@ dev = [
     { name = "openai", specifier = ">=2.0.0,<3.0.0" },
     { name = "openinference-instrumentation", specifier = ">=0.1.38,<0.2.0" },
     { name = "openinference-semantic-conventions", specifier = ">=0.1.20,<0.2.0" },
+    { name = "opentelemetry-instrumentation", specifier = ">=0.51b0,<1.0.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.30.0,<2.0.0" },
     { name = "pdoc3", specifier = ">=0.11.1,<1.0.0" },
     { name = "pre-commit", specifier = ">=4.0.0,<5.0.0" },
@@ -3159,7 +3165,7 @@ version = "1.0.0"
 source = { editable = "atomic-examples/phoenix-tracing" }
 dependencies = [
     { name = "arize-phoenix-otel" },
-    { name = "atomic-agents", extra = ["observability"] },
+    { name = "atomic-agents", extra = ["phoenix"] },
     { name = "instructor" },
     { name = "openai" },
     { name = "openinference-instrumentation-openai" },
@@ -3170,7 +3176,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "arize-phoenix-otel", specifier = ">=0.17.0,<1.0.0" },
-    { name = "atomic-agents", extras = ["observability"], editable = "." },
+    { name = "atomic-agents", extras = ["phoenix"], editable = "." },
     { name = "instructor", specifier = ">=1.17.0,<2" },
     { name = "openai", specifier = ">=2.0.0,<3.0.0" },
     { name = "openinference-instrumentation-openai", specifier = ">=0.1.30,<0.2.0" },

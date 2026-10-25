@@ -1,34 +1,34 @@
-"""
-Opt-in OpenInference tracing for Atomic Agents.
+"""Opt-in tracing for any OpenTelemetry backend using GenAI attributes.
 
-Emits an AGENT span per ``AtomicAgent`` run and a TOOL span per ``BaseTool`` run, rendered by
-Arize Phoenix and any other OpenTelemetry backend. Needs the ``observability`` extra:
-``pip install "atomic-agents[observability]"``. Phoenix discovers :class:`AtomicAgentsInstrumentor`
-through the ``openinference_instrumentor`` entry point, so ``phoenix.otel.register(auto_instrument=True)``
-activates it without further code. See ``docs/guides/observability.md``.
+Install the observability extra for tracing. The optional phoenix extra adds
+Arize Phoenix integration and OpenInference attributes.
 """
 
 import importlib.util
 import logging
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from openinference.instrumentation import TraceConfig
+    from atomic_agents.observability.tracing import PayloadVisibility, TracingConfig, using_conversation
     from opentelemetry.trace import TracerProvider
 
 logger = logging.getLogger(__name__)
 
 _INSTALL_HINT = (
-    "Atomic Agents observability needs the OpenInference packages. "
-    'Install them with: pip install "atomic-agents[observability]"'
+    "Atomic Agents tracing needs opentelemetry-api. "
+    'Install it with: pip install "atomic-agents[observability]" '
+    '(add "atomic-agents[phoenix]" for Arize Phoenix / OpenInference attributes)'
 )
 _OPENINFERENCE_DISTRIBUTION = "openinference-instrumentation"
 _MINIMUM_OPENINFERENCE_VERSION = (0, 1, 38)
 
 
-def _openinference_is_installed() -> bool:
-    return importlib.util.find_spec("openinference") is not None
+def _opentelemetry_is_installed() -> bool:
+    try:
+        return importlib.util.find_spec("opentelemetry.trace") is not None
+    except ModuleNotFoundError:
+        return False
 
 
 def _openinference_is_too_old() -> bool:
@@ -41,21 +41,26 @@ def _openinference_is_too_old() -> bool:
 
 
 def _load_tracing_module():
-    if _openinference_is_too_old():
-        logger.warning(
-            "Atomic Agents tracing is disabled: %s %s or newer is required.",
-            _OPENINFERENCE_DISTRIBUTION,
-            ".".join(str(part) for part in _MINIMUM_OPENINFERENCE_VERSION),
-        )
-        return None
-    from atomic_agents.observability import openinference_tracing
+    from atomic_agents.observability import tracing
 
-    return openinference_tracing
+    return tracing
+
+
+def __getattr__(name: str) -> object:
+    if name in ("TracingConfig", "using_conversation"):
+        return getattr(_load_tracing_module(), name)
+    raise AttributeError(name)
+
+
+def _warn_unknown_options(options: dict[str, object]) -> None:
+    for key in options:
+        if key != "skip_dep_check":
+            logger.warning("Unknown Atomic Agents instrumentation option %s ignored", key)
 
 
 class AtomicAgentsInstrumentor:
     """
-    Installs OpenInference AGENT and TOOL spans around ``AtomicAgent`` and ``BaseTool`` calls.
+    Installs AGENT, TOOL and LLM-attempt spans around ``AtomicAgent`` and ``BaseTool`` calls.
 
     The public surface mirrors OpenTelemetry's ``BaseInstrumentor`` (``instrument`` / ``uninstrument``)
     without depending on it, because Arize Phoenix only guarantees ``opentelemetry-api`` and
@@ -63,24 +68,32 @@ class AtomicAgentsInstrumentor:
     """
 
     def instrument(
-        self, *, tracer_provider: Optional["TracerProvider"] = None, config: Optional["TraceConfig"] = None
+        self,
+        *,
+        tracer_provider: "TracerProvider | None" = None,
+        config: "TracingConfig | PayloadVisibility | None" = None,
+        **options: object,
     ) -> None:
         """
         Patch the framework classes. Safe to call more than once; a second call with different
-        arguments logs a warning and keeps the first installation.
+        arguments replaces the tracer provider/config and logs a warning.
 
         Args:
             tracer_provider: An OpenTelemetry ``TracerProvider``. Defaults to the global provider.
-            config: An ``openinference.instrumentation.TraceConfig`` (for example ``hide_inputs=True``).
+            config: Payload visibility and truncation settings. OpenInference TraceConfig is also accepted.
+            **options: Launcher options accepted for OpenTelemetry auto-instrumentation compatibility.
 
         Raises:
-            ImportError: When the ``observability`` extra is not installed.
+            ModuleNotFoundError: When the ``observability`` extra is not installed, except during
+                OpenTelemetry auto-discovery, which skips unavailable optional instrumentation.
         """
-        if not _openinference_is_installed():
-            raise ImportError(_INSTALL_HINT)
-        tracing = _load_tracing_module()
-        if tracing is not None:
-            tracing.install(tracer_provider=tracer_provider, config=config)
+        _warn_unknown_options(options)
+        if not _opentelemetry_is_installed():
+            if options.get("skip_dep_check") is True:
+                logger.debug(_INSTALL_HINT)
+                return
+            raise ModuleNotFoundError(_INSTALL_HINT)
+        _load_tracing_module().install(tracer_provider=tracer_provider, config=config)
 
     def uninstrument(self) -> None:
         """Restore the original framework methods. No-op when nothing is installed."""
@@ -90,9 +103,9 @@ class AtomicAgentsInstrumentor:
 
     @property
     def is_instrumented_by_opentelemetry(self) -> bool:
-        if not _openinference_is_installed() or _openinference_is_too_old():
+        if not _opentelemetry_is_installed():
             return False
         return _load_tracing_module().is_installed()
 
 
-__all__ = ["AtomicAgentsInstrumentor"]
+__all__ = ["AtomicAgentsInstrumentor", "TracingConfig", "using_conversation"]

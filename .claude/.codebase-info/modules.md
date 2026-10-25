@@ -1,6 +1,6 @@
 # Key Modules
 
-*Last Updated: 2026-10-15*
+*Last Updated: 2026-10-21*
 
 ## Core framework — `atomic-agents/atomic_agents/`
 
@@ -46,19 +46,37 @@
 
 ### observability (opt-in)
 - **Location:** `atomic-agents/atomic_agents/observability/`
-- **Purpose:** OpenInference tracing for Arize Phoenix and any OpenTelemetry backend. `AtomicAgentsInstrumentor`
-  (`__init__.py`, stdlib-only imports) lazily loads `openinference_tracing.py`, which patches the four
-  `AtomicAgent.run*` methods into AGENT spans and every `BaseTool` subclass's `run`/`run_async`/`arun` into TOOL
-  spans (existing classes via a `__subclasses__` walk, future ones via a wrapped `BaseTool.__init_subclass__`).
-- **Contract:** `instrument(tracer_provider=, config=TraceConfig)` / `uninstrument()` /
-  `is_instrumented_by_opentelemetry`; idempotent and fully reversible. Needs the `observability` extra
-  (`openinference-instrumentation>=0.1.38`); older versions are refused with a warning so Phoenix's
-  `register(auto_instrument=True)` (which loads the `openinference_instrumentor` entry point) never fails.
-- **Span facts:** `agent.name` = `Class[InputSchema, OutputSchema]`; namespaced `atomic_agents.*` attributes
-  (model, mode, schema names, history size, context provider names, SHA-256 of the static prompt sections);
-  streams record the final/last partial and `atomic_agents.stream.closed_early`; a `ContextVar` re-entrancy guard
-  keeps `run -> arun` / `to_thread` delegation to one TOOL span. Nothing in `atomic_agents/__init__.py` imports it.
-- **Tests:** `atomic-agents/tests/observability/` (in-memory span exporter).
+- **Purpose:** plain OpenTelemetry tracing for any backend (OTLP collector, Grafana Tempo, Sentry, Datadog,
+  Honeycomb, PostHog, Arize Phoenix, Langfuse). Only `opentelemetry-api` is required; the OpenTelemetry GenAI
+  semantic-convention attributes are primary and the OpenInference family is an optional layer, auto-on when the
+  `openinference-instrumentation` package is importable (`phoenix` extra).
+- **Modules:** `__init__.py` (loader, `AtomicAgentsInstrumentor`, stdlib-only imports), `tracing.py` (thin facade),
+  `tracing_config.py` (`TracingConfig`, `PayloadVisibility`, env parsing), `span_payloads.py` (serialize, hide before
+  serialize, truncate with `<key>.original_length`, bounded/redacted error text), `span_attributes.py` (key constants,
+  Instructor-to-semconv provider map, None filtering, best-effort attribute collection, OpenInference context seam,
+  `using_conversation`), `agent_spans.py` (four `AtomicAgent.run*` wrappers, stream cursors, run state),
+  `tool_spans.py` (`BaseTool` wrappers via `__subclasses__` walk + wrapped `__init_subclass__`, re-entrancy guard),
+  `installation.py` (install / uninstall / replace-in-place), `llm_attempt_spans.py` (Instructor hook handlers).
+- **Contract:** `instrument(tracer_provider=, config=TracingConfig | PayloadVisibility | None, **options)` /
+  `uninstrument()` / `is_instrumented_by_opentelemetry`. Same arguments: no-op; different provider or config:
+  replaced in place with a WARNING, `None` keeps the installed value; in-flight spans finish on their original
+  provider. Hooks are registered once per Instructor client under a lock and removed on uninstall;
+  `suppress_instrumentation` is honored; hooks never raise into user code.
+- **Spans:** `invoke_agent {AgentConfig.name or class}` (`gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name`,
+  `gen_ai.request.model`, `gen_ai.provider.name`, `gen_ai.conversation.id`, `atomic_agents.agent.class`, `.input`,
+  `.output`, model/mode/schema/history/provider/prompt-hash keys, usage totals and `atomic_agents.llm.attempts` at end);
+  `execute_tool {tool.tool_name}` (`gen_ai.tool.*`, `atomic_agents.tool.class`); one `chat {model}` CLIENT span per
+  Instructor attempt from `completion:kwargs`/`completion:response`/`completion:error` with per-attempt usage
+  (cached/reasoning tokens for both chat-completion and Responses shapes), `parse:error` as a `validation_error`
+  event; `error.type` on failures; cancellation = `atomic_agents.cancelled`, never ERROR. Spans always attach to the
+  current context. `llm_spans=False` keeps totals and drops chat spans.
+- **Config:** `TracingConfig(hide_inputs, hide_outputs, max_attribute_length=4096, openinference_attributes=None,
+  llm_spans=True)`; env `ATOMIC_AGENTS_TRACE_HIDE_INPUTS/_OUTPUTS` (fallback `OPENINFERENCE_HIDE_*`),
+  `ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH` (tolerant, 4096 fallback), `ATOMIC_AGENTS_TRACE_LLM_SPANS`. Under
+  `hide_outputs` every exception becomes `<Type>: <N> attempts (__REDACTED__)`. Nothing in `atomic_agents/__init__.py`
+  imports the package.
+- **Tests:** `atomic-agents/tests/observability/` (in-memory exporter; `instructor_transport.py` builds real Instructor
+  clients over `httpx.MockTransport`; `test_instructor_modes.py` covers TOOLS/JSON/JSON_SCHEMA/RESPONSES_TOOLS).
 
 ## Subprojects
 

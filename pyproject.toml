@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "atomic-agents"
-version = "2.13.0"
+version = "2.15.0"
 description = "A versatile framework for creating and managing intelligent agents."
 readme = "README.md"
 license = "MIT"
@@ -37,10 +37,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-observability = [
+observability = ["opentelemetry-api>=1.30.0,<2.0.0"]
+phoenix = [
+    "opentelemetry-api>=1.30.0,<2.0.0",
     "openinference-instrumentation>=0.1.38,<0.2.0",
     "openinference-semantic-conventions>=0.1.20,<0.2.0",
-    "opentelemetry-api>=1.30.0,<2.0.0",
 ]
 
 [project.urls]
@@ -51,6 +52,9 @@ Repository = "https://github.com/eigenwise/atomic-agents"
 atomic = "atomic_assembler.main:main"
 
 [project.entry-points.openinference_instrumentor]
+atomic_agents = "atomic_agents.observability:AtomicAgentsInstrumentor"
+
+[project.entry-points.opentelemetry_instrumentor]
 atomic_agents = "atomic_agents.observability:AtomicAgentsInstrumentor"
 
 [dependency-groups]
@@ -75,6 +79,7 @@ dev = [
     "openinference-instrumentation>=0.1.38,<0.2.0",
     "openinference-semantic-conventions>=0.1.20,<0.2.0",
     "opentelemetry-sdk>=1.30.0,<2.0.0",
+    "opentelemetry-instrumentation>=0.51b0,<1.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

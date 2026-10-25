@@ -15,6 +15,7 @@ from phoenix_tracing.tools.calculator import CalculatorTool, CalculatorToolInput
 
 load_dotenv()
 
+os.environ.setdefault("ATOMIC_AGENTS_TRACE_LLM_SPANS", "false")
 tracer_provider = register(project_name="atomic-agents-example", auto_instrument=True)
 tracer = tracer_provider.get_tracer(__name__)
 console = Console()

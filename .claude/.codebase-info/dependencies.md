@@ -1,6 +1,6 @@
 # Dependencies
 
-*Last Updated: 2026-10-19*
+*Last Updated: 2026-10-21*
 
 Declared in `pyproject.toml` (Hatchling build, `uv` workspace; versions locked in `uv.lock`).
 
@@ -12,15 +12,15 @@ Declared in `pyproject.toml` (Hatchling build, `uv` workspace; versions locked i
 | litellm (≥1.50,<2) | Provider-agnostic token counting & model metadata |
 | rich (≥13.7.1,<14) | Console formatting |
 
-## Optional extra — `observability`
-| Package | Purpose |
-|---------|---------|
-| openinference-instrumentation (≥0.1.38,<0.2) | `OITracer` / `TraceConfig` used by `atomic_agents.observability` |
-| openinference-semantic-conventions (≥0.1.20,<0.2) | Span attribute names (`agent.name` needs ≥0.1.20) |
-| opentelemetry-api (≥1.30,<2) | Tracer / context API |
+## Optional extras — `observability` and `phoenix`
+| Extra | Package | Purpose |
+|-------|---------|---------|
+| `observability` | opentelemetry-api (≥1.30,<2) | Tracer / context API; the only runtime dependency of `atomic_agents.observability` |
+| `phoenix` | opentelemetry-api, openinference-instrumentation (≥0.1.38,<0.2), openinference-semantic-conventions (≥0.1.20,<0.2) | Adds the OpenInference attribute family and `using_session` / `using_user` / `using_metadata`; needed for Arize Phoenix views |
 
-Also listed in the dev group (plus `opentelemetry-sdk`) so CI runs the observability tests. `arize-phoenix-otel`
-already brings the two OpenInference packages, so the Phoenix auto path works without the extra.
+Users bring their own SDK and exporter (`opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http`, ...). The dev
+group carries the OpenInference packages plus `opentelemetry-sdk` so the tests run; `arize-phoenix-otel` already
+brings the OpenInference packages, so the Phoenix auto path works without the `phoenix` extra.
 
 ## Runtime — CLI / tooling
 | Package | Purpose |
@@ -40,6 +40,7 @@ already brings the two OpenInference packages, so the Phoenix auto path works wi
 | pre-commit (≥4,<5) | Git hook runner |
 | pytest / pytest-cov / pytest-asyncio | Tests, coverage, async tests |
 | openai (≥2,<3) | Example/test provider client |
+| opentelemetry-instrumentation (≥0.51b0,<1) | Real auto-loader and launcher tests; dev-only, not a runtime dependency |
 
 ## Docs
 `sphinx`, `sphinx-rtd-theme`, `myst-parser`, `sphinx-copybutton`, `sphinx-design`,

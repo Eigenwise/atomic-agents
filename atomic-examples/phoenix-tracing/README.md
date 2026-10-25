@@ -6,16 +6,29 @@ produces this tree in Phoenix:
 
 ```
 CHAIN  answer_question
-├── AGENT  AtomicAgent[BasicChatInputSchema, CalculationPlanSchema].run
+├── AGENT  invoke_agent {agent name}
+│   ├── LLM  chat {model}              (Atomic Agents attempt span, one per Instructor attempt)
 │   └── LLM  ChatCompletion            (from openinference-instrumentation-openai)
-├── TOOL   CalculatorTool
-└── AGENT  AtomicAgent[CalculationResultSchema, BasicChatOutputSchema].run
+├── TOOL   execute_tool {tool name}
+└── AGENT  invoke_agent {agent name}
+    ├── LLM  chat {model}
     └── LLM  ChatCompletion
 ```
+
+Running the OpenAI instrumentor next to the Atomic Agents attempt spans gives two LLM layers. To keep one, pass
+`TracingConfig(llm_spans=False)` when you call `AtomicAgentsInstrumentor().instrument(...)` yourself.
 
 The AGENT and TOOL spans come from `atomic_agents.observability`, which Phoenix activates automatically
 through `register(auto_instrument=True)`. The LLM spans come from the OpenAI instrumentor. The CHAIN span
 is the only manual tracing in `main.py`; without it every agent and tool call would be its own trace.
+
+## Install
+
+Inside this repository `uv sync` installs everything. In your own project:
+
+```bash
+pip install "atomic-agents[phoenix]" arize-phoenix-otel openinference-instrumentation-openai
+```
 
 ## Run it
 

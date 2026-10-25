@@ -1,6 +1,6 @@
 # Directory Structure
 
-*Last Updated: 2026-10-15*
+*Last Updated: 2026-10-21*
 
 ## Root Layout
 
@@ -13,7 +13,7 @@ atomic-agents/                  # repo root (uv workspace)
 │       ├── context/            #     SystemPromptGenerator, BaseChatHistory/ChatHistory, context providers
 │       ├── connectors/mcp/     #     Model Context Protocol integration
 │       ├── utils/              #     token counter, tool-message formatting
-│       └── observability/      #     opt-in OpenInference instrumentor (Phoenix / OpenTelemetry)
+│       └── observability/      #     opt-in OpenTelemetry instrumentor (GenAI attributes; OpenInference optional)
 │   └── tests/                  #   pytest suite (agents/, base/, context/, connectors/, observability/, utils/)
 ├── atomic-assembler/           # Textual TUI (`atomic` command) to install forge tools
 │   └── atomic_assembler/       #   main.py, app.py, screens/, widgets/, utils.py, constants.py
