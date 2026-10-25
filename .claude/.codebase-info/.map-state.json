@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "tool": "codebase-mapper",
   "version": "2.15.10",
-  "mappedAt": "2026-10-21",
-  "gitCommit": "b8506eb910c0b1c07a5e8dd21e0ce7397154545f",
+  "mappedAt": "2026-10-24",
+  "gitCommit": "ea7c09aae6ced82dd0b5df6935f2cb0804246c88",
   "documents": [
     "architecture.md",
     "coding-style.md",
@@ -20,13 +20,13 @@
     "INDEX.md": "91bb80710a6b08c0bb9be27178d9fbf52f1d32a3cdea58b7bdb07ec295e60b68",
     "architecture.md": "0ff15b04928495b48cdcf40845b5bf9e3bb548c602b734321c4b10f630d83150",
     "coding-style.md": "b63e8dff06d16a2d882f02624c62f490291317aec8b3032f6d79b3ee035e8567",
-    "communication.md": "0a61b6090f5e67341ad605517111270bdd04caede037e70ec6565de8dcdf5f28",
+    "communication.md": "2de7556dd0cd55fef9fd56d4cbc6c96dd8b89a29a76b1f7a97356b446a2b8093",
     "dependencies.md": "abadb58027b4092afaaa0efcaec92893eac7bb598318f7f54a542fd77d607dc1",
     "directory-structure.md": "c8d654506843622fd394e0a998fddba769e4ec534449ccd6755d312192184bfd",
     "entry-points.md": "65ebc321a35f1ae36f587adce8b7b04b71cc4006ec7d518f4c092836c2984705",
     "modules.md": "e1185cdddfbcc7a05a69b80661a6c720aa2a1fc10bc445e319983fffb875524e",
     "onboarding.md": "3d28c671dc095a2aadb297bd7ab200c677779a99c7534e03e55a3d64c935f07e",
-    "patterns.md": "09d04b9b8d079ac4ce9e1f5ddafabb6f3faf53b5ef48dca1c2d62d0875e149b0",
+    "patterns.md": "bd2ea1b37b5bddf1eed1e85cdb6916ac12abf18632c9f67400dc3d588d4420fe",
     "tech-landscape.md": "8a4459f7309dd13fa9e2425507fec35d21b8b3f691bc6a39b6626fffb8d1744d"
   }
 }

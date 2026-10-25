@@ -169,24 +169,6 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         ```
     """
 
-    @classmethod
-    def __init_subclass__(cls, **kwargs):
-        """
-        Hook called when a class is subclassed.
-
-        Captures generic type parameters during class creation and stores them as class attributes
-        to work around the unreliable __orig_class__ attribute in modern Python generic syntax.
-        """
-        super().__init_subclass__(**kwargs)
-        if hasattr(cls, "__orig_bases__"):
-            for base in cls.__orig_bases__:
-                if get_origin(base) is AtomicAgent:
-                    args = get_args(base)
-                    if len(args) == 2:
-                        cls._input_schema_cls = args[0]
-                        cls._output_schema_cls = args[1]
-                        break
-
     def __init__(self, config: AgentConfig):
         """
         Initializes the AtomicAgent.
@@ -238,49 +220,35 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         self.history.add_message(self.tool_result_role, content)
 
+    def _resolve_schema_types(self) -> tuple[Type[BaseIOSchema], Type[BaseIOSchema]]:
+        """Resolve AtomicAgent's schemas through the instance's specialized bases."""
+
+        def resolve(base: Any, bindings: Dict[Any, Any]) -> Optional[tuple[Any, Any]]:
+            origin = get_origin(base) or base
+            arguments = tuple(bindings.get(argument, argument) for argument in get_args(base))
+            if origin is AtomicAgent:
+                return (arguments[0], arguments[1]) if len(arguments) == 2 else None
+
+            bindings = {**bindings, **dict(zip(getattr(origin, "__parameters__", ()), arguments))}
+            # Read only bases declared on this class; inherited __orig_bases__
+            # can skip a specialization introduced by an intermediate subclass.
+            for parent in origin.__dict__.get("__orig_bases__", origin.__bases__):
+                schemas = resolve(parent, bindings)
+                if schemas is not None:
+                    return schemas
+            return None
+
+        return resolve(getattr(self, "__orig_class__", type(self)), {}) or (BasicChatInputSchema, BasicChatOutputSchema)
+
     @property
     def input_schema(self) -> Type[BaseIOSchema]:
-        """
-        Returns the input schema for the agent.
-
-        Uses a three-level fallback mechanism:
-        1. Class attributes from __init_subclass__ (handles subclassing)
-        2. Instance __orig_class__ (handles direct instantiation)
-        3. Default schema (handles untyped usage)
-        """
-        # Inheritance pattern: MyAgent(AtomicAgent[Schema1, Schema2])
-        if hasattr(self.__class__, "_input_schema_cls"):
-            return self.__class__._input_schema_cls
-
-        # Dynamic instantiation: AtomicAgent[Schema1, Schema2]()
-        if hasattr(self, "__orig_class__"):
-            TI, _ = get_args(self.__orig_class__)
-            return TI
-
-        # No type info available
-        return BasicChatInputSchema
+        """Return the concrete input schema, or the default for an untyped agent."""
+        return self._resolve_schema_types()[0]
 
     @property
     def output_schema(self) -> Type[BaseIOSchema]:
-        """
-        Returns the output schema for the agent.
-
-        Uses a three-level fallback mechanism:
-        1. Class attributes from __init_subclass__ (handles subclassing)
-        2. Instance __orig_class__ (handles direct instantiation)
-        3. Default schema (handles untyped usage)
-        """
-        # Inheritance pattern: MyAgent(AtomicAgent[Schema1, Schema2])
-        if hasattr(self.__class__, "_output_schema_cls"):
-            return self.__class__._output_schema_cls
-
-        # Dynamic instantiation: AtomicAgent[Schema1, Schema2]()
-        if hasattr(self, "__orig_class__"):
-            _, TO = get_args(self.__orig_class__)
-            return TO
-
-        # No type info available
-        return BasicChatOutputSchema
+        """Return the concrete output schema, or the default for an untyped agent."""
+        return self._resolve_schema_types()[1]
 
     def _build_system_messages(self) -> List[Dict]:
         """
@@ -774,7 +742,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hook_handlers[event].append(handler)
 
         # Register with instructor client if it supports hooks
-        if hasattr(self.client, "on"):
+        if self._hooks_enabled and hasattr(self.client, "on"):
             self.client.on(event, handler)
 
     def unregister_hook(self, event: str, handler: Callable) -> None:
@@ -789,7 +757,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self._hook_handlers[event].remove(handler)
 
             # Remove from instructor client if it supports hooks
-            if hasattr(self.client, "off"):
+            if self._hooks_enabled and hasattr(self.client, "off"):
                 self.client.off(event, handler)
 
     def clear_hooks(self, event: Optional[str] = None) -> None:
@@ -828,11 +796,23 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
 
     def enable_hooks(self) -> None:
         """Enable hook processing."""
+        if self._hooks_enabled:
+            return
         self._hooks_enabled = True
+        if hasattr(self.client, "on"):
+            for event, handlers in self._hook_handlers.items():
+                for handler in handlers:
+                    self.client.on(event, handler)
 
     def disable_hooks(self) -> None:
         """Disable hook processing."""
+        if not self._hooks_enabled:
+            return
         self._hooks_enabled = False
+        if hasattr(self.client, "off"):
+            for event, handlers in self._hook_handlers.items():
+                for handler in handlers:
+                    self.client.off(event, handler)
 
     @property
     def hooks_enabled(self) -> bool:
