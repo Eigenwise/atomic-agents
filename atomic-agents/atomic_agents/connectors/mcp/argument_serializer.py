@@ -3,9 +3,20 @@
 from typing import Any
 from urllib.parse import unquote
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, validators
 from referencing import Registry
 from referencing.exceptions import Unresolvable
+
+
+def _validate_ref(validator: Any, reference: str, value: Any, schema: Any) -> Any:
+    try:
+        yield from Draft202012Validator.VALIDATORS["$ref"](validator, reference, value, schema)
+    except Unresolvable:
+        # Only the unresolved reference is unrestricted; sibling keywords still apply.
+        return
+
+
+_ArgumentValidator = validators.extend(Draft202012Validator, {"$ref": _validate_ref})
 
 
 class ArgumentSerializer:
@@ -14,14 +25,11 @@ class ArgumentSerializer:
     def __init__(self, schema: dict[str, Any]) -> None:
         self.schema = schema
         # MCP's schema transformer supports local references. Do not fetch remote schemas.
-        self.validator = Draft202012Validator(schema, registry=Registry())
+        self.validator = _ArgumentValidator(schema, registry=Registry())
 
     def _is_valid(self, value: Any, schema: Any) -> bool:
-        try:
-            return self.validator.evolve(schema=schema).is_valid(value)
-        except Unresolvable:
-            # Match the transformer's Any fallback for unresolved references.
-            return True
+        validator = self.validator if schema is self.schema else self.validator.evolve(schema=schema)
+        return validator.is_valid(value)
 
     def _resolve_ref(self, reference: str) -> Any:
         if reference == "#":
@@ -56,7 +64,9 @@ class ArgumentSerializer:
             if keyword not in schema:
                 continue
             common = {name: item for name, item in schema.items() if name != keyword}
-            for branch in schema[keyword]:
+            # Prefer branches accepting the original input before trying to remove nulls
+            # to fit another branch. An already valid explicit null must not be lost.
+            for branch in sorted(schema[keyword], key=lambda branch: not self._is_valid(value, branch)):
                 candidate = self._serialize(value, branch, visited)
                 candidate = self._serialize(candidate, common, visited)
                 if self._is_valid(candidate, schema):

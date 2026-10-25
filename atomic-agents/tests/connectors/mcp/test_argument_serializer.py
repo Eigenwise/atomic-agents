@@ -82,3 +82,62 @@ def test_invalid_structured_union_does_not_pick_an_arbitrary_branch():
     }
     arguments = {"kind": "unknown", "name": None}
     assert ArgumentSerializer(schema).serialize(arguments) == arguments
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_valid_union_input_keeps_explicit_null_independently_of_branch_order(keyword, reverse):
+    branches = [
+        {"type": "object", "properties": {"name": {"type": "string"}}},
+        {"type": "object", "properties": {"name": {"type": ["string", "null"]}}},
+    ]
+    schema = {keyword: branches[::-1] if reverse else branches}
+    arguments = {"name": None}
+
+    result = ArgumentSerializer(schema).serialize(arguments)
+
+    assert result == arguments
+    Draft202012Validator(schema).validate(result)
+
+
+@pytest.mark.parametrize("reference", ["#/$defs/Missing", "https://example.invalid/schema.json"])
+@pytest.mark.parametrize("ref_first", [True, False])
+@pytest.mark.parametrize("constraint", [{"type": "string"}, {"enum": ["brief"]}, {"const": "brief"}])
+def test_unresolved_reference_still_enforces_sibling_constraints(reference, ref_first, constraint):
+    value_schema = {"$ref": reference, **constraint} if ref_first else {**constraint, "$ref": reference}
+    schema = {"type": "object", "properties": {"value": value_schema}}
+    assert ArgumentSerializer(schema).serialize({"value": None}) == {}
+    assert ArgumentSerializer(schema).serialize({"value": "brief"}) == {"value": "brief"}
+
+
+@pytest.mark.parametrize("keyword", ["anyOf", "oneOf", "allOf"])
+def test_unresolved_reference_in_composition_keeps_known_constraints(keyword):
+    schema = {
+        "type": "object",
+        "properties": {"value": {keyword: [{"$ref": "https://example.invalid/schema.json", "type": "string"}]}},
+    }
+    assert ArgumentSerializer(schema).serialize({"value": None}) == {}
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_valid_branch_is_preferred_even_when_common_constraint_needs_filtering(reverse):
+    branches = [
+        {"properties": {"name": {"type": "string"}}},
+        {"properties": {"name": {"type": ["string", "null"]}}},
+    ]
+    schema = {
+        "properties": {"other": {"type": "string"}},
+        "anyOf": branches[::-1] if reverse else branches,
+    }
+    result = ArgumentSerializer(schema).serialize({"name": None, "other": None})
+    assert result == {"name": None}
+    Draft202012Validator(schema).validate(result)
+
+
+def test_unresolved_reference_fallback_with_declared_root_dialect():
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {"value": {"$ref": "https://example.invalid/schema.json", "type": "string"}},
+    }
+    assert ArgumentSerializer(schema).serialize({"value": None}) == {}

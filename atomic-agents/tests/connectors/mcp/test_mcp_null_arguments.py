@@ -199,6 +199,38 @@ async def test_generated_tools_keep_independent_referenced_nullability():
             {"value": {"name": None}},
             {"value": {}},
         ),
+        *[
+            (
+                {keyword: branches[::-1] if reverse else branches},
+                {},
+                {"value": {"name": None}},
+                {"value": {"name": None}},
+            )
+            for keyword in ("anyOf", "oneOf")
+            for reverse in (False, True)
+            for branches in [
+                [
+                    {"type": "object", "properties": {"name": {"type": "string"}}},
+                    {"type": "object", "properties": {"name": {"type": ["string", "null"]}}},
+                ]
+            ]
+        ],
+        *[
+            (
+                {"type": "array", "items": {keyword: branches[::-1] if reverse else branches}},
+                {},
+                {"value": [{"name": None}, {"name": "brief"}]},
+                {"value": [{"name": None}, {"name": "brief"}]},
+            )
+            for keyword in ("anyOf",)
+            for reverse in (False, True)
+            for branches in [
+                [
+                    {"type": "object", "properties": {"name": {"type": "string"}}},
+                    {"type": "object", "properties": {"name": {"type": ["string", "null"]}}},
+                ]
+            ]
+        ],
     ],
     ids=[
         "referenced-enum",
@@ -218,6 +250,12 @@ async def test_generated_tools_keep_independent_referenced_nullability():
         "union-nested-nullable",
         "array-keeps-positions",
         "escaped-reference",
+        "anyof-valid-null-first-nonnullable",
+        "anyof-valid-null-first-nullable",
+        "oneof-valid-null-first-nonnullable",
+        "oneof-valid-null-first-nullable",
+        "array-anyof-valid-null-first-nonnullable",
+        "array-anyof-valid-null-first-nullable",
     ],
 )
 async def test_generated_tool_filters_nulls_using_advertised_schema(
@@ -247,3 +285,35 @@ async def test_generated_tool_filters_nulls_using_advertised_schema(
 
     session.call_tool.assert_awaited_once_with(name="update_value", arguments=expected)
     Draft202012Validator(schema).validate(session.call_tool.await_args.kwargs["arguments"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("session_mode", ["persistent", "fresh"])
+@pytest.mark.parametrize("ref_first", [True, False])
+async def test_generated_tool_unresolved_reference_respects_sibling_type(session_mode, ref_first, monkeypatch):
+    value_schema = {"$ref": "https://example.invalid/schema.json", "type": "string"}
+    if not ref_first:
+        value_schema = dict(reversed(value_schema.items()))
+    schema = {"type": "object", "properties": {"value": value_schema}}
+    session = create_autospec(ClientSession, instance=True)
+    session.list_tools.return_value = ListToolsResult(tools=[Tool(name="update_value", inputSchema=schema)])
+    session.call_tool.return_value = CallToolResult(content=[TextContent(type="text", text="updated")])
+    if session_mode == "persistent":
+        tool_classes = await fetch_mcp_tools_async(client_session=session)
+    else:
+
+        @asynccontextmanager
+        async def transport(*args, **kwargs):
+            yield None, None, None
+
+        session.__aenter__.return_value = session
+        for module in (mcp_factory, mcp_definition_service):
+            monkeypatch.setattr(module, "streamablehttp_client", transport)
+            monkeypatch.setattr(module, "ClientSession", lambda *args: session)
+        tool_classes = await fetch_mcp_tools_async(
+            mcp_endpoint="https://example.com", transport_type=MCPTransportType.HTTP_STREAM
+        )
+    tool = tool_classes[0]()
+    await tool.arun(tool.input_schema(tool_name="update_value", value=None))
+
+    session.call_tool.assert_awaited_once_with(name="update_value", arguments={})
