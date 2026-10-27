@@ -1,6 +1,6 @@
 # Communication & Integrations
 
-*Last Updated: 2026-10-24*
+*Last Updated: 2026-10-27*
 
 The framework exposes no HTTP API of its own; "communication" here means how it talks to LLM
 providers and external tools.
@@ -9,8 +9,10 @@ providers and external tools.
 - All model calls go through an **Instructor-wrapped client** the caller supplies
   (`instructor.from_openai(...)`, `from_anthropic(...)`, etc.). The agent calls
   `client.chat.completions.create(response_model=OutputSchema)` (and `create_partial` for streaming).
-- Provider-agnostic: OpenAI, Anthropic, Google Gemini, MiniMax, and 100+ models via LiteLLM. Mode is
-  configurable (`Mode.TOOLS` is the default).
+- Provider-agnostic: OpenAI, Anthropic, Google Gemini, MiniMax, and 100+ models via LiteLLM.
+  `AgentConfig.mode` defaults to `None` and follows the Instructor client's mode (so a `mode=Mode.JSON`
+  factory is enough for JSON-only hosts); an explicit mode from a different transmission family than the
+  client's is kept but logs a warning.
 - Multimodal content uses Instructor's Image/Audio/PDF types plus the framework's `VideoURL`;
   `ChatHistory.get_history()` converts `VideoURL` to an OpenAI-compatible `video_url` dict, which
   Instructor forwards unchanged to providers that support video inputs.
@@ -30,6 +32,10 @@ providers and external tools.
   `mcp-agent` and `progressive-disclosure` examples.
 - Discovery follows tool, resource, template and prompt cursors. Template continuation errors propagate.
 - Schema references decode escaped definition names and support non-object definitions.
+- Scalar `enum`/`const` choices are intersected with the advertised JSON Schema (compositions and local `$defs`
+  included, checked with `jsonschema` at model construction) so the generated `Literal` and emitted schema only
+  admit values the server accepts. An empty intersection fails that one tool definition; the factory logs and skips
+  it and keeps the others.
 - Typed SDK tool results use structured content only when it is non-None, then use the existing validated JSON-text fallback. Present empty structured data retains precedence. Mapping adapters keep their separate validation contract.
 - SDK `CallToolResult` and strictly validated mapping envelopes with `isError=True` raise a `RuntimeError` before typed or generic output parsing. The message uses `TextContent` only (meaningful fallback when no text); `structuredContent`, `_meta` and binary blocks never enter messages or logs. Raw application dictionaries that merely contain `isError`/`name` keys (even with a string `content`) stay ordinary outputs.
 
