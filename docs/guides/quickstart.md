@@ -286,7 +286,7 @@ The framework supports multiple AI providers:
 {
     "openai": "gpt-5-mini",
     "anthropic": "claude-haiku-5-5",
-    "groq": "llama-3.3-70b-versatile",
+    "groq": "openai/gpt-oss-120b",
     "ollama": "llama3",
     "gemini": "gemini-2.0-flash-exp",
     "openrouter": "mistral/ministral-8b"
@@ -337,7 +337,7 @@ def setup_client(provider):
             Groq(api_key=api_key),
             mode=instructor.Mode.JSON
         )
-        model = "llama-3.3-70b-versatile"
+        model = "openai/gpt-oss-120b"
 
     elif provider == "ollama":
         from openai import OpenAI as OllamaClient

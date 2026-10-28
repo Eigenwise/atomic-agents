@@ -325,7 +325,7 @@ def get_client(provider: Provider):
 
     elif provider == Provider.GROQ:
         from groq import Groq
-        return instructor.from_groq(Groq(), mode=instructor.Mode.JSON), "llama-3.3-70b-versatile"
+        return instructor.from_groq(Groq(), mode=instructor.Mode.JSON), "openai/gpt-oss-120b"
 
     elif provider == Provider.OLLAMA:
         from openai import OpenAI

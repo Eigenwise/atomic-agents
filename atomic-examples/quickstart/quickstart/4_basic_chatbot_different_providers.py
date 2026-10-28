@@ -40,7 +40,7 @@ def setup_client(provider):
 
         api_key = os.getenv("GROQ_API_KEY")
         client = instructor.from_groq(Groq(api_key=api_key), mode=instructor.Mode.JSON)
-        model = "llama-3.3-70b-versatile"
+        model = "openai/gpt-oss-120b"
         model_api_parameters = {"max_tokens": 2048}
         assistant_role = "assistant"
     elif provider == "4" or provider == "ollama":
