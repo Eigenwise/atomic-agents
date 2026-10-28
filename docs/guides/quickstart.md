@@ -285,8 +285,8 @@ The framework supports multiple AI providers:
 ```json
 {
     "openai": "gpt-5-mini",
-    "anthropic": "claude-3-5-haiku-20241022",
-    "groq": "mixtral-8x7b-32768",
+    "anthropic": "claude-haiku-5-5",
+    "groq": "llama-3.3-70b-versatile",
     "ollama": "llama3",
     "gemini": "gemini-2.0-flash-exp",
     "openrouter": "mistral/ministral-8b"
@@ -328,7 +328,7 @@ def setup_client(provider):
         from anthropic import Anthropic
         api_key = os.getenv("ANTHROPIC_API_KEY")
         client = instructor.from_anthropic(Anthropic(api_key=api_key))
-        model = "claude-3-5-haiku-20241022"
+        model = "claude-haiku-5-5"
 
     elif provider == "groq":
         from groq import Groq
@@ -337,7 +337,7 @@ def setup_client(provider):
             Groq(api_key=api_key),
             mode=instructor.Mode.JSON
         )
-        model = "mixtral-8x7b-32768"
+        model = "llama-3.3-70b-versatile"
 
     elif provider == "ollama":
         from openai import OpenAI as OllamaClient

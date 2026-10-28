@@ -32,7 +32,7 @@ def setup_client(provider):
 
         api_key = os.getenv("ANTHROPIC_API_KEY")
         client = instructor.from_anthropic(Anthropic(api_key=api_key))
-        model = "claude-3-5-haiku-20241022"
+        model = "claude-haiku-5-5"
         model_api_parameters = {"max_tokens": 2048}
         assistant_role = "assistant"
     elif provider == "3" or provider == "groq":
@@ -40,7 +40,7 @@ def setup_client(provider):
 
         api_key = os.getenv("GROQ_API_KEY")
         client = instructor.from_groq(Groq(api_key=api_key), mode=instructor.Mode.JSON)
-        model = "mixtral-8x7b-32768"
+        model = "llama-3.3-70b-versatile"
         model_api_parameters = {"max_tokens": 2048}
         assistant_role = "assistant"
     elif provider == "4" or provider == "ollama":

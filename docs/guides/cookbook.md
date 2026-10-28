@@ -321,11 +321,11 @@ def get_client(provider: Provider):
 
     elif provider == Provider.ANTHROPIC:
         from anthropic import Anthropic
-        return instructor.from_anthropic(Anthropic()), "claude-3-5-haiku-20241022"
+        return instructor.from_anthropic(Anthropic()), "claude-haiku-5-5"
 
     elif provider == Provider.GROQ:
         from groq import Groq
-        return instructor.from_groq(Groq(), mode=instructor.Mode.JSON), "mixtral-8x7b-32768"
+        return instructor.from_groq(Groq(), mode=instructor.Mode.JSON), "llama-3.3-70b-versatile"
 
     elif provider == Provider.OLLAMA:
         from openai import OpenAI
