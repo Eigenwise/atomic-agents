@@ -1,14 +1,28 @@
 """Module for transforming JSON schemas to Pydantic models."""
 
 import logging
-from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, cast
+from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
-from pydantic import Field, create_model
+from jsonschema import Draft202012Validator, validators
+from pydantic import BeforeValidator, Field, create_model
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_ref(validator: Any, reference: str, value: Any, schema: Any) -> Any:
+    try:
+        yield from Draft202012Validator.VALIDATORS["$ref"](validator, reference, value, schema)
+    except Unresolvable:
+        # Match the transformer's Any fallback only for the unresolved reference.
+        return
+
+
+_ScalarChoiceValidator = validators.extend(Draft202012Validator, {"$ref": _validate_ref})
 
 # JSON type mapping
 JSON_TYPE_MAP = {
@@ -24,6 +38,42 @@ JSON_TYPE_MAP = {
 
 class SchemaTransformer:
     """Class for transforming JSON schemas to Pydantic models."""
+
+    @staticmethod
+    def _matches_scalar_type(value: Any, json_types: List[str]) -> bool:
+        """Match JSON scalar types without treating Python bools as numbers."""
+        if isinstance(value, bool):
+            return "boolean" in json_types
+        if isinstance(value, (int, float)):
+            return "number" in json_types or ("integer" in json_types and (isinstance(value, int) or value.is_integer()))
+        return (value is None and "null" in json_types) or (isinstance(value, str) and "string" in json_types)
+
+    @staticmethod
+    def _scalar_choice_type(prop_schema: Dict[str, Any], choices: List[Any], root_schema: Dict[str, Any]) -> Type:
+        """Keep only choices satisfying all advertised constraints, including compositions."""
+        declared_type = prop_schema.get("type")
+        json_types = declared_type if isinstance(declared_type, list) else [declared_type]
+        # The finite set can be intersected once, without coercing values through union types.
+        # Bind local references to the original root, and never retrieve remote schemas.
+        validator = _ScalarChoiceValidator(root_schema, registry=Registry()).evolve(schema=prop_schema)
+        choices = [value for value in choices if validator.is_valid(value)]
+        if not choices:
+            raise ValueError("Scalar choices do not match the declared JSON Schema constraints")
+
+        def validate_choice(value: Any) -> Any:
+            if declared_type is not None and not SchemaTransformer._matches_scalar_type(value, json_types):
+                raise ValueError("Value does not match the declared JSON Schema type")
+            for choice in choices:
+                if isinstance(value, bool) == isinstance(choice, bool) and value == choice:
+                    # Give Literal the matching choice so 1.0 cannot resolve to True.
+                    return choice
+            raise ValueError("Value does not match the JSON Schema choices")
+
+        choice_type = Annotated[Literal[tuple(choices)], BeforeValidator(validate_choice)]
+        if declared_type is not None:
+            # Keep type metadata inside the choice branch when Optional wraps it.
+            choice_type = Annotated[choice_type, Field(json_schema_extra={"type": declared_type})]
+        return choice_type
 
     @staticmethod
     def _resolve_ref(ref_path: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]) -> Type:
@@ -100,6 +150,13 @@ class SchemaTransformer:
         # Handle $ref
         if "$ref" in prop_schema:
             python_type = SchemaTransformer._resolve_ref(prop_schema["$ref"], root_schema, model_cache)
+        # Scalar value constraints must also appear in the model-facing schema.
+        elif "const" in prop_schema and isinstance(prop_schema["const"], (str, int, float, bool, type(None))):
+            python_type = SchemaTransformer._scalar_choice_type(prop_schema, [prop_schema["const"]], root_schema)
+        elif prop_schema.get("enum") and all(
+            isinstance(value, (str, int, float, bool, type(None))) for value in prop_schema["enum"]
+        ):
+            python_type = SchemaTransformer._scalar_choice_type(prop_schema, prop_schema["enum"], root_schema)
         # Handle oneOf/anyOf (unions)
         elif "oneOf" in prop_schema or "anyOf" in prop_schema:
             union_schemas = prop_schema.get("oneOf", prop_schema.get("anyOf", []))
