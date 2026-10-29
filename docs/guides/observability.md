@@ -117,8 +117,9 @@ export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=<api key>"
 **Datadog** (untested): send OTLP to a Datadog Agent with OTLP ingestion enabled (HTTP on 4318 by default) and set
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`. Datadog LLM Observability maps `invoke_agent` spans to agents,
 `execute_tool` to tools and `chat` to LLM calls, and reads the `gen_ai.usage.*` tokens and `gen_ai.conversation.id`.
-It reads prompt and response text only from `gen_ai.input.messages` and `gen_ai.output.messages`, which Atomic Agents
-does not emit, so you see spans, tokens and sessions but not the agent text. PostHog behaves the same way.
+It reads prompt and response text from `gen_ai.input.messages` and `gen_ai.output.messages`. The opt-in capture
+below adds those attributes for supported chat shapes. Version 2.15.0 does not emit them. Backend rendering remains
+untested, including PostHog.
 
 **Arize Phoenix**: see "Setup with Phoenix" below.
 
@@ -244,6 +245,7 @@ Attributes, GenAI keys first. All of them are written whether or not the OpenInf
 | `gen_ai.usage.output_tokens` | AGENT, LLM | Output tokens |
 | `gen_ai.usage.cache_read.input_tokens` | AGENT, LLM | Cached input tokens, when the provider reports them |
 | `gen_ai.usage.reasoning.output_tokens` | AGENT, LLM | Reasoning tokens, when the provider reports them |
+| `gen_ai.input.messages`, `gen_ai.output.messages` | LLM | Opt-in canonical message JSON, omitted when hidden or over the size cap |
 | `gen_ai.conversation.id` | all | Set by `using_conversation` |
 | `error.type` | failed spans | Exception class name |
 
@@ -355,6 +357,28 @@ TracingConfig(hide_inputs=True, hide_outputs=True, max_attribute_length=2048)
 | `max_attribute_length` | `4096` | Longer values are cut to this many characters and end in `...[truncated]` |
 | `openinference_attributes` | auto | See "What you get" |
 | `llm_spans` | `True` | See "LLM attempt spans" |
+| `capture_messages` | `False` | Add supported request/response messages to chat attempt spans |
+
+### Opt-in chat messages
+
+Use `TracingConfig(capture_messages=True)` or set `ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES=true` (also accepts `1`,
+case-insensitive). An explicit `TracingConfig` keeps precedence over environment settings. This setting is available
+in the source version of this guide, after 2.15.0.
+
+Capture requires enabled LLM attempt spans and unsuppressed instrumentation. `hide_inputs` and `hide_outputs` omit
+the respective message attribute entirely, before content access or serialization. These attributes can include the
+system prompt, history, user text and tool arguments/results. Review their sensitivity before enabling capture.
+Existing agent/tool payload defaults stay unchanged.
+
+Supported shapes are OpenAI-compatible chat messages with string content or text blocks, ordinary ChatCompletion
+choices, function tool calls, and tool-role replies. Each represented output choice stays a separate message, in order.
+Tools-mode responses contain real `tool_call` parts, never text fabricated from the parsed agent result. Images,
+audio, files, reasoning and unknown blocks are excluded; recognized text in mixed content remains. Native Responses,
+Anthropic and other unrecognized shapes are omitted. Streams and generators are never consumed.
+
+Message attributes are compact JSON using the GenAI `role`/`parts` schema. A complete serialized attribute exceeding
+`max_attribute_length` is omitted, including at tiny caps; it is never sliced or given a truncation marker. Empty or
+malformed content can also be omitted. This keeps emitted message JSON valid. Live backend display is unverified.
 
 When no config is passed to `instrument()`, the settings come from the environment. `ATOMIC_AGENTS_TRACE_HIDE_INPUTS`
 and `ATOMIC_AGENTS_TRACE_HIDE_OUTPUTS` are read first, then `OPENINFERENCE_HIDE_INPUTS` and `OPENINFERENCE_HIDE_OUTPUTS`
@@ -461,6 +485,7 @@ assert [span.name for span in exporter.get_finished_spans()][-1] == "invoke_agen
   do: `executor.submit(contextvars.copy_context().run, asyncio.run, self.run_async(params))`. `asyncio.to_thread` and
   `asyncio.run` already copy the context.
 - The AGENT span records the final (or last partial) response of a stream, not every chunk.
-- The system prompt text is not on any span. The AGENT span carries its SHA-256 instead.
-- Datadog and PostHog read prompt and response text from `gen_ai.input.messages` and `gen_ai.output.messages`, which
-  are not emitted.
+- System prompt text is absent by default. Opt-in message capture can include it on chat attempt spans; the AGENT
+  span carries its SHA-256.
+- Message capture supports the chat shapes listed above. Native Responses/Anthropic shapes and streamed chunks are
+  omitted; live backend message rendering is unverified.
