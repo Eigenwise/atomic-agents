@@ -1,6 +1,7 @@
 import asyncio
 import contextvars
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional
 
@@ -27,7 +28,7 @@ class DeedPageToolInputSchema(BaseIOSchema):
     slug: Optional[str] = Field(
         None,
         pattern=r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-        description="Optional subdomain (lowercase letters, digits, hyphens). Leave empty to get a random one.",
+        description="Optional subdomain (lowercase letters, digits, hyphens). Omit it to get a random one.",
     )
     ttl_seconds: Optional[int] = Field(
         None,
@@ -81,6 +82,10 @@ class DeedPageTool(BaseTool[DeedPageToolInputSchema, DeedPageToolOutputSchema]):
         # instance and deliberately left out of the output schema, so it never
         # reaches the model's context.
         self.token = config.api_token or os.getenv("DEEDPAGE_TOKEN", "")
+        # Each tokenless publish creates a new owner. Only one publish may run
+        # without a token at a time, so concurrent first-use calls (sync or
+        # async) wait for that token and publish under the same owner.
+        self._bootstrap_lock = threading.Lock()
         self.base_url = config.base_url.rstrip("/")
         self.user_agent = config.user_agent
         self.timeout = config.timeout
@@ -94,7 +99,20 @@ class DeedPageTool(BaseTool[DeedPageToolInputSchema, DeedPageToolOutputSchema]):
     async def run_async(self, params: DeedPageToolInputSchema) -> DeedPageToolOutputSchema:
         if not params.files:
             raise ValueError("files must contain at least one file, usually 'index.html'.")
+        if self.token:
+            return await self._publish(params)
 
+        # A threading lock (polled, so the event loop is never blocked and
+        # cancellation is safe) because run() executes each call on its own
+        # event loop in a worker thread.
+        while not self._bootstrap_lock.acquire(blocking=False):
+            await asyncio.sleep(0.05)
+        try:
+            return await self._publish(params)
+        finally:
+            self._bootstrap_lock.release()
+
+    async def _publish(self, params: DeedPageToolInputSchema) -> DeedPageToolOutputSchema:
         body: Dict[str, object] = {"files": params.files}
         if params.slug:
             body["slug"] = params.slug
@@ -110,7 +128,7 @@ class DeedPageTool(BaseTool[DeedPageToolInputSchema, DeedPageToolOutputSchema]):
                     error = data.get("error") or data.get("message") or resp.reason
                     raise Exception(f"deed.page publish failed: {resp.status} {error}")
 
-        if data.get("token"):
+        if data.get("token") and not self.token:
             self.token = data["token"]
         return DeedPageToolOutputSchema(
             url=data["url"],

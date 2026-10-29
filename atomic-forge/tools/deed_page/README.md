@@ -14,7 +14,7 @@ Publishes static files (usually a single `index.html`) to a public HTTPS URL thr
 2. Or copy the `tool/` folder directly into your project.
 
 ## Configuration
-- `api_token` (str): optional owner token. Falls back to the `DEEDPAGE_TOKEN` environment variable when empty. Without one, the first publish creates a token and the tool keeps it on `tool.token` for later updates and deletes.
+- `api_token` (str): optional owner token. Falls back to the `DEEDPAGE_TOKEN` environment variable when empty. Without one, the first publish creates a token and the tool keeps it on `tool.token` for later updates and deletes. Concurrent first publishes on one tool instance wait for that token, so every page they create belongs to it.
 - `base_url` (str): API base URL (default `https://deed.page`).
 - `user_agent` (str): user agent sent with each request.
 - `timeout` (float): HTTP timeout in seconds (default 30).
@@ -25,7 +25,7 @@ The token is never part of the tool output, so it doesn't end up in the model's 
 
 ### Input Schema
 - `files` (dict[str, str]): file path to content, e.g. `{"index.html": "<!doctype html>..."}`.
-- `slug` (str, optional): subdomain to publish to (lowercase letters, digits, hyphens). Empty gives a random one.
+- `slug` (str, optional): subdomain to publish to (lowercase letters, digits, hyphens). Omit it (or pass `None`) to get a random one; an empty string is rejected.
 - `ttl_seconds` (int, optional): remove the page after this many seconds (minimum 60). Empty keeps it.
 
 ### Output Schema
