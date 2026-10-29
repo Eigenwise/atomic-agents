@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/eigenwise/atomic-agents?style=social)](https://github.com/eigenwise/atomic-agents/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/eigenwise/atomic-agents?style=social)](https://github.com/eigenwise/atomic-agents/network/members)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/eigenwise/atomic-agents)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue?style=flat-square)](https://deepwiki.com/eigenwise/atomic-agents)
 [![GitHub Sponsors](https://img.shields.io/badge/sponsor-%E2%9D%A4-EA4AAA?style=flat-square&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Eigenwise)
 [![Ko-fi](https://img.shields.io/badge/ko--fi-buy%20me%20a%20coffee-FF5E5B?style=flat-square&logo=kofi&logoColor=white)](https://ko-fi.com/eigenwise)
 
