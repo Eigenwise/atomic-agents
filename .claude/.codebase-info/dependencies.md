@@ -1,6 +1,6 @@
 # Dependencies
 
-*Last Updated: 2026-10-21*
+*Last Updated: 2026-10-29*
 
 Declared in `pyproject.toml` (Hatchling build, `uv` workspace; versions locked in `uv.lock`).
 
@@ -10,6 +10,7 @@ Declared in `pyproject.toml` (Hatchling build, `uv` workspace; versions locked i
 | instructor (>=1.17.0,<2) | Structured (Pydantic) LLM outputs across providers — the core dependency |
 | pydantic (≥2.11.4,<3) | Schemas / data validation for all I/O; 2.11.4 is the first version whose `create_model` accepts `__config__` together with `__base__` (pydantic#11714), which the MCP schema transformer relies on |
 | litellm (≥1.50,<2) | Provider-agnostic token counting & model metadata |
+| jsonschema (≥4.20,<5), referencing (≥0.28.4,<1) | JSON Schema validation used by the MCP schema transformer to intersect scalar `enum`/`const` choices with the advertised schema; both were already transitive through `mcp`, declared directly since the code imports them |
 | rich (≥13.7.1,<14) | Console formatting |
 
 ## Optional extras — `observability` and `phoenix`
