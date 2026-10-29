@@ -352,6 +352,7 @@ Atomic Forge is a collection of tools that can be used with Atomic Agents to ext
 - arXiv Search
 - BoCha Search
 - Calculator
+- Darkmoon Pentest
 - DateTime
 - Fía Signals
 - Firecrawl Search
