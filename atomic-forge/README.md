@@ -17,6 +17,7 @@ The Atomic Forge project includes the following tools:
 - [BoCha Search](/atomic-forge/tools/bocha_search/README.md)
 - [Calculator](/atomic-forge/tools/calculator/README.md)
 - [DateTime](/atomic-forge/tools/datetime_tool/README.md) — timezone-aware now/parse/convert/shift/diff.
+- [deed.page Publisher](/atomic-forge/tools/deed_page/README.md) — publish HTML files to a public URL (no account or key required).
 - [Fía Signals](/atomic-forge/tools/fia_signals/README.md)
 - [Firecrawl Search](/atomic-forge/tools/firecrawl_search/README.md) — web and news search via the Firecrawl API, with optional page content as Markdown.
 - [FXMacroData](/atomic-forge/tools/fxmacrodata/README.md)

@@ -353,6 +353,7 @@ Atomic Forge is a collection of tools that can be used with Atomic Agents to ext
 - BoCha Search
 - Calculator
 - DateTime
+- deed.page Publisher
 - Fía Signals
 - Firecrawl Search
 - FXMacroData

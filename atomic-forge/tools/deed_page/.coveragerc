@@ -1,0 +1,8 @@
+[run]
+source = tool
+omit = */tests/*
+
+[report]
+exclude_lines =
+    if __name__ == "__main__":
+show_missing = True
