@@ -6,8 +6,9 @@ from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annot
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
 from pydantic import BeforeValidator, Field, create_model
-from referencing import Registry
+from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
+from referencing.jsonschema import DRAFT202012
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
 
@@ -78,27 +79,30 @@ class SchemaTransformer:
     @staticmethod
     def _resolve_ref(ref_path: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]) -> Type:
         """Resolve a $ref to its Pydantic-compatible value type."""
-        # Extract ref name from path like "#/$defs/MyObject" or "#/definitions/ANode"
-        # JSON Pointer decodes ~1 before ~0 so a literal ~1 is not decoded twice.
-        ref_name = ref_path.split("/")[-1].replace("~1", "/").replace("~0", "~")
+        if ref_path in model_cache:
+            return model_cache[ref_path]
 
-        if ref_name in model_cache:
-            return model_cache[ref_name]
+        # Resolve the complete local pointer, including escaped tokens and array
+        # indices. An empty registry never retrieves remote schemas.
+        resource = Resource.from_contents(root_schema, default_specification=DRAFT202012)
+        try:
+            ref_schema = Registry().resolver_with_root(resource).lookup(ref_path).contents
+        except Unresolvable:
+            logger.warning(f"Could not resolve $ref: {ref_path}")
+            return Any
 
-        # Look for the referenced schema in $defs or definitions
-        defs = root_schema.get("$defs", root_schema.get("definitions", {}))
-        if ref_name in defs:
-            ref_schema = defs[ref_name]
+        if isinstance(ref_schema, dict):
             # Avoid infinite recursion by adding placeholder first
-            model_cache[ref_name] = Any
+            model_cache[ref_path] = Any
             if ref_schema.get("properties") or (
                 ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False
             ):
+                ref_name = ref_path.split("/")[-1].replace("~1", "/").replace("~0", "~")
                 model_name = ref_schema.get("title", ref_name)
                 model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
             else:
                 model, _ = SchemaTransformer.json_to_pydantic_field(ref_schema, True, root_schema, model_cache)
-            model_cache[ref_name] = model
+            model_cache[ref_path] = model
             return model
 
         logger.warning(f"Could not resolve $ref: {ref_path}")
