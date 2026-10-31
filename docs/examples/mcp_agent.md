@@ -453,6 +453,17 @@ You: Calculate the square root of 144
 You: Generate a random number between 1 and 100
 ```
 
+## Tool Argument Presence and Null Values
+
+Generated MCP tools send explicitly supplied arguments. An omitted optional argument, including one with a schema
+default, is not sent to the server. Pass a default value explicitly if the server needs to receive it. This differs from
+the previous behavior, which included non-null defaults from the generated input model.
+
+An explicitly supplied `None` is sent as JSON `null` only when the server's input schema permits null at that property.
+Otherwise, that object member is omitted. This applies to referenced schemas, nested objects and objects in arrays;
+array positions are preserved. Explicit zero, false and non-null default values are retained. These rules apply to both
+fresh connections and persistent sessions.
+
 ## Tool Results and Errors
 
 Tools generated from an MCP server (sync and async) read the SDK result in this order:
