@@ -6,7 +6,7 @@ Demonstrates a custom, persistent ``ChatHistory`` backend built with nothing but
 Python standard library's ``sqlite3`` module (zero extra dependencies). It follows the
 recommended extension pattern from the Memory guide's "Writing a Custom Memory Backend"
 section: subclass ``ChatHistory`` to inherit turn handling and serialization, and
-override ``add_message`` to persist on every write.
+override ``add_message`` and ``delete_turn_id`` to persist additions and deletions.
 
 Run this script twice: the second run rehydrates the conversation from the first.
 """
@@ -42,7 +42,7 @@ class SQLiteChatHistory(ChatHistory):
     """A ChatHistory that persists to a local SQLite database, keyed by session_id.
 
     Follows the recommended pattern from the Memory guide: subclass ChatHistory to inherit
-    turn handling and serialization, then override add_message to persist. copy() is also
+    turn handling and serialization, then override add_message and delete_turn_id to persist. copy() is also
     overridden so the agent's initial_history snapshot and reset_history() keep this
     persistent backend instead of silently degrading to a plain in-memory ChatHistory.
 
@@ -66,6 +66,10 @@ class SQLiteChatHistory(ChatHistory):
 
     def add_message(self, role: str, content: BaseIOSchema) -> None:
         super().add_message(role, content)
+        self._save()
+
+    def delete_turn_id(self, turn_id: str) -> None:
+        super().delete_turn_id(turn_id)
         self._save()
 
     def _save(self) -> None:
