@@ -345,8 +345,8 @@ class ChatHistory(BaseChatHistory):
             # Check if the string looks like a file path (not a URL or base64 data)
             if not obj.source.startswith(("http://", "https://", "data:")):
                 obj.source = Path(obj.source)
-        elif isinstance(obj, list):
-            # Process each item in the list
+        elif isinstance(obj, (list, tuple)):
+            # Process each item in the sequence
             for item in obj:
                 self._process_multimodal_paths(item)
         elif isinstance(obj, dict):
