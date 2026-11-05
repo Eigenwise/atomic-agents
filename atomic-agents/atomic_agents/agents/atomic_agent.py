@@ -51,6 +51,9 @@ _TOOL_MODES = frozenset(
     }
 )
 
+# Events emitted by AtomicAgent itself, not accepted by Instructor's hook registry.
+_LOCAL_HOOK_EVENTS = frozenset({"token:counted"})
+
 # Instructor multimodal objects that can be lowered to a chat-format content part.
 _InstructorMedia = Union[Image, Audio, PDF]
 
@@ -884,7 +887,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hook_handlers[event].append(handler)
 
         # Register with instructor client if it supports hooks
-        if self._hooks_enabled and hasattr(self.client, "on"):
+        if event not in _LOCAL_HOOK_EVENTS and self._hooks_enabled and hasattr(self.client, "on"):
             self.client.on(event, handler)
 
     def unregister_hook(self, event: str, handler: Callable) -> None:
@@ -899,7 +902,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self._hook_handlers[event].remove(handler)
 
             # Remove from instructor client if it supports hooks
-            if self._hooks_enabled and hasattr(self.client, "off"):
+            if event not in _LOCAL_HOOK_EVENTS and self._hooks_enabled and hasattr(self.client, "off"):
                 self.client.off(event, handler)
 
     def clear_hooks(self, event: Optional[str] = None) -> None:
@@ -943,6 +946,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = True
         if hasattr(self.client, "on"):
             for event, handlers in self._hook_handlers.items():
+                if event in _LOCAL_HOOK_EVENTS:
+                    continue
                 for handler in handlers:
                     self.client.on(event, handler)
 
@@ -953,6 +958,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = False
         if hasattr(self.client, "off"):
             for event, handlers in self._hook_handlers.items():
+                if event in _LOCAL_HOOK_EVENTS:
+                    continue
                 for handler in handlers:
                     self.client.off(event, handler)
 
