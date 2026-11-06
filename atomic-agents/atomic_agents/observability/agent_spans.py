@@ -14,6 +14,7 @@ from opentelemetry.trace import Span, Status, StatusCode
 from atomic_agents.agents.atomic_agent import AtomicAgent
 
 from . import installation, llm_attempt_spans
+from .tracing_config import TracingConfig
 from .span_attributes import ATTR_STREAM_CLOSED_EARLY, _agent_display_name, _agent_start_attributes, _suppressed
 from .span_payloads import _record_failure, _set_input_safely, _set_output_safely
 
@@ -30,18 +31,20 @@ def _user_input_from_call(args: tuple[object, ...], kwargs: dict[str, object]) -
     return args[0] if args else kwargs.get("user_input")
 
 
-def _finish_agent_span(span: Span, output: object) -> None:
-    _set_output_safely(span, output)
+def _finish_agent_span(span: Span, output: object, config: TracingConfig) -> None:
+    _set_output_safely(span, output, config=config)
     span.set_status(Status(StatusCode.OK))
 
 
-def _mark_closed_early(span: Span, output: object) -> None:
+def _mark_closed_early(span: Span, output: object, config: TracingConfig) -> None:
     span.set_attribute(ATTR_STREAM_CLOSED_EARLY, True)
-    _set_output_safely(span, output)
+    _set_output_safely(span, output, config=config)
 
 
 @contextmanager
-def _agent_span(agent: AtomicAgent, args: tuple[object, ...], kwargs: dict[str, object]) -> Iterator[Span]:
+def _agent_span(
+    agent: AtomicAgent, args: tuple[object, ...], kwargs: dict[str, object]
+) -> Iterator[llm_attempt_spans._AgentRun]:
     installed = installation._current_installation()
     with installed.tracer.start_as_current_span(
         f"invoke_agent {_agent_display_name(agent)}",
@@ -53,12 +56,12 @@ def _agent_span(agent: AtomicAgent, args: tuple[object, ...], kwargs: dict[str, 
         run = llm_attempt_spans.new_run(span, agent)
         try:
             with llm_attempt_spans.active_run(run):
-                yield span
+                yield run
         except (asyncio.CancelledError, GeneratorExit):
             span.set_attribute("atomic_agents.cancelled", True)
             raise
         except BaseException as error:
-            _record_failure(span, error)
+            _record_failure(span, error, run.config)
             raise
         finally:
             llm_attempt_spans.finish_run(run)
@@ -69,9 +72,9 @@ def _trace_agent_call(wrapped: Callable[..., OutputSchema]) -> Callable[..., Out
     def traced(agent: AtomicAgent, *args: object, **kwargs: object) -> OutputSchema:
         if _suppressed():
             return wrapped(agent, *args, **kwargs)
-        with _agent_span(agent, args, kwargs) as span:
+        with _agent_span(agent, args, kwargs) as run:
             response = wrapped(agent, *args, **kwargs)
-            _finish_agent_span(span, response)
+            _finish_agent_span(run.span, response, run.config)
             return response
 
     return traced
@@ -84,9 +87,9 @@ def _trace_agent_async_call(
     async def traced(agent: AtomicAgent, *args: object, **kwargs: object) -> OutputSchema:
         if _suppressed():
             return await wrapped(agent, *args, **kwargs)
-        with _agent_span(agent, args, kwargs) as span:
+        with _agent_span(agent, args, kwargs) as run:
             response = await wrapped(agent, *args, **kwargs)
-            _finish_agent_span(span, response)
+            _finish_agent_span(run.span, response, run.config)
             return response
 
     return traced
@@ -143,7 +146,7 @@ class _SyncStreamCursor(Generic[OutputSchema]):
 
     def close_early(self) -> None:
         _call_within_span(self.run, self.inner.close)
-        _mark_closed_early(self.span, self.output)
+        _mark_closed_early(self.span, self.output, self.run.config)
         self.span.set_status(Status(StatusCode.OK))
 
 
@@ -167,11 +170,11 @@ class _AsyncStreamCursor(Generic[OutputSchema]):
 
     async def close_early(self) -> None:
         await _await_within_span(self.run, self.inner.aclose())
-        _mark_closed_early(self.span, self.output)
+        _mark_closed_early(self.span, self.output, self.run.config)
         self.span.set_status(Status(StatusCode.OK))
 
     def mark_cancelled(self) -> None:
-        _mark_closed_early(self.span, self.output)
+        _mark_closed_early(self.span, self.output, self.run.config)
 
 
 def _trace_agent_stream(
@@ -185,16 +188,16 @@ def _trace_agent_stream(
         try:
             while cursor.advance():
                 yield cursor.last
-            _finish_agent_span(span, cursor.final)
+            _finish_agent_span(span, cursor.final, run.config)
             return cursor.final
         except GeneratorExit:
             cursor.close_early()
             raise
         except asyncio.CancelledError:
-            _mark_closed_early(span, cursor.output)
+            _mark_closed_early(span, cursor.output, run.config)
             raise
         except BaseException as error:
-            _record_failure(span, error)
+            _record_failure(span, error, run.config)
             raise
         finally:
             llm_attempt_spans.finish_run(run)
@@ -214,7 +217,7 @@ def _trace_agent_async_stream(
         try:
             while await cursor.advance():
                 yield cursor.last
-            _finish_agent_span(span, cursor.output)
+            _finish_agent_span(span, cursor.output, run.config)
         except GeneratorExit:
             await cursor.close_early()
             raise
@@ -222,7 +225,7 @@ def _trace_agent_async_stream(
             cursor.mark_cancelled()
             raise
         except BaseException as error:
-            _record_failure(span, error)
+            _record_failure(span, error, run.config)
             raise
         finally:
             llm_attempt_spans.finish_run(run)

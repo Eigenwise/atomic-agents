@@ -61,21 +61,21 @@ def _write_payload(span: Span, key: str, mime_key: str | None, serialized: str, 
         span.set_attribute(mime_key, "application/json")
 
 
-def _payload_keys(primary: str, output: bool) -> tuple[tuple[str, str | None], ...]:
+def _payload_keys(primary: str, output: bool, config: TracingConfig) -> tuple[tuple[str, str | None], ...]:
     keys: tuple[tuple[str, str | None], ...] = ((primary, None),)
-    if installation._current_installation().config.openinference_attributes:
+    if config.openinference_attributes:
         keys += ((ATTR_OUTPUT_VALUE, ATTR_OUTPUT_MIME_TYPE),) if output else ((ATTR_INPUT_VALUE, ATTR_INPUT_MIME_TYPE),)
     return keys
 
 
 def _set_input_safely(span: Span, value: object, primary: str = ATTR_INPUT) -> None:
     config = installation._current_installation().config
-    _record_payload(span, _payload_keys(primary, False), value, config.hide_inputs, config)
+    _record_payload(span, _payload_keys(primary, False, config), value, config.hide_inputs, config)
 
 
-def _set_output_safely(span: Span, value: object, primary: str = ATTR_OUTPUT) -> None:
-    config = installation._current_installation().config
-    _record_payload(span, _payload_keys(primary, True), value, config.hide_outputs, config)
+def _set_output_safely(span: Span, value: object, primary: str = ATTR_OUTPUT, *, config: TracingConfig | None = None) -> None:
+    config = config or installation._current_installation().config
+    _record_payload(span, _payload_keys(primary, True, config), value, config.hide_outputs, config)
 
 
 def _bounded_text(value: str, config: TracingConfig) -> str:
