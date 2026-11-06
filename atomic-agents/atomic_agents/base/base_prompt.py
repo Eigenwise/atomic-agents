@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
+from atomic_agents.base._schema_types import resolve_schema_types
 
 
 class BasePromptConfig(BaseModel):
@@ -68,43 +69,13 @@ class BasePrompt[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema](ABC):
 
     @property
     def input_schema(self) -> Type[InputSchema]:
-        """
-        Returns the input schema class for the prompt.
-
-        Returns:
-            Type[InputSchema]: The input schema class.
-        """
-        # Inheritance pattern: MyPrompt(BasePrompt[Schema1, Schema2])
-        if hasattr(self.__class__, "_input_schema_cls"):
-            return self.__class__._input_schema_cls
-
-        # Dynamic instantiation: MockPrompt[Schema1, Schema2]()
-        if hasattr(self, "__orig_class__"):
-            TI, _ = get_args(self.__orig_class__)
-            return TI
-
-        # No type info available: MockPrompt()
-        return BaseIOSchema
+        """Return the input schema resolved through this instance's specialized bases."""
+        return resolve_schema_types(self, BasePrompt)[0]
 
     @property
     def output_schema(self) -> Type[OutputSchema]:
-        """
-        Returns the output schema class for the prompt.
-
-        Returns:
-            Type[OutputSchema]: The output schema class.
-        """
-        # Inheritance pattern: MyPrompt(BasePrompt[Schema1, Schema2])
-        if hasattr(self.__class__, "_output_schema_cls"):
-            return self.__class__._output_schema_cls
-
-        # Dynamic instantiation: MockPrompt[Schema1, Schema2]()
-        if hasattr(self, "__orig_class__"):
-            _, TO = get_args(self.__orig_class__)
-            return TO
-
-        # No type info available: MockPrompt()
-        return BaseIOSchema
+        """Return the output schema resolved through this instance's specialized bases."""
+        return resolve_schema_types(self, BasePrompt)[1]
 
     @property
     def prompt_name(self) -> str:
