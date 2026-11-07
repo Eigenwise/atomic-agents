@@ -340,6 +340,11 @@ def test_load_invalid_json_preserves_existing_history(saved_history) -> None:
         pytest.param(("max_messages",), MISSING, ValueError, "'max_messages'", id="missing_max_messages"),
         pytest.param(("current_turn_id",), MISSING, ValueError, "'current_turn_id'", id="missing_current_turn_id"),
         pytest.param(("history",), MISSING, ValueError, "'history'", id="missing_history"),
+        pytest.param(("max_messages",), -1, ValueError, "max_messages", id="negative_capacity"),
+        pytest.param(("max_messages",), 1, ValueError, "exceeds max_messages", id="over_capacity"),
+        pytest.param(("current_turn_id",), {}, ValueError, "current_turn_id", id="invalid_current_turn"),
+        pytest.param(("history",), {}, ValueError, "history must be a list", id="empty_mapping"),
+        pytest.param(("history", 0, "content", "class_name"), "builtins.str", ValueError, "BaseIOSchema", id="non_schema"),
         pytest.param(("history",), None, ValueError, "^Invalid serialized data: ", id="invalid_history"),
         pytest.param(("history", 0, "content"), MISSING, ValueError, "'content'", id="missing_content"),
         pytest.param(
@@ -464,6 +469,12 @@ def test_history_with_no_max_messages():
     for i in range(100):
         unlimited_history.add_message("user", InputSchema(test_field=f"Message {i}"))
     assert len(unlimited_history.history) == 100
+
+
+@pytest.mark.parametrize("capacity", [-1, True, "4", 2.5])
+def test_history_rejects_invalid_capacity(capacity):
+    with pytest.raises(ValueError, match="max_messages"):
+        ChatHistory(max_messages=capacity)
 
 
 def test_history_with_zero_max_messages():

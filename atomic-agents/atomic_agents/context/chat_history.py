@@ -50,8 +50,14 @@ class ChatHistory(BaseChatHistory):
                 When exceeded, oldest messages are removed first.
         """
         self.history: List[Message] = []
-        self.max_messages = max_messages
+        self.max_messages = self._validate_max_messages(max_messages)
         self.current_turn_id: Optional[str] = None
+
+    @staticmethod
+    def _validate_max_messages(value: Optional[int]) -> Optional[int]:
+        if value is not None and (type(value) is not int or value < 0):
+            raise ValueError("max_messages must be a non-negative integer or None")
+        return value
 
     def initialize_turn(self) -> None:
         """
@@ -291,10 +297,18 @@ class ChatHistory(BaseChatHistory):
         try:
             history_data = json.loads(serialized_data)
             loaded_history: List[Message] = []
-            max_messages = history_data["max_messages"]
+            max_messages = self._validate_max_messages(history_data["max_messages"])
             current_turn_id = history_data["current_turn_id"]
 
-            for message_data in history_data["history"]:
+            if current_turn_id is not None and not isinstance(current_turn_id, str):
+                raise ValueError("Invalid serialized data: current_turn_id must be a string or null")
+            messages = history_data["history"]
+            if not isinstance(messages, list):
+                raise ValueError("Invalid serialized data: history must be a list")
+            if max_messages is not None and len(messages) > max_messages:
+                raise ValueError("Invalid serialized data: history exceeds max_messages")
+
+            for message_data in messages:
                 content_info = message_data["content"]
                 content_class = self._get_class_from_string(content_info["class_name"])
                 content_instance = content_class.model_validate_json(content_info["data"])
@@ -328,7 +342,10 @@ class ChatHistory(BaseChatHistory):
         """
         module_name, class_name = class_string.rsplit(".", 1)
         module = __import__(module_name, fromlist=[class_name])
-        return getattr(module, class_name)
+        content_class = getattr(module, class_name)
+        if not isinstance(content_class, type) or not issubclass(content_class, BaseIOSchema):
+            raise ValueError(f"Invalid serialized data: {class_string} is not a BaseIOSchema subclass")
+        return content_class
 
     def _process_multimodal_paths(self, obj):
         """
