@@ -30,7 +30,7 @@ class ChatConfig:
     """Configuration for the chat application"""
 
     api_key: str = get_api_key()
-    model: str = "gpt-5-mini"
+    model: str = "gpt-5.6-terra"
     reasoning_effort: str = "low"
     exit_commands: set[str] = frozenset({"/exit", "exit", "quit", "/quit"})
 

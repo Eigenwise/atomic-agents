@@ -80,7 +80,7 @@ def test_quickstart_default_reaches_http_transport(monkeypatch, transport_reques
     # The existing non-MiniMax provider choice retains its model and parameters.
     monkeypatch.setenv("OPENAI_API_KEY", "offline-test-key")
     _, model, parameters, role = namespace["setup_client"]("openai")
-    assert model == "gpt-5-mini"
+    assert model == "gpt-5.6-terra"
     assert parameters == {"reasoning_effort": "low", "max_tokens": 2048}
     assert role == "assistant"
 

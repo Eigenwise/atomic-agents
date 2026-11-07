@@ -316,7 +316,7 @@ Give each agent a stable name, so spans group the same way across deployments an
 
 ```python
 agent = AtomicAgent[InputSchema, OutputSchema](
-    config=AgentConfig(client=client, model="gpt-5-mini", name="orchestrator_planning")
+    config=AgentConfig(client=client, model="gpt-5.6-terra", name="orchestrator_planning")
 )
 ```
 

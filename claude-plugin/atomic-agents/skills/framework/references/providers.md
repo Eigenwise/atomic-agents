@@ -46,7 +46,7 @@ from openai import OpenAI
 from instructor import Mode
 
 client = instructor.from_openai(OpenAI(api_key=os.environ["OPENAI_API_KEY"]))
-model = "gpt-5-mini"   # also: "gpt-5", "gpt-5-nano", and reasoning variants
+model = "gpt-5.6-terra"   # also: "gpt-5.6-sol", "gpt-5.6-luna"
 api_params = {"reasoning_effort": "low", "max_tokens": 2048}
 ```
 
@@ -148,8 +148,8 @@ api_params = {"max_tokens": 2048}
 
 ## Picking a model
 
-- **Drafting / simple chat** — `gpt-5-mini`, `claude-haiku-4-5`, or a Groq Llama for cost.
-- **Tool use, multi-agent routing** — `gpt-5` or `claude-sonnet-4-6`.
+- **Drafting / simple chat** — `gpt-5.6-terra`, `claude-haiku-4-5`, or a Groq Llama for cost.
+- **Tool use, multi-agent routing** — `gpt-5.6-sol` or `claude-sonnet-4-6`.
 - **Hardest reasoning** — `claude-opus-4-6` or reasoning-tier OpenAI models.
 - **Local / offline** — Ollama with `llama3.1` or a code-specialized variant.
 

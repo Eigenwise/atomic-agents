@@ -108,7 +108,7 @@ class AgentConfig(BaseModel):
         default=None,
         description="Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name.",
     )
-    model: str = Field(default="gpt-5-mini", description="The model to use for generating responses.")
+    model: str = Field(default="gpt-5.6-terra", description="The model to use for generating responses.")
     history: Optional[BaseChatHistory] = Field(default=None, description="History component for storing chat history.")
     system_prompt_generator: Optional[BaseSystemPromptGenerator] = Field(
         default=None,
@@ -1054,11 +1054,11 @@ if __name__ == "__main__":
         """
         if streaming:
             client = instructor.from_openai(AsyncOpenAI())
-            config = AgentConfig(client=client, model="gpt-5-mini")
+            config = AgentConfig(client=client, model="gpt-5.6-terra")
             agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](config)
         else:
             client = instructor.from_openai(OpenAI())
-            config = AgentConfig(client=client, model="gpt-5-mini")
+            config = AgentConfig(client=client, model="gpt-5.6-terra")
             agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](config)
 
         # Display agent information before starting the chat

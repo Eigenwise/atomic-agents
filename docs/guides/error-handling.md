@@ -55,7 +55,7 @@ client = instructor.from_openai(openai.OpenAI())
 agent = AtomicAgent[ValidatedInputSchema, ValidatedOutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=ChatHistory()
     )
 )
@@ -126,7 +126,7 @@ def create_agent_with_retry(
     return AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             history=ChatHistory(),
             model_api_parameters={
                 "max_tokens": 1000,
@@ -228,7 +228,7 @@ client.on("completion", lambda *args: on_completion_hook(*args))
 agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=ChatHistory()
     )
 )
@@ -304,7 +304,7 @@ client = instructor.from_openai(openai.OpenAI())
 agent = AtomicAgent(
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini"
+        model="gpt-5.6-terra"
     )
 )
 
@@ -366,7 +366,7 @@ def create_fallback_chain() -> FallbackAgentChain:
     fallback_agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
         config=AgentConfig(
             client=fallback_client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             history=ChatHistory()
         )
     )
@@ -444,7 +444,7 @@ client = instructor.from_openai(
 agent = AtomicAgent(
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=ChatHistory(),
         model_api_parameters={
             "max_tokens": 500  # Limit response length

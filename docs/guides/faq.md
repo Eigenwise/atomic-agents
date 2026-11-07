@@ -83,7 +83,7 @@ client = instructor.from_openai(openai.OpenAI())
 agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=ChatHistory()
     )
 )
@@ -177,7 +177,7 @@ system_prompt = SystemPromptGenerator(
 agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         system_prompt_generator=system_prompt
     )
 )
@@ -197,7 +197,7 @@ history = ChatHistory()
 agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=history
     )
 )
@@ -241,7 +241,7 @@ class CustomOutputSchema(BaseIOSchema):
 
 # Use with agent
 agent = AtomicAgent[CustomInputSchema, CustomOutputSchema](
-    config=AgentConfig(client=client, model="gpt-5-mini")
+    config=AgentConfig(client=client, model="gpt-5.6-terra")
 )
 
 response = agent.run(CustomInputSchema(question="What is Python?"))
@@ -389,7 +389,7 @@ async def main():
     agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             history=ChatHistory()
         )
     )
@@ -554,14 +554,14 @@ from atomic_agents import AtomicAgent, AgentConfig
 # Old
 agent = BaseAgent(BaseAgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     input_schema=MyInput,
     output_schema=MyOutput
 ))
 
 # New
 agent = AtomicAgent[MyInput, MyOutput](
-    AgentConfig(client=client, model="gpt-5-mini")
+    AgentConfig(client=client, model="gpt-5.6-terra")
 )
 ```
 
