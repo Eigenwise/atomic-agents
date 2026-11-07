@@ -1,4 +1,6 @@
 import os
+import re
+from urllib.parse import parse_qs, urlsplit
 from typing import List, Optional
 from pydantic import Field, BaseModel
 from datetime import datetime
@@ -95,6 +97,7 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
             YouTubeTranscriptToolOutputSchema: The output of the tool, adhering to the output schema.
 
         Raises:
+            ValueError: If the video URL or ID is invalid or unsupported.
             Exception: If fetching the transcript fails.
         """
         video_id = self.extract_video_id(params.video_url)
@@ -123,15 +126,42 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
     @staticmethod
     def extract_video_id(url: str) -> str:
         """
-        Extracts the video ID from a YouTube URL.
+        Extracts a video ID from a watch, share, Shorts, or embed URL, or a bare ID.
 
         Args:
-            url (str): The YouTube video URL.
+            url (str): An HTTP(S) YouTube video URL or an 11-character video ID.
 
         Returns:
             str: The extracted video ID.
         """
-        return url.split("v=")[-1].split("&")[0]
+        error_message = "Invalid YouTube video URL or ID. Use a watch, youtu.be, shorts, or embed URL, or a video ID."
+        value = url.strip()
+        if re.fullmatch(r"[A-Za-z0-9_-]{11}", value):
+            return value
+
+        try:
+            parsed = urlsplit(value)
+        except ValueError as exc:
+            raise ValueError(error_message) from exc
+
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError(error_message)
+
+        video_id = ""
+        path = parsed.path.rstrip("/")
+        if parsed.hostname == "youtu.be":
+            video_id = path.removeprefix("/")
+        elif parsed.hostname in {"youtube.com", "www.youtube.com", "m.youtube.com"}:
+            if path == "/watch":
+                video_id = parse_qs(parsed.query, keep_blank_values=True).get("v", [""])[0]
+            else:
+                parts = path.split("/")
+                if len(parts) == 3 and parts[1] in {"shorts", "embed"}:
+                    video_id = parts[2]
+
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            raise ValueError(error_message)
+        return video_id
 
     def fetch_video_metadata(self, video_id: str) -> VideoMetadata:
         """

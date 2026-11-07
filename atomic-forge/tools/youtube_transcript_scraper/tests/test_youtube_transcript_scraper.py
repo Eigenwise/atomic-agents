@@ -32,9 +32,17 @@ def fetched_rick_astley_transcript() -> FetchedTranscript:
     )
 
 
-def test_youtube_transcript_tool():
+@pytest.mark.parametrize(
+    "mock_video_url",
+    [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://youtu.be/dQw4w9WgXcQ?si=share-token",
+        "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+        "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    ],
+)
+def test_youtube_transcript_tool(mock_video_url):
     mock_api_key = "mock_api_key"
-    mock_video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     mock_video_id = "dQw4w9WgXcQ"
     mock_metadata = {
         "title": "Rick Astley - Never Gonna Give You Up",
@@ -149,11 +157,63 @@ def test_fetch_video_metadata_no_items():
         assert "No metadata found for video" in str(excinfo.value)
 
 
-def test_extract_video_id():
-    youtube_transcript_tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key="mock_api_key"))
-    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    video_id = youtube_transcript_tool.extract_video_id(video_url)
-    assert video_id == "dQw4w9WgXcQ"
+@pytest.mark.parametrize(
+    "video_url",
+    [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "http://youtube.com/watch?feature=shared&v=dQw4w9WgXcQ&t=30#comments",
+        "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://WWW.YouTube.COM/watch?v=dQw4w9WgXcQ",
+        "https://youtu.be/dQw4w9WgXcQ?si=share-token&t=30",
+        "https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share",
+        "https://www.youtube.com/embed/dQw4w9WgXcQ?start=30",
+        "https://www.youtube.com/embed/dQw4w9WgXcQ/",
+        "https://www.youtube.com/watch?v=aB_12-xyZ09",
+        "  https://youtu.be/dQw4w9WgXcQ  ",
+        "dQw4w9WgXcQ",
+    ],
+)
+def test_extract_video_id(video_url):
+    expected = "aB_12-xyZ09" if "aB_12-xyZ09" in video_url else "dQw4w9WgXcQ"
+    assert YouTubeTranscriptTool.extract_video_id(video_url) == expected
+
+
+@pytest.mark.parametrize(
+    "video_url",
+    [
+        "",
+        "not a URL",
+        "https://example.com/watch?v=dQw4w9WgXcQ",
+        "https://youtube.com.example.com/watch?v=dQw4w9WgXcQ",
+        "https://example.com/?next=https://youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://youtube.com@elsewhere.example/watch?v=dQw4w9WgXcQ",
+        "ftp://youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://www.youtube.com/watch",
+        "https://www.youtube.com/watch?v=",
+        "https://www.youtube.com/watch?v=short",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQextra",
+        "https://www.youtube.com/watch?v=dQw4w9WgXc!",
+        "https://www.youtube.com/watch?v=&v=dQw4w9WgXcQ",
+        "https://www.youtube.com/playlist?list=dQw4w9WgXcQ",
+        "https://www.youtube.com/shorts/",
+        "https://youtu.be/",
+        "https://youtu.be/dQw4w9WgXcQ/extra",
+        "https://www.youtube.com/embed/dQw4w9WgXcQ/extra",
+        "https://[invalid/watch?v=dQw4w9WgXcQ",
+    ],
+)
+def test_extract_video_id_rejects_invalid_urls(video_url):
+    with pytest.raises(ValueError, match="Invalid YouTube video URL or ID"):
+        YouTubeTranscriptTool.extract_video_id(video_url)
+
+
+def test_invalid_video_url_does_not_call_external_services():
+    tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key="mock_api_key"))
+    with patch(FETCH_TARGET) as mock_fetch, patch("tool.youtube_transcript_scraper.build") as mock_build:
+        with pytest.raises(ValueError, match="Invalid YouTube video URL or ID"):
+            tool.run(YouTubeTranscriptToolInputSchema(video_url="https://example.com/watch?v=dQw4w9WgXcQ"))
+        mock_fetch.assert_not_called()
+        mock_build.assert_not_called()
 
 
 if __name__ == "__main__":
