@@ -29,7 +29,16 @@ It uses the standard library only (`datetime`, `zoneinfo`) plus `tzdata` so the 
 - `target_timezone` (str, optional): required for `convert`.
 - `input` (str, optional): ISO 8601 datetime string for non-`now` operations.
 - `input_2` (str, optional): second datetime, required for `diff` (computes `input_2 - input`).
-- `days`, `hours`, `minutes`, `seconds` (int): duration components for `shift` (negative values subtract).
+- `days` (int): calendar days for `shift`, applied in the input timezone first (negative values subtract).
+- `hours`, `minutes`, `seconds` (int): elapsed time for `shift`, applied after calendar days (negative values subtract).
+
+Across daylight-saving transitions, `days=1` preserves the local clock time, while
+`hours=24` or `seconds=86400` advances by exactly 24 elapsed hours. For example,
+from `2026-03-08T00:00:00` in `America/New_York`, `days=1` gives the following
+midnight, but `hours=24` gives `2026-03-09T01:00:00-04:00`. Calendar results in a
+spring-forward gap are normalized through UTC (for example, 02:30 becomes 03:30).
+An explicit UTC offset in `input` remains authoritative; it is a fixed offset,
+not an IANA timezone with daylight-saving rules.
 
 ### Output Schema
 - `operation` (str): operation that was performed.
