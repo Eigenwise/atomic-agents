@@ -197,7 +197,7 @@ async def test_bocha_search_tool_concurrent_queries(mock_aiohttp_session):
 @pytest.mark.asyncio
 async def test_bocha_search_tool_config_params_real_case_cn(mock_aiohttp_session):
     """Test that config params freshness/include/exclude are included in request payload with Chinese websites"""
-    mock_api_key = os.getenv("BOCHA_API_KEY")
+    mock_api_key = "mock-api-key"
 
     # Tool configuration with domestic websites
     tool = BoChaSearchTool(
@@ -252,3 +252,52 @@ async def test_bocha_search_tool_malformed_response(mock_aiohttp_session):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+@pytest.mark.parametrize(
+    "freshness",
+    [
+        "noLimit",
+        "oneDay",
+        "oneWeek",
+        "oneMonth",
+        "oneYear",
+        "2026-11-07",
+        "2024-02-29",
+        "2026-11-01..2026-11-07",
+        "2026-11-07..2026-11-07",
+    ],
+)
+def test_freshness_accepts_presets_and_dates(freshness):
+    assert BoChaSearchToolConfig(freshness=freshness).freshness == freshness
+
+
+@pytest.mark.parametrize(
+    "freshness",
+    [
+        "YYYY-MM-DD",
+        "YYYY-MM-DD..YYYY-MM-DD",
+        "2026-02-29",
+        "2026-13-01",
+        "2026-11-07..2026-11-01",
+        "2026-11-01..2026-02-30",
+        "20261107",
+        "2026-1-7",
+        "2026-11-01..",
+        "",
+        "someday",
+    ],
+)
+def test_freshness_rejects_invalid_dates(freshness):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        BoChaSearchToolConfig(freshness=freshness)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("freshness", ["2026-11-07", "2026-11-01..2026-11-07"])
+async def test_freshness_date_is_sent_unchanged(mock_aiohttp_session, freshness):
+    tool = BoChaSearchTool(BoChaSearchToolConfig(api_key="mock-key", freshness=freshness))
+    await tool.run_async(BoChaSearchToolInputSchema(queries=["test query"]))
+    assert mock_aiohttp_session.post.call_args.kwargs["json"]["freshness"] == freshness

@@ -20,6 +20,7 @@ You can install the tool using any of the following options:
 ### Parameters
 
 - `api_key` (str): The api key of the BoCha user.
+- `freshness` (str, optional): `noLimit` (default), `oneDay`, `oneWeek`, `oneMonth`, `oneYear`, a real date such as `2026-11-07`, or an inclusive date range such as `2026-11-01..2026-11-07`. Invalid calendar dates, format placeholders, and reversed ranges are rejected during configuration.
 - `count` (int, optional): The maximum number of search results to return.
 
 ### Example
