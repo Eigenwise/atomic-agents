@@ -248,3 +248,15 @@ jobs:
 
       - name: Run Tests
         run: lowest-venv/bin/python -m pytest atomic-agents
+
+  fastapi-memory:
+    name: FastAPI session regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v4
+      - name: Test the example without API keys or a running server
+        run: uv run --frozen --package fastapi-memory --with pytest --with pytest-asyncio pytest atomic-examples/fastapi-memory/tests -q

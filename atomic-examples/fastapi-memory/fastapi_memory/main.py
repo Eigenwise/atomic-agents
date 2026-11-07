@@ -1,8 +1,9 @@
 """FastAPI application for conversational AI with session management."""
 
+import asyncio
 import json
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from datetime import datetime
 from typing import Dict
 
@@ -10,7 +11,7 @@ from atomic_agents import AtomicAgent
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
-from fastapi_memory.lib.agents.chat_agent import create_async_chat_agent, create_chat_agent
+from fastapi_memory.lib.agents.chat_agent import create_async_chat_agent
 from fastapi_memory.lib.schemas import (
     ChatRequest,
     ChatResponse,
@@ -22,8 +23,7 @@ from fastapi_memory.lib.schemas import (
     UserSessionsResponse,
 )
 
-# Session storage: user_id -> session_id -> agent
-sessions: Dict[str, Dict[str, AtomicAgent[ChatRequest, ChatResponse]]] = {}
+# One asynchronous agent per session, shared by standard and streaming responses.
 async_sessions: Dict[str, Dict[str, AtomicAgent[ChatRequest, ChatResponse]]] = {}
 
 # Session metadata: user_id -> session_id -> creation_timestamp
@@ -31,6 +31,9 @@ session_metadata: Dict[str, Dict[str, str]] = {}
 
 # Conversation history: user_id -> session_id -> list of messages
 conversation_history: Dict[str, Dict[str, list]] = {}
+
+# Serialize turns and deletion within a session, without blocking other sessions.
+session_locks: Dict[str, Dict[str, asyncio.Lock]] = {}
 
 
 def _generate_session_id() -> str:
@@ -48,14 +51,14 @@ def _ensure_user_exists(user_id: str) -> None:
     Args:
         user_id: User identifier
     """
-    if user_id not in sessions:
-        sessions[user_id] = {}
     if user_id not in async_sessions:
         async_sessions[user_id] = {}
     if user_id not in session_metadata:
         session_metadata[user_id] = {}
     if user_id not in conversation_history:
         conversation_history[user_id] = {}
+    if user_id not in session_locks:
+        session_locks[user_id] = {}
 
 
 def _ensure_session_history_exists(user_id: str, session_id: str) -> None:
@@ -96,40 +99,34 @@ def _add_message_to_history(
     conversation_history[user_id][session_id].append(message)
 
 
-def get_or_create_agent(user_id: str, session_id: str) -> AtomicAgent[ChatRequest, ChatResponse]:
-    """Get existing agent or create new synchronous agent for the session.
-
-    Args:
-        user_id: User identifier
-        session_id: Session identifier
-
-    Returns:
-        AtomicAgent configured for synchronous chat operations
-    """
-    _ensure_user_exists(user_id)
-    if session_id not in sessions[user_id]:
-        sessions[user_id][session_id] = create_chat_agent()
-        if session_id not in session_metadata[user_id]:
-            session_metadata[user_id][session_id] = datetime.now().isoformat()
-    return sessions[user_id][session_id]
+def _require_session(user_id: str, session_id: str) -> None:
+    """Validate the session registry without creating state on read/error paths."""
+    if session_id not in session_metadata.get(user_id, {}):
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found for user '{user_id}'")
 
 
 def get_or_create_async_agent(user_id: str, session_id: str) -> AtomicAgent[ChatRequest, ChatResponse]:
-    """Get existing agent or create new asynchronous agent for the session.
-
-    Args:
-        user_id: User identifier
-        session_id: Session identifier
-
-    Returns:
-        AtomicAgent configured for asynchronous streaming operations
-    """
-    _ensure_user_exists(user_id)
+    """Lazily create the shared model conversation for an existing session."""
+    _require_session(user_id, session_id)
     if session_id not in async_sessions[user_id]:
         async_sessions[user_id][session_id] = create_async_chat_agent()
-        if session_id not in session_metadata[user_id]:
-            session_metadata[user_id][session_id] = datetime.now().isoformat()
     return async_sessions[user_id][session_id]
+
+
+@asynccontextmanager
+async def _session_turn(user_id: str, session_id: str):
+    """Serialize a model turn and discard its model history on failure or cancellation."""
+    _require_session(user_id, session_id)
+    async with session_locks[user_id][session_id]:
+        # A queued operation may have waited behind session deletion.
+        _require_session(user_id, session_id)
+        agent = get_or_create_async_agent(user_id, session_id)
+        previous_history = agent.history.copy()
+        try:
+            yield agent
+        except BaseException:
+            agent.history = previous_history
+            raise
 
 
 @asynccontextmanager
@@ -143,10 +140,10 @@ async def lifespan(app: FastAPI):
         None
     """
     yield
-    sessions.clear()
     async_sessions.clear()
     session_metadata.clear()
     conversation_history.clear()
+    session_locks.clear()
 
 
 app = FastAPI(
@@ -176,28 +173,18 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 status_code=400, detail="session_id is required. Create a session first using POST /users/{user_id}/sessions"
             )
 
-        # Store user message in history
-        _add_message_to_history(request.user_id, request.session_id, "user", request.message)
+        async with _session_turn(request.user_id, request.session_id) as agent:
+            result = await agent.run_async(ChatRequest(message=request.message, user_id=request.user_id))
+            _add_message_to_history(request.user_id, request.session_id, "user", request.message)
+            _add_message_to_history(
+                request.user_id, request.session_id, "assistant", result.response, result.suggested_questions
+            )
+            return ChatResponse(
+                response=result.response, session_id=request.session_id, suggested_questions=result.suggested_questions
+            )
 
-        agent = get_or_create_agent(request.user_id, request.session_id)
-
-        result = agent.run(ChatRequest(message=request.message, user_id=request.user_id))
-
-        # Store assistant response in history
-        _add_message_to_history(
-            request.user_id,
-            request.session_id,
-            "assistant",
-            result.response,
-            getattr(result, "suggested_questions", None),
-        )
-
-        return ChatResponse(
-            response=result.response,
-            session_id=request.session_id,
-            suggested_questions=getattr(result, "suggested_questions", None),
-        )
-
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -226,50 +213,41 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 status_code=400, detail="session_id is required. Create a session first using POST /users/{user_id}/sessions"
             )
 
-        # Store user message in history
-        _add_message_to_history(request.user_id, request.session_id, "user", request.message)
-
-        agent = get_or_create_async_agent(request.user_id, request.session_id)
+        _require_session(request.user_id, request.session_id)
 
         async def generate():
-            """Generate Server-Sent Events stream."""
-            full_response = ""
-            final_suggested_questions = []
+            """Hold the session lock throughout streaming, including cancellation cleanup."""
             try:
-                async for chunk in agent.run_async_stream(ChatRequest(message=request.message, user_id=request.user_id)):
-                    chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else {}
-                    response_text = chunk_dict.get("response", "")
-                    full_response = response_text  # Keep updating with latest full text
-
-                    if chunk_dict.get("suggested_questions"):
-                        final_suggested_questions = chunk_dict.get("suggested_questions")
-
-                    data = {
-                        "response": response_text,
-                        "session_id": request.session_id,
-                        "suggested_questions": chunk_dict.get("suggested_questions"),
-                    }
-                    yield f"data: {json.dumps(data)}\n\n"
-
-                # Store complete assistant response in history
-                if full_response:
+                async with _session_turn(request.user_id, request.session_id) as agent:
+                    last_chunk = None
+                    async with aclosing(
+                        agent.run_async_stream(ChatRequest(message=request.message, user_id=request.user_id))
+                    ) as chunks:
+                        async for chunk in chunks:
+                            last_chunk = chunk.model_dump()
+                            data = {
+                                "response": last_chunk.get("response") or "",
+                                "session_id": request.session_id,
+                                "suggested_questions": last_chunk.get("suggested_questions"),
+                            }
+                            yield f"data: {json.dumps(data)}\n\n"
+                    if last_chunk is None:
+                        raise RuntimeError("Model stream returned no response.")
+                    _add_message_to_history(request.user_id, request.session_id, "user", request.message)
                     _add_message_to_history(
                         request.user_id,
                         request.session_id,
                         "assistant",
-                        full_response,
-                        final_suggested_questions,
+                        last_chunk.get("response") or "",
+                        last_chunk.get("suggested_questions"),
                     )
-
             except Exception as e:
-                error_data = {
-                    "error": str(e),
-                    "session_id": request.session_id,
-                }
-                yield f"data: {json.dumps(error_data)}\n\n"
+                yield f"data: {json.dumps({'error': str(e), 'session_id': request.session_id})}\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -293,6 +271,8 @@ async def create_session(user_id: str) -> SessionCreateResponse:
         _ensure_user_exists(user_id)
         session_id = _generate_session_id()
         session_metadata[user_id][session_id] = datetime.now().isoformat()
+        conversation_history[user_id][session_id] = []
+        session_locks[user_id][session_id] = asyncio.Lock()
 
         return SessionCreateResponse(session_id=session_id, message=f"Session '{session_id}' created successfully")
 
@@ -310,17 +290,9 @@ async def get_user_sessions(user_id: str) -> UserSessionsResponse:
     Returns:
         UserSessionsResponse with list of user's sessions
     """
-    _ensure_user_exists(user_id)
-
-    # Collect all unique session IDs for this user from both dicts
-    sync_sessions = set(sessions.get(user_id, {}).keys())
-    async_session_ids = set(async_sessions.get(user_id, {}).keys())
-    all_session_ids = sync_sessions | async_session_ids
-
-    # Build session info list
-    session_list = [
-        SessionInfo(session_id=sid, created_at=session_metadata.get(user_id, {}).get(sid)) for sid in sorted(all_session_ids)
-    ]
+    # Metadata registers sessions before a model agent is needed.
+    metadata = session_metadata.get(user_id, {})
+    session_list = [SessionInfo(session_id=sid, created_at=metadata[sid]) for sid in sorted(metadata)]
 
     return UserSessionsResponse(user_id=user_id, sessions=session_list)
 
@@ -339,7 +311,7 @@ async def get_conversation_history(user_id: str, session_id: str) -> Conversatio
     Raises:
         HTTPException: If session is not found
     """
-    _ensure_session_history_exists(user_id, session_id)
+    _require_session(user_id, session_id)
 
     messages = conversation_history.get(user_id, {}).get(session_id, [])
 
@@ -360,24 +332,13 @@ async def delete_session(user_id: str, session_id: str) -> SessionDeleteResponse
     Raises:
         HTTPException: If session is not found
     """
-    found = False
-
-    if user_id in sessions and session_id in sessions[user_id]:
-        del sessions[user_id][session_id]
-        found = True
-
-    if user_id in async_sessions and session_id in async_sessions[user_id]:
-        del async_sessions[user_id][session_id]
-        found = True
-
-    if user_id in session_metadata and session_id in session_metadata[user_id]:
+    _require_session(user_id, session_id)
+    async with session_locks[user_id][session_id]:
+        _require_session(user_id, session_id)
+        async_sessions[user_id].pop(session_id, None)
+        conversation_history[user_id].pop(session_id, None)
         del session_metadata[user_id][session_id]
-
-    if user_id in conversation_history and session_id in conversation_history[user_id]:
-        del conversation_history[user_id][session_id]
-
-    if not found:
-        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found for user '{user_id}'")
+        del session_locks[user_id][session_id]
 
     return SessionDeleteResponse(message=f"Session '{session_id}' deleted successfully")
 
