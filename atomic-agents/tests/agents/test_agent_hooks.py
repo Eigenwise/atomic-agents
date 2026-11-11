@@ -183,3 +183,66 @@ def test_duplicate_local_token_hooks_with_real_instructor(token_hook_agent):
     agent.clear_hooks("token:counted")
     agent.get_context_token_count()
     assert local.call_count == 3
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_local_token_hook_can_unregister_itself_without_skipping_other_handlers(token_hook_agent, raises):
+    agent, result = token_hook_agent
+    calls = []
+
+    def once(value):
+        calls.append(("once", value))
+        agent.unregister_hook("token:counted", once)
+        if raises:
+            raise ValueError("one-shot callback failed")
+
+    def retained(value):
+        calls.append(("retained", value))
+
+    agent.register_hook("token:counted", once)
+    agent.register_hook("token:counted", retained)
+
+    assert agent.get_context_token_count() == result
+    assert calls == [("once", result), ("retained", result)]
+    assert agent.get_context_token_count() == result
+    assert calls == [("once", result), ("retained", result), ("retained", result)]
+
+
+def test_local_token_hook_added_by_callback_waits_until_next_event(token_hook_agent):
+    agent, result = token_hook_agent
+    calls = []
+    added = False
+
+    def late(value):
+        calls.append(("late", value))
+
+    def register_late(value):
+        nonlocal added
+        calls.append(("register", value))
+        if not added:
+            added = True
+            agent.register_hook("token:counted", late)
+
+    agent.register_hook("token:counted", register_late)
+
+    assert agent.get_context_token_count() == result
+    assert calls == [("register", result)]
+    assert agent.get_context_token_count() == result
+    assert calls == [("register", result), ("register", result), ("late", result)]
+
+
+@pytest.mark.parametrize("event", [None, "token:counted"])
+def test_clearing_local_token_hooks_during_dispatch_takes_effect_on_next_event(token_hook_agent, event):
+    agent, result = token_hook_agent
+    retained = Mock()
+
+    def clear(value):
+        agent.clear_hooks(event)
+
+    agent.register_hook("token:counted", clear)
+    agent.register_hook("token:counted", retained)
+
+    assert agent.get_context_token_count() == result
+    retained.assert_called_once_with(result)
+    assert agent.get_context_token_count() == result
+    retained.assert_called_once_with(result)

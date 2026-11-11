@@ -109,7 +109,9 @@ class AgentConfig(BaseModel):
     client: instructor.Instructor = Field(..., description="Client for interacting with the language model.")
     name: Optional[str] = Field(
         default=None,
-        description="Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name.",
+        description=(
+            "Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name."
+        ),
     )
     model: str = Field(default="gpt-5-mini", description="The model to use for generating responses.")
     history: Optional[BaseChatHistory] = Field(default=None, description="History component for storing chat history.")
@@ -175,7 +177,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         history (BaseChatHistory): History component for storing chat history.
         system_prompt_generator (BaseSystemPromptGenerator): Component for generating system prompts.
         system_role (Optional[str]): The role of the system in the conversation. None means no system prompt.
-        assistant_role (str): The role of the assistant in the conversation. Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
+        assistant_role (str): The role of the assistant in the conversation.
+            Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
         initial_history (ChatHistory): Initial state of the history.
         current_user_input (Optional[InputSchema]): The current user input being processed.
         model_api_parameters (dict): Additional parameters passed to the API provider.
@@ -878,6 +881,10 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         Registers a hook handler for a specific event.
 
+        Locally dispatched events use the handlers registered when dispatch begins.
+        Changes made by a callback apply to subsequent events, not the current one.
+        Instructor-managed events retain the client's dispatch behavior.
+
         Args:
             event (str): The event name (e.g., 'parse:error', 'completion:kwargs', etc.)
             handler (Callable): The callback function to handle the event
@@ -931,7 +938,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         if not self._hooks_enabled or event not in self._hook_handlers:
             return
 
-        for handler in self._hook_handlers[event]:
+        for handler in tuple(self._hook_handlers[event]):
             try:
                 handler(*args, **kwargs)
             except Exception as e:
