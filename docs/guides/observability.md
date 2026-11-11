@@ -455,6 +455,8 @@ config it replaces them in place and logs a WARNING that says so. Spans already 
 started with and retain their original payload visibility and size limits; new spans use the new settings.
 `uninstrument()` followed by `instrument()` is the clean way to change settings. Uninstrumenting restores the original
 methods on `AtomicAgent` and every tool class without interrupting calls or streams already in progress.
+Saved methods and deferred coroutines or streams that first execute after uninstrumenting run without tracing
+unless instrumentation has been enabled again.
 
 In a test suite, call `instrument(tracer_provider=provider)` with a fresh in-memory provider in each test. The replace
 behavior means you do not need to uninstrument between tests, and the warning is expected there:

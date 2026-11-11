@@ -164,7 +164,7 @@ def _trace_tool_method(
 
     @functools.wraps(wrapped)
     def traced(tool: BaseTool, *args: object, **kwargs: object) -> OutputSchema:
-        if _active_tool.get() is tool or _suppressed():
+        if not installation.is_installed() or _active_tool.get() is tool or _suppressed():
             return wrapped(tool, *args, **kwargs)
         with _tool_span(tool, args, kwargs) as (span, config):
             result = _run_as_active_tool(tool, wrapped, args, kwargs)
@@ -180,7 +180,7 @@ def _trace_tool_async_method(
 ) -> Callable[..., Coroutine[object, object, OutputSchema]]:
     @functools.wraps(wrapped)
     async def traced(tool: BaseTool, *args: object, **kwargs: object) -> OutputSchema:
-        if _active_tool.get() is tool or _suppressed():
+        if not installation.is_installed() or _active_tool.get() is tool or _suppressed():
             return await wrapped(tool, *args, **kwargs)
         with _tool_span(tool, args, kwargs) as (span, config):
             result = await _await_as_active_tool(tool, wrapped, args, kwargs)

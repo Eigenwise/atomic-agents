@@ -1665,3 +1665,127 @@ def test_in_flight_span_retains_output_privacy_config(exporter, component, fail)
     else:
         output_key = "atomic_agents.output" if component == "agent" else "gen_ai.tool.call.result"
         assert span.attributes[output_key] == "__REDACTED__"
+
+
+@pytest.mark.parametrize(
+    "component,method", [("agent", "run"), ("agent", "run_async"), ("tool", "run"), ("tool", "run_async"), ("tool", "arun")]
+)
+@pytest.mark.parametrize("fail", [False, True])
+@pytest.mark.asyncio
+async def test_deferred_call_after_uninstrument_preserves_result_or_error(exporter, component, method, fail):
+    error = ValueError("deferred operation failed")
+
+    def complete(**kwargs):
+        if fail:
+            raise error
+        return AnswerSchema(answer="42")
+
+    async def complete_async(**kwargs):
+        return complete(**kwargs)
+
+    class DeferredTool(BaseTool[CalculationInputSchema, CalculationOutputSchema]):
+        def run(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            complete()
+            return CalculationOutputSchema(result=params.expression)
+
+        async def run_async(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            return self.run(params)
+
+        async def arun(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            return self.run(params)
+
+    if component == "agent":
+        client = sync_client() if method == "run" else async_client()
+        client.chat.completions.create = complete if method == "run" else complete_async
+        operation = getattr(make_agent(client), method)
+        params = QuestionSchema(question="?")
+    else:
+        operation = getattr(DeferredTool(), method)
+        params = CalculationInputSchema(expression="42")
+    pending = operation(params) if method != "run" else None
+    AtomicAgentsInstrumentor().uninstrument()
+    if fail:
+        with pytest.raises(ValueError) as raised:
+            if pending is None:
+                operation(params)
+            else:
+                await pending
+        assert raised.value is error
+    else:
+        result = operation(params) if pending is None else await pending
+        assert (result.answer if component == "agent" else result.result) == "42"
+    assert spans_of(exporter) == []
+
+
+@pytest.mark.parametrize("ending", ["complete", "error", "cancel"])
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.asyncio
+async def test_deferred_stream_after_uninstrument_preserves_lifecycle(exporter, ending, asynchronous):
+    error = asyncio.CancelledError() if ending == "cancel" else ValueError("deferred stream failed")
+
+    def partials(**kwargs):
+        yield AnswerSchema(answer="4")
+        if ending != "complete":
+            raise error
+        yield AnswerSchema(answer="42")
+
+    async def async_partials(**kwargs):
+        for partial in partials():
+            yield partial
+
+    client = async_client() if asynchronous else sync_client()
+    client.chat.completions.create_partial = async_partials if asynchronous else partials
+    agent = make_agent(client)
+    question = QuestionSchema(question="?")
+    stream = agent.run_async_stream(question) if asynchronous else agent.run_stream(question)
+    AtomicAgentsInstrumentor().uninstrument()
+    first = await anext(stream) if asynchronous else next(stream)
+    assert first.answer == "4"
+    if ending != "complete":
+        with pytest.raises(type(error)) as raised:
+            if asynchronous:
+                await anext(stream)
+            else:
+                next(stream)
+        assert raised.value is error
+    elif asynchronous:
+        assert [item.answer async for item in stream] == ["42"]
+    else:
+        assert next(stream).answer == "42"
+        with pytest.raises(StopIteration) as stopped:
+            next(stream)
+        assert stopped.value.value.answer == "42"
+    assert spans_of(exporter) == []
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.asyncio
+async def test_deferred_stream_after_uninstrument_closes_wrapped_generator(exporter, asynchronous):
+    closed = []
+
+    def wrapped(agent):
+        try:
+            yield AnswerSchema(answer="4")
+            yield AnswerSchema(answer="42")
+        finally:
+            closed.append(True)
+
+    async def async_wrapped(agent):
+        try:
+            yield AnswerSchema(answer="4")
+            yield AnswerSchema(answer="42")
+        finally:
+            closed.append(True)
+
+    agent = make_agent(async_client() if asynchronous else sync_client())
+    trace = agent_spans._trace_agent_async_stream if asynchronous else agent_spans._trace_agent_stream
+    stream = trace(async_wrapped if asynchronous else wrapped)(agent)
+    AtomicAgentsInstrumentor().uninstrument()
+    first = await anext(stream) if asynchronous else next(stream)
+    assert first.answer == "4"
+    if asynchronous:
+        await stream.aclose()
+    else:
+        stream.close()
+    assert closed == [True]
+    assert spans_of(exporter) == []

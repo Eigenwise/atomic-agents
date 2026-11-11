@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from contextlib import contextmanager
+from contextlib import aclosing, contextmanager
 from typing import AsyncGenerator, Awaitable, Callable, Coroutine, Generator, Generic, Iterator, TypeVar
 
 from opentelemetry import context as context_api
@@ -70,7 +70,7 @@ def _agent_span(
 def _trace_agent_call(wrapped: Callable[..., OutputSchema]) -> Callable[..., OutputSchema]:
     @functools.wraps(wrapped)
     def traced(agent: AtomicAgent, *args: object, **kwargs: object) -> OutputSchema:
-        if _suppressed():
+        if not installation.is_installed() or _suppressed():
             return wrapped(agent, *args, **kwargs)
         with _agent_span(agent, args, kwargs) as run:
             response = wrapped(agent, *args, **kwargs)
@@ -85,7 +85,7 @@ def _trace_agent_async_call(
 ) -> Callable[..., Coroutine[object, object, OutputSchema]]:
     @functools.wraps(wrapped)
     async def traced(agent: AtomicAgent, *args: object, **kwargs: object) -> OutputSchema:
-        if _suppressed():
+        if not installation.is_installed() or _suppressed():
             return await wrapped(agent, *args, **kwargs)
         with _agent_span(agent, args, kwargs) as run:
             response = await wrapped(agent, *args, **kwargs)
@@ -182,6 +182,8 @@ def _trace_agent_stream(
 ) -> Callable[..., Generator[OutputSchema, None, OutputSchema | None]]:
     @functools.wraps(wrapped)
     def traced(agent: AtomicAgent, *args: object, **kwargs: object) -> Generator[OutputSchema, None, OutputSchema | None]:
+        if not installation.is_installed():
+            return (yield from wrapped(agent, *args, **kwargs))
         span = _start_agent_span(agent, args, kwargs)
         run = llm_attempt_spans.new_run(span, agent)
         cursor = _SyncStreamCursor(run, wrapped(agent, *args, **kwargs))
@@ -211,6 +213,11 @@ def _trace_agent_async_stream(
 ) -> Callable[..., AsyncGenerator[OutputSchema, None]]:
     @functools.wraps(wrapped)
     async def traced(agent: AtomicAgent, *args: object, **kwargs: object) -> AsyncGenerator[OutputSchema, None]:
+        if not installation.is_installed():
+            async with aclosing(wrapped(agent, *args, **kwargs)) as stream:
+                async for output in stream:
+                    yield output
+            return
         span = _start_agent_span(agent, args, kwargs)
         run = llm_attempt_spans.new_run(span, agent)
         cursor = _AsyncStreamCursor(run, wrapped(agent, *args, **kwargs))
