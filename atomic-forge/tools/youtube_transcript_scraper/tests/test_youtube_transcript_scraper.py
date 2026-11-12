@@ -48,7 +48,9 @@ def test_youtube_transcript_tool():
     ):
         mock_youtube = MagicMock()
         mock_build.return_value = mock_youtube
-        mock_youtube.videos().list().execute.return_value = {"items": [{"snippet": mock_metadata}]}
+        mock_youtube.videos.return_value.list.return_value.execute.return_value = {
+            "items": [{"snippet": mock_metadata, "contentDetails": {"duration": "PT10S"}}]
+        }
 
         youtube_transcript_tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key=mock_api_key))
         input_schema = YouTubeTranscriptToolInputSchema(video_url=mock_video_url)
@@ -82,7 +84,9 @@ def test_youtube_transcript_tool_with_language():
     ):
         mock_youtube = MagicMock()
         mock_build.return_value = mock_youtube
-        mock_youtube.videos().list().execute.return_value = {"items": [{"snippet": mock_metadata}]}
+        mock_youtube.videos.return_value.list.return_value.execute.return_value = {
+            "items": [{"snippet": mock_metadata, "contentDetails": {"duration": "PT10S"}}]
+        }
 
         youtube_transcript_tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key=mock_api_key))
         input_schema = YouTubeTranscriptToolInputSchema(video_url=mock_video_url, language="de")
@@ -139,7 +143,7 @@ def test_fetch_video_metadata_no_items():
     with patch("tool.youtube_transcript_scraper.build") as mock_build:
         mock_youtube = MagicMock()
         mock_build.return_value = mock_youtube
-        mock_youtube.videos().list().execute.return_value = {"items": []}
+        mock_youtube.videos.return_value.list.return_value.execute.return_value = {"items": []}
 
         youtube_transcript_tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key=mock_api_key))
 
@@ -154,6 +158,60 @@ def test_extract_video_id():
     video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     video_id = youtube_transcript_tool.extract_video_id(video_url)
     assert video_id == "dQw4w9WgXcQ"
+
+
+@pytest.mark.parametrize(
+    "snippets, api_duration, expected",
+    [
+        ([(0, 2), (120, 2)], "PT5M", 300.0),
+        ([(0, 10), (5, 10)], "PT10S", 10.0),
+        ([(0, 2)], "PT40S", 40.0),
+        ([], "PT2M", 120.0),
+        ([(0, 2)], "P1DT2H3M4.5S", 93784.5),
+        ([], "PT0S", 0.0),
+    ],
+)
+def test_duration_comes_from_video_details(snippets, api_duration, expected):
+    transcript = FetchedTranscript(
+        snippets=[FetchedTranscriptSnippet(text="caption", start=start, duration=duration) for start, duration in snippets],
+        video_id="dQw4w9WgXcQ",
+        language="English",
+        language_code="en",
+        is_generated=False,
+    )
+    with patch(FETCH_TARGET, return_value=transcript), patch("tool.youtube_transcript_scraper.build") as mock_build:
+        mock_build.return_value.videos.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {
+                    "snippet": {"title": "Example", "channelTitle": "Channel", "publishedAt": "2026-01-01T00:00:00Z"},
+                    "contentDetails": {"duration": api_duration},
+                }
+            ]
+        }
+        tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key="test-key"))
+        result = tool.run(YouTubeTranscriptToolInputSchema(video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+
+    assert result.duration == expected
+    mock_build.return_value.videos.return_value.list.assert_called_once_with(part="snippet,contentDetails", id="dQw4w9WgXcQ")
+
+
+@pytest.mark.parametrize("content_details", [{}, {"duration": None}, {"duration": "not-a-duration"}])
+def test_missing_video_duration_is_not_replaced_with_caption_lengths(content_details):
+    with (
+        patch(FETCH_TARGET, return_value=fetched_rick_astley_transcript()),
+        patch("tool.youtube_transcript_scraper.build") as mock_build,
+    ):
+        mock_build.return_value.videos.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {
+                    "snippet": {"title": "Example", "channelTitle": "Channel", "publishedAt": "2026-01-01T00:00:00Z"},
+                    "contentDetails": content_details,
+                }
+            ]
+        }
+        tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key="test-key"))
+        with pytest.raises(ValueError):
+            tool.run(YouTubeTranscriptToolInputSchema(video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
 
 
 if __name__ == "__main__":

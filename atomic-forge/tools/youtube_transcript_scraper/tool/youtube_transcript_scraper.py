@@ -1,7 +1,7 @@
 import os
-from typing import List, Optional
-from pydantic import Field, BaseModel
-from datetime import datetime
+from typing import List, Optional, Tuple
+from pydantic import Field, BaseModel, TypeAdapter
+from datetime import datetime, timedelta
 
 from googleapiclient.discovery import build
 from youtube_transcript_api import (
@@ -11,6 +11,9 @@ from youtube_transcript_api import (
 )
 
 from atomic_agents import BaseIOSchema, BaseTool, BaseToolConfig
+
+
+_DURATION_ADAPTER = TypeAdapter(timedelta)
 
 
 ################
@@ -109,9 +112,7 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
 
         transcripts = fetched_transcript.to_raw_data()
         transcript_text = " ".join([transcript["text"] for transcript in transcripts])
-        total_duration = sum([transcript["duration"] for transcript in transcripts])
-
-        metadata = self.fetch_video_metadata(video_id)
+        metadata, total_duration = self._fetch_video_details(video_id)
 
         return YouTubeTranscriptToolOutputSchema(
             transcript=transcript_text,
@@ -146,20 +147,34 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
         Raises:
             Exception: If no metadata is found for the video.
         """
+        metadata, _ = self._fetch_video_details(video_id)
+        return metadata
+
+    def _fetch_video_details(self, video_id: str) -> Tuple[VideoMetadata, float]:
+        """Fetch metadata and actual video duration in a single API request."""
         youtube = build("youtube", "v3", developerKey=self.api_key)
-        request = youtube.videos().list(part="snippet", id=video_id)
+        request = youtube.videos().list(part="snippet,contentDetails", id=video_id)
         response = request.execute()
 
         if not response["items"]:
             raise Exception(f"No metadata found for video '{video_id}'")
 
-        video_info = response["items"][0]["snippet"]
-        return VideoMetadata(
+        video = response["items"][0]
+        duration = video.get("contentDetails", {}).get("duration")
+        if not isinstance(duration, str) or not duration.startswith("P"):
+            raise ValueError(f"No valid video duration found for video '{video_id}'")
+        duration_seconds = _DURATION_ADAPTER.validate_python(duration).total_seconds()
+        if duration_seconds < 0:
+            raise ValueError(f"Negative video duration returned for video '{video_id}'")
+
+        video_info = video["snippet"]
+        metadata = VideoMetadata(
             id=video_id,
             title=video_info["title"],
             channel=video_info["channelTitle"],
             published_at=datetime.fromisoformat(video_info["publishedAt"].rstrip("Z")),
         )
+        return metadata, duration_seconds
 
 
 #################
