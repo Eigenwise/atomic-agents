@@ -94,12 +94,13 @@ def test_output_choices_remain_separate_and_ordered():
     [
         {"capture_messages": False},
         {"hide_inputs": True},
+        {"hide_outputs": True},
         {"llm_spans": False},
     ],
 )
 def test_input_gates_precede_content_access(options):
     content = UnreadableContent()
-    assert captured(content, **options) == {}
+    assert captured([content], **options) == {}
     assert content.reads == 0
 
 
@@ -111,11 +112,23 @@ def test_output_gate_precedes_content_access():
 
 @pytest.mark.parametrize("direction", ["input", "output"])
 def test_suppression_precedes_content_access(direction):
+    content = UnreadableContent()
+    value = [content] if direction == "input" else content
     token = context_api.attach(context_api.set_value("suppress_instrumentation", True))
     try:
-        assert captured(UnreadableContent(), direction) == {}
+        assert captured(value, direction) == {}
     finally:
         context_api.detach(token)
+    assert content.reads == 0
+
+
+def test_hidden_outputs_omit_request_messages_replaying_model_output():
+    request_messages = [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "earlier model answer"},
+        {"role": "user", "content": "follow-up"},
+    ]
+    assert captured(request_messages, hide_outputs=True) == {}
 
 
 @pytest.mark.parametrize(

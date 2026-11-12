@@ -118,8 +118,19 @@ def test_message_visibility_directions(exporter, hide_inputs, hide_outputs):
     installation.install(config=TracingConfig(capture_messages=True, hide_inputs=hide_inputs, hide_outputs=hide_outputs))
     run_agent(instructor_client(instructor.Mode.TOOLS, [ScriptedResponse()]))
     child, parent = finished_spans(exporter, 2)
-    assert ("gen_ai.input.messages" in child.attributes) is not hide_inputs
+    assert ("gen_ai.input.messages" in child.attributes) is not (hide_inputs or hide_outputs)
     assert ("gen_ai.output.messages" in child.attributes) is not hide_outputs
+
+
+@pytest.mark.parametrize("mode", [instructor.Mode.TOOLS, instructor.Mode.JSON, instructor.Mode.JSON_SCHEMA])
+def test_hidden_outputs_keep_rejected_answer_out_of_retry_spans(exporter, mode):
+    installation.install(config=TracingConfig(capture_messages=True, hide_outputs=True, max_attribute_length=20000))
+    rejected_answer = ScriptedResponse(arguments='{"answer": {"secret": "rejected-draft"}}')
+    assert run_agent(instructor_client(mode, [rejected_answer, ScriptedResponse()])).answer == "42"
+    recorded = [
+        (dict(span.attributes), [dict(event.attributes) for event in span.events]) for span in finished_spans(exporter, 3)
+    ]
+    assert "rejected-draft" not in str(recorded)
 
 
 @pytest.mark.parametrize("enabled", [None, False])

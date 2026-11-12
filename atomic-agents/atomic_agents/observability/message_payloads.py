@@ -91,11 +91,18 @@ def _output_messages(response: object) -> list[dict[str, object]]:
     return [message for choice in choices if (message := _message(_field(choice, "message"))) is not None]
 
 
+def _messages_hidden(direction: str, config: TracingConfig) -> bool:
+    if direction == "output":
+        return config.hide_outputs
+    # Request messages replay model output: earlier assistant turns, and on an Instructor
+    # re-ask the rejected answer plus the validation error quoting it.
+    return config.hide_inputs or config.hide_outputs
+
+
 def write_messages(span: Span, value: object, direction: str, config: TracingConfig) -> None:
     if not config.capture_messages or not config.llm_spans or context_api.get_value("suppress_instrumentation"):
         return
-    hidden = {"input": config.hide_inputs, "output": config.hide_outputs}[direction]
-    if not hidden:
+    if not _messages_hidden(direction, config):
         _write_visible_messages(span, value, direction, config)
 
 
