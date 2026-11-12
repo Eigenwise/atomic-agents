@@ -1,6 +1,7 @@
 """Module for transforming JSON schemas to Pydantic models."""
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
@@ -198,6 +199,33 @@ class SchemaTransformer:
                     if isinstance(value_schema, dict):
                         value_type, _ = SchemaTransformer.json_to_pydantic_field(value_schema, True, root_schema, model_cache)
                         python_type = Dict[str, value_type]
+
+                constraints = {}
+                if json_type in {"integer", "number"}:
+                    keywords = {
+                        "minimum": "ge",
+                        "maximum": "le",
+                        "exclusiveMinimum": "gt",
+                        "exclusiveMaximum": "lt",
+                        "multipleOf": "multiple_of",
+                    }
+                elif json_type == "string":
+                    keywords = {"minLength": "min_length", "maxLength": "max_length"}
+                    if "pattern" in prop_schema:
+                        # Compiled patterns use Python's engine, including
+                        # lookarounds supported by JSON Schema patterns.
+                        constraints["pattern"] = re.compile(prop_schema["pattern"])
+                elif json_type == "array":
+                    keywords = {"minItems": "min_length", "maxItems": "max_length"}
+                else:
+                    keywords = {}
+                constraints.update(
+                    {target: prop_schema[source] for source, target in keywords.items() if source in prop_schema}
+                )
+                if constraints:
+                    # Keep validation on the value type: recursive callers
+                    # discard the returned Field when building lists/unions.
+                    python_type = Annotated[python_type, Field(**constraints)]
 
         field_kwargs = {"description": description}
         if required:
