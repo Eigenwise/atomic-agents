@@ -1,6 +1,6 @@
 # Key Modules
 
-*Last Updated: 2026-10-24*
+*Last Updated: 2026-11-12*
 
 ## Core framework — `atomic-agents/atomic_agents/`
 
@@ -78,11 +78,13 @@
   `hide_outputs` every exception becomes `<Type>: <N> attempts (__REDACTED__)`. Nothing in `atomic_agents/__init__.py`
   imports the package.
 - **Message capture:** `capture_messages=True` adds `gen_ai.input.messages` / `gen_ai.output.messages` to chat
-  attempt spans for supported OpenAI-compatible ChatCompletion text, tool calls and tool replies. Directional
-  hiding, disabled LLM spans and suppression prevent content access. Compact JSON preserves message/choice order;
-  an attribute exceeding `max_attribute_length` is omitted whole, rather than truncated. Native Responses/Anthropic
-  shapes, streams and non-text media/reasoning are omitted; existing usage and legacy payload behavior stay unchanged.
-  Live backend ingestion is unverified.
+  attempt spans for supported OpenAI-compatible ChatCompletion text, tool calls and tool replies. `hide_inputs`
+  omits the request attribute; `hide_outputs` omits both, because request messages replay model output (history,
+  and the rejected answer on an Instructor re-ask). Disabled LLM spans and suppression also prevent content access.
+  Compact JSON preserves message/choice order; an attribute exceeding `max_attribute_length` is omitted whole,
+  rather than truncated. Streams and non-text media/reasoning are omitted. Native Responses and Anthropic calls
+  record only the request text that matches the chat shape, and no response. Existing usage and legacy payload
+  behavior stay unchanged. Live backend ingestion is unverified.
 - **Tests:** `atomic-agents/tests/observability/` (in-memory exporter; `instructor_transport.py` builds real Instructor
   clients over `httpx.MockTransport`; `test_instructor_modes.py` covers TOOLS/JSON/JSON_SCHEMA/RESPONSES_TOOLS).
 
