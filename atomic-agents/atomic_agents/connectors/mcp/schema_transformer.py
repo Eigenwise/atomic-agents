@@ -5,13 +5,20 @@ from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annot
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
-from pydantic import BeforeValidator, Field, create_model
+from pydantic import BeforeValidator, Field, WithJsonSchema, create_model
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
 
 logger = logging.getLogger(__name__)
+
+
+def _reject_false_schema(value: Any) -> Any:
+    raise ValueError("Value is forbidden by a false JSON Schema")
+
+
+_FalseSchemaValue = Annotated[Any, BeforeValidator(_reject_false_schema), WithJsonSchema({"not": {}})]
 
 
 def _validate_ref(validator: Any, reference: str, value: Any, schema: Any) -> Any:
@@ -91,8 +98,9 @@ class SchemaTransformer:
             ref_schema = defs[ref_name]
             # Avoid infinite recursion by adding placeholder first
             model_cache[ref_name] = Any
-            if ref_schema.get("properties") or (
-                ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False
+            if isinstance(ref_schema, dict) and (
+                ref_schema.get("properties")
+                or (ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False)
             ):
                 model_name = ref_schema.get("title", ref_name)
                 model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
@@ -121,7 +129,7 @@ class SchemaTransformer:
 
     @staticmethod
     def json_to_pydantic_field(
-        prop_schema: Dict[str, Any],
+        prop_schema: Union[Dict[str, Any], bool],
         required: bool,
         root_schema: Optional[Dict[str, Any]] = None,
         model_cache: Optional[Dict[str, Type]] = None,
@@ -138,6 +146,10 @@ class SchemaTransformer:
         Returns:
             Tuple of (type, Field)
         """
+        if isinstance(prop_schema, bool):
+            value_type = Any if prop_schema else _FalseSchemaValue
+            return value_type, Field(default=... if required else None)
+
         if root_schema is None:
             root_schema = {}
         if model_cache is None:
@@ -163,12 +175,8 @@ class SchemaTransformer:
             if union_schemas:
                 union_types = []
                 for union_schema in union_schemas:
-                    if "$ref" in union_schema:
-                        union_types.append(SchemaTransformer._resolve_ref(union_schema["$ref"], root_schema, model_cache))
-                    else:
-                        # Recursively resolve the union member
-                        member_type, _ = SchemaTransformer.json_to_pydantic_field(union_schema, True, root_schema, model_cache)
-                        union_types.append(member_type)
+                    member_type, _ = SchemaTransformer.json_to_pydantic_field(union_schema, True, root_schema, model_cache)
+                    union_types.append(member_type)
 
                 if len(union_types) == 1:
                     python_type = union_types[0]
@@ -205,7 +213,8 @@ class SchemaTransformer:
         elif default is not None:
             field_kwargs["default"] = default
         else:
-            python_type = Optional[python_type]
+            if python_type is not _FalseSchemaValue:
+                python_type = Optional[python_type]
             field_kwargs["default"] = None
 
         return (python_type, Field(**field_kwargs))
