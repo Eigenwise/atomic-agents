@@ -1,6 +1,6 @@
 # Communication & Integrations
 
-*Last Updated: 2026-11-12*
+*Last Updated: 2026-11-13*
 
 The framework exposes no HTTP API of its own; "communication" here means how it talks to LLM
 providers and external tools.
@@ -15,7 +15,8 @@ providers and external tools.
   client's is kept but logs a warning.
 - Multimodal content uses Instructor's Image/Audio/PDF types plus the framework's `VideoURL`;
   `ChatHistory.get_history()` converts `VideoURL` to an OpenAI-compatible `video_url` dict, which
-  Instructor forwards unchanged to providers that support video inputs.
+  Instructor forwards unchanged to providers that support video inputs. Media in fields marked
+  `exclude=True` is left out of the request, matching the JSON text.
 - Provider quirks live in `AgentConfig`: `system_role`, `assistant_role` (use `"model"` for Gemini),
   `tool_result_role` (auto-detected).
 - Code: `atomic-agents/atomic_agents/agents/atomic_agent.py`.
@@ -30,13 +31,18 @@ providers and external tools.
   tools/resources/prompts: `MCPFactory`, `MCPDefinitionService`, `SchemaTransformer`, and
   `fetch_mcp_tools` / `fetch_mcp_resources` / `fetch_mcp_prompts` (sync + async). See the
   `mcp-agent` and `progressive-disclosure` examples.
-- Discovery follows tool, resource, template and prompt cursors. Template continuation errors propagate.
-- Schema references decode escaped definition names and support non-object definitions.
+- Discovery follows tool, resource, template and prompt cursors. Template continuation errors propagate, and a
+  repeated cursor raises `RuntimeError` instead of looping.
+- HTTP and SSE endpoints go through `_transport_endpoint` (`mcp_definition_service.py`): the transport path
+  (`/mcp/` or `/sse`) is appended to the URL path, the query string is kept, and a URL whose path already ends
+  in that segment is used as given.
+- Schema references decode escaped definition names and support non-object definitions. Boolean schemas are
+  accepted: `true` maps to `Any`, `false` to a field that rejects every value and is emitted as `{"not": {}}`.
 - Scalar `enum`/`const` choices are intersected with the advertised JSON Schema (compositions and local `$defs`
   included, checked with `jsonschema` at model construction) so the generated `Literal` and emitted schema only
   admit values the server accepts. An empty intersection fails that one tool definition; the factory logs and skips
   it and keeps the others.
-- Typed SDK tool results use structured content only when it is non-None, then use the existing validated JSON-text fallback. Present empty structured data retains precedence. Mapping adapters keep their separate validation contract.
+- Typed SDK tool results use structured content only when it is non-None, then use the existing validated JSON-text fallback. Present empty structured data retains precedence. Mapping adapters keep their separate validation contract. Generic (untyped) tool output uses `structuredContent` when `content` is empty.
 - SDK `CallToolResult` and strictly validated mapping envelopes with `isError=True` raise a `RuntimeError` before typed or generic output parsing. The message uses `TextContent` only (meaningful fallback when no text); `structuredContent`, `_meta` and binary blocks never enter messages or logs. Raw application dictionaries that merely contain `isError`/`name` keys (even with a string `content`) stay ordinary outputs.
 
 ## Hooks / observability
