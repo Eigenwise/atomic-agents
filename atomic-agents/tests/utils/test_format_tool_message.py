@@ -5,7 +5,8 @@ from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, ConfigDict, field_serializer
+from instructor.processing.schema import generate_openai_schema
 import pytest
 from atomic_agents import BaseIOSchema
 from atomic_agents.utils import format_tool_message
@@ -148,6 +149,29 @@ def test_format_tool_message_honors_json_field_serializers():
     result = format_tool_message(SerializedToolCall(value=42))
 
     assert json.loads(result["function"]["arguments"]) == {"value": "item-42"}
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        ConfigDict(title="search_documents"),
+        ConfigDict(model_title_generator=lambda cls: "generated_search"),
+        ConfigDict(json_schema_extra={"title": "custom_search"}),
+    ],
+)
+def test_format_tool_message_name_matches_advertised_schema(config):
+    class SearchArguments(BaseIOSchema):
+        """Search the available documents."""
+
+        model_config = config
+        query: str
+
+    call = SearchArguments(query="example")
+    result = format_tool_message(call, "search-1")
+
+    assert result["function"]["name"] == generate_openai_schema(SearchArguments)["name"]
+    assert json.loads(result["function"]["arguments"]) == {"query": "example"}
+    assert result["id"] == "search-1"
 
 
 if __name__ == "__main__":

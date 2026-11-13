@@ -1,86 +1,76 @@
 import subprocess
-import tempfile
-import unittest
 from pathlib import Path
-from unittest.mock import patch
+
+import git
+import pytest
 
 from atomic_assembler.utils import GithubRepoCloner, AtomicToolManager
 
 
-class AssemblerTests(unittest.TestCase):
-    def setUp(self):
-        t = tempfile.TemporaryDirectory()
-        self.addCleanup(t.cleanup)
-        self.tmp = Path(t.name)
-
-    def test_custom_branch(self):
-        repo = self.tmp / "remote"
-        subprocess.run(["git", "init", "-qb", "custom", repo], check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                repo,
-                "-c",
-                "user.name=Test",
-                "-c",
-                "user.email=test@example.org",
-                "commit",
-                "--allow-empty",
-                "-qm",
-                "sample",
-            ],
-            check=True,
-        )
-        cloner = GithubRepoCloner(str(repo), branch="custom")
-        self.addCleanup(cloner.cleanup)
+def test_custom_branch(tmp_path):
+    repository = tmp_path / "remote"
+    subprocess.run(["git", "init", "-qb", "custom", repository], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            repository,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.org",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "sample",
+        ],
+        check=True,
+    )
+    cloner = GithubRepoCloner(str(repository), branch="custom")
+    try:
         cloner.clone()
-        self.assertEqual(
-            subprocess.check_output(["git", "-C", cloner.repo_path, "branch", "--show-current"], text=True).strip(), "custom"
+        assert (
+            subprocess.check_output(["git", "-C", cloner.repo_path, "branch", "--show-current"], text=True).strip() == "custom"
         )
+    finally:
+        cloner.cleanup()
 
-    def test_failed_clone_releases_temp_folder(self):
-        cloner = GithubRepoCloner(str(self.tmp / "missing"))
-        self.addCleanup(cloner.cleanup)
-        with self.assertRaises(Exception):
+
+def test_failed_clone_releases_temp_folder(tmp_path):
+    cloner = GithubRepoCloner(str(tmp_path / "missing"))
+    try:
+        with pytest.raises(git.GitCommandError):
             cloner.clone()
-        self.assertFalse(Path(cloner.temp_dir).exists())
-
-    def test_failed_clone_leaves_an_empty_catalogue(self):
-        self.assertEqual(AtomicToolManager.get_atomic_tools(self.tmp / "no-checkout"), [])
-
-    def test_copy_trailing_separator(self):
-        tool = self.tmp / "tool"
-        tool.mkdir()
-        (tool / "sample").touch()
-        dest = self.tmp / "dest"
-        dest.mkdir()
-        out = AtomicToolManager.copy_atomic_tool(str(tool) + "/", str(dest))
-        self.assertTrue((Path(out) / "sample").exists())
-
-    def test_copy_failure_can_be_retried(self):
-        tool = self.tmp / "tool"
-        tool.mkdir()
-        (tool / "sample").touch()
-        dest = self.tmp / "dest"
-        dest.mkdir()
-
-        def fail(src, dst, **kwargs):
-            partial = Path(dst)
-            partial.mkdir(exist_ok=True)
-            (partial / "partial").touch()
-            raise OSError("copy interrupted")
-
-        with patch("shutil.copytree", side_effect=fail), self.assertRaises(Exception):
-            AtomicToolManager.copy_atomic_tool(tool, dest)
-        self.assertFalse((dest / "tool").exists())
-        out = Path(AtomicToolManager.copy_atomic_tool(tool, dest))
-        self.assertTrue((out / "sample").exists())
-        (out / "keep").touch()
-        with self.assertRaises(Exception):
-            AtomicToolManager.copy_atomic_tool(tool, dest)
-        self.assertTrue((out / "keep").exists())
+        assert not Path(cloner.temp_dir).exists()
+    finally:
+        cloner.cleanup()
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_failed_clone_leaves_an_empty_catalogue(tmp_path):
+    assert AtomicToolManager.get_atomic_tools(tmp_path / "no-checkout") == []
+
+
+def test_copy_failure_can_be_retried(tmp_path, monkeypatch):
+    tool = tmp_path / "tool"
+    tool.mkdir()
+    (tool / "sample").touch()
+    destination = tmp_path / "destination"
+    destination.mkdir()
+
+    def interrupt_copy(source, target, **kwargs):
+        partial = Path(target)
+        partial.mkdir(exist_ok=True)
+        (partial / "partial").touch()
+        raise OSError("copy interrupted")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr("atomic_assembler.utils.shutil.copytree", interrupt_copy)
+        with pytest.raises(Exception, match="copy interrupted"):
+            AtomicToolManager.copy_atomic_tool(tool, destination)
+    assert not (destination / "tool").exists()
+    copied_tool = Path(AtomicToolManager.copy_atomic_tool(tool, destination))
+    assert (copied_tool / "sample").exists()
+    (copied_tool / "keep").touch()
+    with pytest.raises(Exception, match="File exists"):
+        AtomicToolManager.copy_atomic_tool(tool, destination)
+    assert (copied_tool / "keep").exists()

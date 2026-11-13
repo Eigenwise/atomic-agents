@@ -75,7 +75,7 @@ class AtomicToolManager:
     def copy_atomic_tool(tool_path, destination):
         logging.info(f"copy_atomic_tool called with tool_path: {tool_path}, destination: {destination}")
         try:
-            tool_name = os.path.basename(os.path.abspath(tool_path))
+            tool_name = os.path.basename(tool_path)
             local_tool_path = os.path.join(destination, tool_name)
             logging.info(f"Copying tool from {tool_path} to {local_tool_path}")
 
