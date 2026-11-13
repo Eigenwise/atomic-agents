@@ -93,10 +93,50 @@ async def test_searxng_search_tool_missing_fields(mock_aiohttp_session):
     # Run the tool
     result = await searxng_tool.run_async(input_schema)
 
-    # The last two results should be included
-    assert len(result.results) == 2
-    assert result.results[0].title == "Result Missing Query"
-    assert result.results[1].title == "Valid Result"
+    # Content is optional, and the query is supplied by the fetcher.
+    assert len(result.results) == 3
+    assert result.results[0].title == "Result Missing Content"
+    assert result.results[0].content is None
+    assert result.results[1].title == "Result Missing Query"
+    assert result.results[2].title == "Valid Result"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("category", ["news", "general"])
+async def test_category_filter_precedes_deduplication(mock_aiohttp_session, category):
+    other_category = "general" if category == "news" else "news"
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "results": [
+            {
+                "title": "Other category",
+                "url": "https://example.com/shared",
+                "content": "Other",
+                "score": 9,
+                "category": other_category,
+            },
+            {
+                "title": "Matching category",
+                "url": "https://example.com/shared",
+                "content": "Match",
+                "score": 8,
+                "category": category,
+            },
+            {
+                "title": "Lower duplicate",
+                "url": "https://example.com/shared",
+                "content": "Lower",
+                "score": 7,
+                "category": category,
+            },
+            {"title": "Next result", "url": "https://example.com/next", "content": "Next", "score": 6, "category": category},
+        ]
+    }
+    mock_aiohttp_session.get.return_value.__aenter__.return_value = mock_response
+    tool = SearXNGSearchTool(SearXNGSearchToolConfig(base_url="https://searxng.example.com"))
+    result = await tool.run_async(SearXNGSearchToolInputSchema(queries=["query"], category=category), max_results=1)
+    assert [item.title for item in result.results] == ["Matching category"]
 
 
 @pytest.mark.asyncio
