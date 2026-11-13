@@ -238,6 +238,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self.mode = self._resolve_mode(config)
         self.model_api_parameters = config.model_api_parameters or {}
         self.max_context_tokens = config.max_context_tokens
+        self._system_prompt_snapshot: Optional[List[Dict]] = None
 
         # Hook management attributes
         self._hook_handlers: Dict[str, List[Callable]] = {}
@@ -444,8 +445,27 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
                 "Increase max_context_tokens or reduce system prompt size."
             )
 
+    def _context_system_messages(self) -> List[Dict]:
+        """Use one prompt during request preparation; standalone counts stay fresh."""
+        if self._system_prompt_snapshot is None:
+            return self._build_system_messages()
+        return [message.copy() for message in self._system_prompt_snapshot]
+
+    def _prepare_request_messages(self) -> None:
+        """Budget and send the same dynamic context, even across several trims."""
+        snapshot = self._build_system_messages()
+        previous_snapshot = self._system_prompt_snapshot
+        self._system_prompt_snapshot = snapshot
+        try:
+            self._trim_context()
+            self._prepare_messages()
+        finally:
+            # Neither an oversized request nor a failed counter may cache the
+            # provider's value for the next request or an explicit token count.
+            self._system_prompt_snapshot = previous_snapshot
+
     def _prepare_messages(self):
-        self.messages = self._build_system_messages()
+        self.messages = self._context_system_messages()
         history = self.history.get_history()
         # Remap "system" role messages in history when the backend doesn't support
         # mid-conversation system messages (e.g. Gemini). The initial system prompt
@@ -653,7 +673,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         counter = get_token_counter()
 
         # Build system messages
-        system_messages = self._build_system_messages()
+        system_messages = self._context_system_messages()
 
         # Handle schema serialization based on mode
         tools = self._build_tools_definition()
@@ -702,8 +722,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
 
-        self._trim_context()
-        self._prepare_messages()
+        self._prepare_request_messages()
         response = self.client.chat.completions.create(
             messages=self.messages,
             model=self.model,
@@ -737,8 +756,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
 
-        self._trim_context()
-        self._prepare_messages()
+        self._prepare_request_messages()
 
         response_stream = self.client.chat.completions.create_partial(
             model=self.model,
@@ -782,8 +800,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
 
-        self._trim_context()
-        self._prepare_messages()
+        self._prepare_request_messages()
 
         response = await self.client.chat.completions.create(
             model=self.model, messages=self.messages, response_model=self.output_schema, **self._get_completion_kwargs()
@@ -809,8 +826,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
 
-        self._trim_context()
-        self._prepare_messages()
+        self._prepare_request_messages()
 
         response_stream = self.client.chat.completions.create_partial(
             model=self.model,
