@@ -46,6 +46,14 @@ SAMPLE_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 </feed>
 """
 
+ERROR_FEED = """<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/api/errors#incorrect_id_format</id>
+    <title>Error</title>
+    <summary>incorrect id format</summary>
+  </entry>
+</feed>"""
+
 
 @pytest.fixture
 def tool():
@@ -123,6 +131,37 @@ def test_parse_feed_returns_papers(tool):
     # PDF url is derived when not explicitly present
     assert second.pdf_url == "http://arxiv.org/pdf/2402.99999v1"
     assert second.comment is None
+
+
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_parse_feed_rejects_api_error_entries(scheme):
+    feed = ERROR_FEED.replace("http://arxiv.org", f"{scheme}://arxiv.org")
+    with pytest.raises(ValueError, match="arXiv API error: incorrect id format"):
+        ArxivSearchTool.parse_feed(feed, "id:invalid")
+
+
+def test_parse_feed_error_without_summary_uses_a_fallback():
+    with pytest.raises(ValueError, match="arXiv API error"):
+        ArxivSearchTool.parse_feed(ERROR_FEED.replace("<summary>incorrect id format</summary>", ""), "id:invalid")
+
+
+def test_article_title_error_is_still_an_article():
+    papers = ArxivSearchTool.parse_feed(SAMPLE_FEED.replace("A Cool Paper About RAG", "Error"), "error analysis")
+    assert papers[0].title == "Error"
+    assert papers[0].arxiv_id == "2401.12345"
+
+
+@pytest.mark.asyncio
+async def test_run_async_skips_error_feeds_and_keeps_successful_queries(tool, caplog):
+    async def fake_fetch(self, session, query, *_):
+        return ArxivSearchTool.parse_feed(ERROR_FEED if query == "bad" else SAMPLE_FEED, query)
+
+    with patch.object(ArxivSearchTool, "_fetch", fake_fetch):
+        out = await tool.run_async(ArxivSearchToolInputSchema(queries=["bad", "good"]))
+
+    assert len(out.results) == 2
+    assert all(paper.query == "good" for paper in out.results)
+    assert "incorrect id format" in caplog.text
 
 
 @pytest.mark.asyncio
