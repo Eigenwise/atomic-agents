@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, IntEnum
 from unittest.mock import Mock, call
 
 import pytest
@@ -130,6 +130,69 @@ def test_get_history_allow_unicode(history):
     assert history[1]["content"] == '{"test_field":"â"}'
     assert json.loads(history[0]["content"]) == {"test_field": "àéèï"}
     assert json.loads(history[1]["content"]) == {"test_field": "â"}
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        instructor.Image(source="private.jpg", media_type="image/jpeg"),
+        instructor.processing.multimodal.Audio(source="private.mp3", media_type="audio/mp3"),
+        instructor.processing.multimodal.PDF(source="private.pdf", media_type="application/pdf"),
+        VideoURL(url="https://example.com/private.mp4"),
+    ],
+    ids=["image", "audio", "pdf", "video"],
+)
+def test_get_history_omits_excluded_multimodal_fields(history, media):
+    class PrivateMediaSchema(BaseIOSchema):
+        """Message carrying media that must stay local."""
+
+        instruction: str
+        private_media: Union[
+            instructor.Image, instructor.processing.multimodal.Audio, instructor.processing.multimodal.PDF, VideoURL
+        ] = Field(exclude=True)
+
+    content = PrivateMediaSchema(instruction="public", private_media=media)
+    history.add_message("user", content)
+
+    assert history.get_history() == [{"role": "user", "content": content.model_dump_json()}]
+
+
+def test_get_history_preserves_visible_media_beside_nested_excluded_media(history):
+    class Document(BaseIOSchema):
+        """Document with a public image and a local source."""
+
+        caption: str
+        image: instructor.Image
+        original: instructor.Image = Field(exclude=True)
+
+    class DocumentsSchema(BaseIOSchema):
+        """Documents provided to the model."""
+
+        documents: List[Document]
+
+    visible = instructor.Image(source="visible.jpg", media_type="image/jpeg")
+    private = instructor.Image(source="private.jpg", media_type="image/jpeg")
+    content = DocumentsSchema(documents=[Document(caption="public", image=visible, original=private)])
+    history.add_message("user", content)
+
+    parts = history.get_history()[0]["content"]
+    assert json.loads(parts[0]) == {"documents": [{"caption": "public"}]}
+    assert parts[1:] == [visible]
+
+
+@pytest.mark.parametrize("container", [list, tuple, lambda values: {"media": values[0]}], ids=["list", "tuple", "dict"])
+def test_get_history_skips_excluded_containers(history, container):
+    class PrivateContainerSchema(BaseIOSchema):
+        """Message with an excluded collection of source media."""
+
+        image: instructor.Image
+        originals: object = Field(exclude=True)
+
+    visible = instructor.Image(source="visible.jpg", media_type="image/jpeg")
+    private = instructor.Image(source="private.jpg", media_type="image/jpeg")
+    history.add_message("user", PrivateContainerSchema(image=visible, originals=container([private])))
+
+    assert history.get_history() == [{"role": "user", "content": [visible]}]
 
 
 def test_copy(history):
@@ -340,8 +403,10 @@ def test_load_invalid_json_preserves_existing_history(saved_history) -> None:
         pytest.param(("max_messages",), MISSING, ValueError, "'max_messages'", id="missing_max_messages"),
         pytest.param(("current_turn_id",), MISSING, ValueError, "'current_turn_id'", id="missing_current_turn_id"),
         pytest.param(("history",), MISSING, ValueError, "'history'", id="missing_history"),
-        pytest.param(("max_messages",), -1, ValueError, "max_messages", id="negative_capacity"),
-        pytest.param(("max_messages",), 1, ValueError, "exceeds max_messages", id="over_capacity"),
+        pytest.param(("max_messages",), -1, ValueError, "^Invalid serialized data: max_messages", id="negative_capacity"),
+        pytest.param(("max_messages",), True, ValueError, "^Invalid serialized data: max_messages", id="boolean_capacity"),
+        pytest.param(("max_messages",), "4", ValueError, "^Invalid serialized data: max_messages", id="string_capacity"),
+        pytest.param(("max_messages",), 2.5, ValueError, "^Invalid serialized data: max_messages", id="fractional_capacity"),
         pytest.param(("current_turn_id",), {}, ValueError, "current_turn_id", id="invalid_current_turn"),
         pytest.param(("history",), {}, ValueError, "history must be a list", id="empty_mapping"),
         pytest.param(("history", 0, "content", "class_name"), "builtins.str", ValueError, "BaseIOSchema", id="non_schema"),
@@ -475,6 +540,37 @@ def test_history_with_no_max_messages():
 def test_history_rejects_invalid_capacity(capacity):
     with pytest.raises(ValueError, match="max_messages"):
         ChatHistory(max_messages=capacity)
+
+
+def test_history_accepts_int_subclass_capacity():
+    class Capacity(IntEnum):
+        ONE = 1
+
+    history = ChatHistory(max_messages=Capacity.ONE)
+    history.add_message("user", InputSchema(test_field="old"))
+    history.add_message("user", InputSchema(test_field="new"))
+    assert [message.content.test_field for message in history.history] == ["new"]
+
+    restored = ChatHistory()
+    restored.load(history.dump())
+    assert restored.max_messages == Capacity.ONE
+    assert [message.content.test_field for message in restored.history] == ["new"]
+
+
+@pytest.mark.parametrize(
+    "capacity, expected", [(None, ["first", "second", "third"]), (0, []), (1, ["third"]), (2, ["second", "third"])]
+)
+def test_load_trims_history_after_capacity_is_lowered(capacity, expected):
+    original = ChatHistory()
+    for text in ["first", "second", "third"]:
+        original.add_message("user", InputSchema(test_field=text))
+    original.max_messages = capacity
+
+    restored = ChatHistory()
+    restored.load(original.dump())
+
+    assert restored.max_messages == capacity
+    assert [message.content.test_field for message in restored.history] == expected
 
 
 def test_history_with_zero_max_messages():

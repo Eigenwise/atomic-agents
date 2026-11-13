@@ -78,6 +78,29 @@ def test_extract_id_strips_version_and_url(tool):
     assert tool._extract_id("http://arxiv.org/abs/2401.12345") == "2401.12345"
 
 
+@pytest.mark.parametrize(
+    "entry_id, expected",
+    [
+        ("http://arxiv.org/abs/solv-int/9912010", "solv-int/9912010"),
+        ("https://arxiv.org/abs/solv-int/9912010v2", "solv-int/9912010"),
+        ("http://arxiv.org/abs/solv-int/9702004v12", "solv-int/9702004"),
+        ("http://arxiv.org/abs/hep-th/9901001v2", "hep-th/9901001"),
+        ("http://arxiv.org/abs/2401.12345v12", "2401.12345"),
+        ("http://arxiv.org/abs/2401.12345", "2401.12345"),
+    ],
+)
+def test_extract_id_removes_only_terminal_version(entry_id, expected):
+    assert ArxivSearchTool._extract_id(entry_id) == expected
+
+
+def test_parse_feed_preserves_distinct_legacy_identifiers():
+    feed = SAMPLE_FEED.replace("2401.12345v2", "solv-int/9912010v2").replace("2402.99999v1", "solv-int/9702004v1")
+    papers = ArxivSearchTool.parse_feed(feed, "integrable systems")
+    assert [paper.arxiv_id for paper in papers] == ["solv-int/9912010", "solv-int/9702004"]
+    assert papers[0].abs_url == "http://arxiv.org/abs/solv-int/9912010v2"
+    assert papers[0].pdf_url == "http://arxiv.org/pdf/solv-int/9912010v2.pdf"
+
+
 def test_parse_feed_returns_papers(tool):
     papers = ArxivSearchTool.parse_feed(SAMPLE_FEED, "RAG")
     assert len(papers) == 2

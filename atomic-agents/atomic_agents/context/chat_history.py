@@ -55,7 +55,7 @@ class ChatHistory(BaseChatHistory):
 
     @staticmethod
     def _validate_max_messages(value: Optional[int]) -> Optional[int]:
-        if value is not None and (type(value) is not int or value < 0):
+        if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0):
             raise ValueError("max_messages must be a non-negative integer or None")
         return value
 
@@ -159,7 +159,9 @@ class ChatHistory(BaseChatHistory):
         if hasattr(obj, "__class__") and hasattr(obj.__class__, "model_fields"):
             all_objects = []
             exclude = {}
-            for field_name in obj.__class__.model_fields:
+            for field_name, field_info in obj.__class__.model_fields.items():
+                if field_info.exclude:
+                    continue
                 if hasattr(obj, field_name):
                     field_value = getattr(obj, field_name)
                     objects, sub_exclude = ChatHistory._extract_multimodal_info(field_value)
@@ -297,7 +299,10 @@ class ChatHistory(BaseChatHistory):
         try:
             history_data = json.loads(serialized_data)
             loaded_history: List[Message] = []
-            max_messages = self._validate_max_messages(history_data["max_messages"])
+            try:
+                max_messages = self._validate_max_messages(history_data["max_messages"])
+            except ValueError as error:
+                raise ValueError(f"Invalid serialized data: {error}") from error
             current_turn_id = history_data["current_turn_id"]
 
             if current_turn_id is not None and not isinstance(current_turn_id, str):
@@ -305,8 +310,6 @@ class ChatHistory(BaseChatHistory):
             messages = history_data["history"]
             if not isinstance(messages, list):
                 raise ValueError("Invalid serialized data: history must be a list")
-            if max_messages is not None and len(messages) > max_messages:
-                raise ValueError("Invalid serialized data: history exceeds max_messages")
 
             for message_data in messages:
                 content_info = message_data["content"]
@@ -323,6 +326,7 @@ class ChatHistory(BaseChatHistory):
             self.history = loaded_history
             self.max_messages = max_messages
             self.current_turn_id = current_turn_id
+            self._manage_overflow()
         except (json.JSONDecodeError, KeyError, AttributeError, TypeError) as e:
             raise ValueError(f"Invalid serialized data: {e}")
 
