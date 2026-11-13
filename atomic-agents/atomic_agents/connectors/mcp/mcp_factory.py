@@ -284,7 +284,9 @@ class MCPFactory:
         if self.client_session is not None:
             # Use existing session
             async def _gather_defs():
-                return await MCPDefinitionService.fetch_tool_definitions_from_session(self.client_session)  # pragma: no cover
+                return await MCPDefinitionService.fetch_tool_definitions_from_session(
+                    self.client_session, initialize=False
+                )  # pragma: no cover
 
             return cast(asyncio.AbstractEventLoop, self.event_loop).run_until_complete(_gather_defs())  # pragma: no cover
         else:
@@ -573,7 +575,7 @@ class MCPFactory:
             # Use existing session
             async def _gather_defs():
                 return await MCPDefinitionService.fetch_resource_definitions_from_session(
-                    self.client_session
+                    self.client_session, initialize=False
                 )  # pragma: no cover
 
             return cast(asyncio.AbstractEventLoop, self.event_loop).run_until_complete(_gather_defs())  # pragma: no cover
@@ -797,7 +799,7 @@ class MCPFactory:
             # Use existing session
             async def _gather_defs():
                 return await MCPDefinitionService.fetch_prompt_definitions_from_session(
-                    self.client_session
+                    self.client_session, initialize=False
                 )  # pragma: no cover
 
             return cast(asyncio.AbstractEventLoop, self.event_loop).run_until_complete(_gather_defs())  # pragma: no cover
@@ -1034,7 +1036,7 @@ async def fetch_mcp_tools_async(
         working_directory: Optional working directory for STDIO transport.
     """
     if client_session is not None:
-        tool_defs = await MCPDefinitionService.fetch_tool_definitions_from_session(client_session)
+        tool_defs = await MCPDefinitionService.fetch_tool_definitions_from_session(client_session, initialize=False)
         factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
     else:
         service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
@@ -1126,7 +1128,7 @@ async def fetch_mcp_resources_async(
     Async version of fetch_mcp_resources. Call from within an event loop.
     """
     if client_session is not None:
-        resource_defs = await MCPDefinitionService.fetch_resource_definitions_from_session(client_session)
+        resource_defs = await MCPDefinitionService.fetch_resource_definitions_from_session(client_session, initialize=False)
         factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
     else:
         service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
@@ -1162,7 +1164,7 @@ async def fetch_mcp_prompts_async(
     Async version of fetch_mcp_prompts. Call from within an event loop.
     """
     if client_session is not None:
-        prompt_defs = await MCPDefinitionService.fetch_prompt_definitions_from_session(client_session)
+        prompt_defs = await MCPDefinitionService.fetch_prompt_definitions_from_session(client_session, initialize=False)
         factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
     else:
         service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)

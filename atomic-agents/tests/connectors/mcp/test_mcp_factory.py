@@ -1066,7 +1066,8 @@ def test_run_tool_with_persistent_session(monkeypatch):
         MCPToolDefinition(name="ToolB", description=None, input_schema={"type": "object", "properties": {}, "required": []})
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -1101,7 +1102,8 @@ def test_read_resource_with_persistent_session(monkeypatch):
         )
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_resource_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -1136,7 +1138,8 @@ def test_generate_prompt_with_persistent_session(monkeypatch):
         )
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_prompt_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -1671,6 +1674,7 @@ async def test_generated_tool_uses_sdk_typed_output_on_persistent_session(
         "required": ["count"],
     }
     session.call_tool.return_value = tool_result
+    await session.initialize()
     tool_class = (await fetch_mcp_tools_async(client_session=session))[0]
     result = await tool_class().arun(tool_class.input_schema(tool_name="EchoTool", query="hello"))
 
@@ -1818,7 +1822,8 @@ def test_run_tool_with_persistent_session_no_event_loop(monkeypatch):
         MCPToolDefinition(name="ToolCOV", description=None, input_schema={"type": "object", "properties": {}, "required": []})
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -1857,7 +1862,8 @@ def test_run_resource_with_persistent_session_no_event_loop(monkeypatch):
         )
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_resource_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -1893,7 +1899,8 @@ def test_run_prompt_with_persistent_session_no_event_loop(monkeypatch):
         )
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_prompt_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -1983,7 +1990,8 @@ async def test_fetch_mcp_tools_async_with_client_session(monkeypatch):
         )
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -2017,7 +2025,8 @@ async def test_fetch_mcp_resources_async_with_client_session(monkeypatch):
         )
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_resource_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -2050,7 +2059,8 @@ async def test_fetch_mcp_prompts_async_with_client_session(monkeypatch):
         )
     ]
 
-    async def fake_fetch_defs(session):
+    async def fake_fetch_defs(session, *, initialize):
+        assert initialize is False
         return definitions
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_prompt_definitions_from_session", staticmethod(fake_fetch_defs))
@@ -2437,7 +2447,8 @@ async def test_fetch_mcp_tools_async_session_error_propagation(monkeypatch):
 
     client = DummySessionPersistent()
 
-    async def fake_fetch_defs_error(session):
+    async def fake_fetch_defs_error(session, *, initialize):
+        assert initialize is False
         raise ValueError("Session fetch error")
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_tool_definitions_from_session", staticmethod(fake_fetch_defs_error))
@@ -2458,7 +2469,8 @@ async def test_fetch_mcp_resources_async_session_error_propagation(monkeypatch):
 
     client = DummySessionPersistent()
 
-    async def fake_fetch_defs_error(session):
+    async def fake_fetch_defs_error(session, *, initialize):
+        assert initialize is False
         raise ValueError("Session fetch error")
 
     monkeypatch.setattr(
@@ -2481,7 +2493,8 @@ async def test_fetch_mcp_prompts_async_session_error_propagation(monkeypatch):
 
     client = DummySessionPersistent()
 
-    async def fake_fetch_defs_error(session):
+    async def fake_fetch_defs_error(session, *, initialize):
+        assert initialize is False
         raise ValueError("Session fetch error")
 
     monkeypatch.setattr(mtf.MCPDefinitionService, "fetch_prompt_definitions_from_session", staticmethod(fake_fetch_defs_error))
