@@ -1,5 +1,4 @@
 import os
-import shutil
 import uuid
 from typing import Dict, List, Optional
 from qdrant_client import QdrantClient
@@ -34,10 +33,6 @@ class QdrantDBService(BaseVectorDBService):
         """
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.embedding_model = "text-embedding-3-small"
-
-        if recreate_collection and os.path.exists(persist_directory):
-            shutil.rmtree(persist_directory)
-            os.makedirs(persist_directory)
 
         self.client = QdrantClient(path=persist_directory)
         self.collection_name = collection_name
