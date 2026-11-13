@@ -266,7 +266,7 @@ class ChatHistory(BaseChatHistory):
                 "role": message.role,
                 "content": {
                     "class_name": f"{content_class.__module__}.{content_class.__name__}",
-                    "data": message.content.model_dump_json(),
+                    "data": message.content.model_dump_json(round_trip=True),
                 },
                 "turn_id": message.turn_id,
             }
@@ -299,7 +299,8 @@ class ChatHistory(BaseChatHistory):
             for message_data in history_data["history"]:
                 content_info = message_data["content"]
                 content_class = self._get_class_from_string(content_info["class_name"])
-                content_instance = content_class.model_validate_json(content_info["data"])
+                # dump() serializes field names, which can differ from validation aliases.
+                content_instance = content_class.model_validate_json(content_info["data"], by_name=True)
 
                 # Process any Image objects to convert string paths back to Path objects
                 self._process_multimodal_paths(content_instance)
