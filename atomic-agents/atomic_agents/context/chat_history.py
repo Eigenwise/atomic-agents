@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 from instructor.processing.multimodal import PDF, Image, Audio
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
 from atomic_agents.base.multimodal import VideoURL
@@ -111,9 +111,8 @@ class ChatHistory(BaseChatHistory):
 
             if multimodal_objects:
                 processed_content = []
-                # Message.content is a BaseIOSchema, so extraction never excludes the whole object.
-                assert not isinstance(exclude_spec, bool)
-                content_json = input_content.model_dump_json(exclude=exclude_spec)
+                # A root-model message can consist entirely of extracted media.
+                content_json = "" if isinstance(exclude_spec, bool) else input_content.model_dump_json(exclude=exclude_spec)
                 if content_json and content_json != "{}":
                     processed_content.append(content_json)
                 # Instructor forwards dict content parts to the provider unchanged but
@@ -149,6 +148,10 @@ class ChatHistory(BaseChatHistory):
         """
         if isinstance(obj, MULTIMODAL_TYPES):
             return [obj], True
+
+        if isinstance(obj, RootModel):
+            # RootModel serializes its value directly, without a "root" field.
+            return ChatHistory._extract_multimodal_info(obj.root)
 
         if hasattr(obj, "__class__") and hasattr(obj.__class__, "model_fields"):
             all_objects = []
