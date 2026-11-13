@@ -3,6 +3,8 @@ from typing import Dict, List, Optional, TypedDict
 
 
 class QueryResult(TypedDict):
+    """Nearest-first results with cosine distances (smaller means more similar)."""
+
     documents: List[str]
     metadatas: List[Dict[str, str]]
     distances: List[float]
