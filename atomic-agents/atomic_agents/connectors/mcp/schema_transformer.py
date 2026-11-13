@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annot
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
 from pydantic import BeforeValidator, Field, WithJsonSchema, create_model
+from pydantic.fields import FieldInfo
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
@@ -117,15 +118,29 @@ class SchemaTransformer:
         schema: Dict[str, Any], model_name: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]
     ) -> Type:
         """Create a nested Pydantic model from a schema."""
+        fields = SchemaTransformer._model_fields(schema, root_schema, model_cache)
+        return create_model(model_name, __config__={"serialize_by_alias": True}, **fields)
+
+    @staticmethod
+    def _model_fields(schema: Dict[str, Any], root_schema: Dict[str, Any], model_cache: Dict[str, Type]) -> Dict[str, Any]:
+        """Keep JSON property names as aliases when Pydantic reserves their spelling."""
         fields = {}
         required_fields = set(schema.get("required", []))
-        properties = schema.get("properties", {})
+        properties = schema.get("properties") or {}
 
         for prop_name, prop_schema in properties.items():
             is_required = prop_name in required_fields
-            fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, root_schema, model_cache)
-
-        return create_model(model_name, **fields)
+            value_type, field = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, root_schema, model_cache)
+            field_name = prop_name
+            if prop_name.startswith("_") or hasattr(BaseIOSchema, prop_name):
+                index = len(fields)
+                field_name = f"mcp_field_{index}"
+                while field_name in properties or field_name in fields:
+                    index += 1
+                    field_name = f"mcp_field_{index}"
+                field = FieldInfo.merge_field_infos(field, Field(alias=prop_name))
+            fields[field_name] = (value_type, field)
+        return fields
 
     @staticmethod
     def json_to_pydantic_field(
@@ -245,18 +260,11 @@ class SchemaTransformer:
         Returns:
             Pydantic model class
         """
-        fields = {}
-        required_fields = set(schema.get("required", []))
         properties = schema.get("properties")
         model_cache: Dict[str, Type] = {}
+        fields = SchemaTransformer._model_fields(schema, schema, model_cache)
 
-        if properties:
-            for prop_name, prop_schema in properties.items():
-                is_required = prop_name in required_fields
-                fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, schema, model_cache)
-        elif schema.get("type") == "object" and not properties:
-            pass
-        elif schema:
+        if not properties and schema.get("type") != "object" and schema:
             logger.warning(
                 f"Schema for {model_name} is not a typical object with properties. Fields might be empty beyond tool_name."
             )
@@ -274,7 +282,7 @@ class SchemaTransformer:
             model_name,
             __base__=BaseIOSchema,
             __doc__=docstring or f"Dynamically generated Pydantic model for {model_name}",
-            __config__={"title": tool_name_literal},
+            __config__={"title": tool_name_literal, "serialize_by_alias": True},
             **fields,
         )
 
