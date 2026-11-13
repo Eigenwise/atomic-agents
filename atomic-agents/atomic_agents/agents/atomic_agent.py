@@ -749,9 +749,14 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         )
 
         last_response = None
-        for partial_response in response_stream:
-            last_response = partial_response
-            yield partial_response
+        try:
+            for partial_response in response_stream:
+                last_response = partial_response
+                yield partial_response
+        finally:
+            close = getattr(response_stream, "close", None)
+            if callable(close):
+                close()
 
         if last_response:
             # model_dump() keys the data by field name, so accept field names
@@ -821,9 +826,14 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         )
 
         last_response = None
-        async for partial_response in response_stream:
-            last_response = partial_response
-            yield partial_response
+        try:
+            async for partial_response in response_stream:
+                last_response = partial_response
+                yield partial_response
+        finally:
+            aclose = getattr(response_stream, "aclose", None)
+            if callable(aclose):
+                await aclose()
 
         if last_response:
             # See run_stream(): accept field names for aliased output schemas.
