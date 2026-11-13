@@ -1,7 +1,9 @@
 import gzip
+import importlib.util
 import io
 import os
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -37,16 +39,28 @@ class ObservedResponse(requests.Response):
         super().close()
 
 
-def fetch(response, limit):
-    tool = WebpageScraperTool(WebpageScraperToolConfig(max_content_length=limit))
-    with patch("tool.webpage_scraper.requests.get", return_value=response) as get:
-        result = tool._fetch_webpage("https://example.com/article")
-    assert get.call_args.kwargs["stream"] is True
-    return result
+@pytest.fixture(params=["forge", "deep-research"])
+def fetch(request):
+    tool_type, config_type = WebpageScraperTool, WebpageScraperToolConfig
+    if request.param == "deep-research":
+        path = Path(__file__).resolve().parents[4] / "atomic-examples/deep-research/deep_research/tools/webpage_scraper.py"
+        specification = importlib.util.spec_from_file_location("deep_research_scraper", path)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        tool_type, config_type = module.WebpageScraperTool, module.WebpageScraperToolConfig
+
+    def fetch_response(response, limit):
+        tool = tool_type(config_type(max_content_length=limit))
+        with patch("requests.get", return_value=response) as get:
+            result = tool._fetch_webpage("https://example.com/article")
+        assert get.call_args.kwargs["stream"] is True
+        return result
+
+    return fetch_response
 
 
 @pytest.mark.parametrize("declared_length", [None, "1", "999999999"])
-def test_oversize_response_stops_reading_and_closes(declared_length):
+def test_oversize_response_stops_reading_and_closes(fetch, declared_length):
     body = ObservedBody(b"x" * (1024 * 1024))
     response = ObservedResponse(body)
     if declared_length is not None:
@@ -71,7 +85,7 @@ def test_oversize_response_stops_reading_and_closes(declared_length):
     ],
     ids=["utf8-split-chunk", "declared-cp1252", "detected-cp1252", "invalid-charset", "empty"],
 )
-def test_exact_byte_limit_preserves_requests_decoding(content, encoding):
+def test_exact_byte_limit_preserves_requests_decoding(fetch, content, encoding):
     expected = ObservedResponse(io.BytesIO(content), encoding).text
     response = ObservedResponse(ObservedBody(content), encoding)
 
@@ -79,7 +93,7 @@ def test_exact_byte_limit_preserves_requests_decoding(content, encoding):
     assert response.closed_by_caller
 
 
-def test_limit_counts_bytes_not_unicode_characters():
+def test_limit_counts_bytes_not_unicode_characters(fetch):
     response = ObservedResponse(ObservedBody(("é" * 4096).encode("utf-8")))
 
     with pytest.raises(ValueError, match="Content length exceeds maximum"):
@@ -88,7 +102,7 @@ def test_limit_counts_bytes_not_unicode_characters():
     assert response.closed_by_caller
 
 
-def test_limit_counts_decompressed_response_bytes():
+def test_limit_counts_decompressed_response_bytes(fetch):
     compressed = gzip.compress(b"x" * 100000)
     assert len(compressed) < 1024
     raw = HTTPResponse(body=ObservedBody(compressed), headers={"Content-Encoding": "gzip"}, preload_content=False)
@@ -102,7 +116,7 @@ def test_limit_counts_decompressed_response_bytes():
     assert raw.closed
 
 
-def test_http_error_closes_response_without_reading_body():
+def test_http_error_closes_response_without_reading_body(fetch):
     body = ObservedBody(b"error page")
     response = ObservedResponse(body, status=503)
 
@@ -114,7 +128,7 @@ def test_http_error_closes_response_without_reading_body():
     assert body.closed
 
 
-def test_stream_error_closes_response():
+def test_stream_error_closes_response(fetch):
     body = ObservedBody(b"incomplete page")
     response = ObservedResponse(body)
 
