@@ -48,7 +48,7 @@ def test_youtube_transcript_tool():
     ):
         mock_youtube = MagicMock()
         mock_build.return_value = mock_youtube
-        mock_youtube.videos.return_value.list.return_value.execute.return_value = {
+        mock_youtube.videos().list().execute.return_value = {
             "items": [{"snippet": mock_metadata, "contentDetails": {"duration": "PT10S"}}]
         }
 
@@ -84,7 +84,7 @@ def test_youtube_transcript_tool_with_language():
     ):
         mock_youtube = MagicMock()
         mock_build.return_value = mock_youtube
-        mock_youtube.videos.return_value.list.return_value.execute.return_value = {
+        mock_youtube.videos().list().execute.return_value = {
             "items": [{"snippet": mock_metadata, "contentDetails": {"duration": "PT10S"}}]
         }
 
@@ -143,7 +143,7 @@ def test_fetch_video_metadata_no_items():
     with patch("tool.youtube_transcript_scraper.build") as mock_build:
         mock_youtube = MagicMock()
         mock_build.return_value = mock_youtube
-        mock_youtube.videos.return_value.list.return_value.execute.return_value = {"items": []}
+        mock_youtube.videos().list().execute.return_value = {"items": []}
 
         youtube_transcript_tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key=mock_api_key))
 
@@ -169,6 +169,7 @@ def test_extract_video_id():
         ([], "PT2M", 120.0),
         ([(0, 2)], "P1DT2H3M4.5S", 93784.5),
         ([], "PT0S", 0.0),
+        ([], "P0D", 0.0),
     ],
 )
 def test_duration_comes_from_video_details(snippets, api_duration, expected):
@@ -212,6 +213,20 @@ def test_missing_video_duration_is_not_replaced_with_caption_lengths(content_det
         tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key="test-key"))
         with pytest.raises(ValueError):
             tool.run(YouTubeTranscriptToolInputSchema(video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+
+
+@pytest.mark.parametrize("content_details", [None, {}, {"duration": None}, {"duration": "not-a-duration"}])
+def test_fetch_video_metadata_does_not_require_valid_duration(content_details):
+    item = {"snippet": {"title": "Example", "channelTitle": "Channel", "publishedAt": "2026-01-01T00:00:00Z"}}
+    if content_details is not None:
+        item["contentDetails"] = content_details
+    with patch("tool.youtube_transcript_scraper.build") as mock_build:
+        mock_build.return_value.videos().list().execute.return_value = {"items": [item]}
+        tool = YouTubeTranscriptTool(YouTubeTranscriptToolConfig(api_key="test-key"))
+        metadata = tool.fetch_video_metadata("dQw4w9WgXcQ")
+    assert metadata.id == "dQw4w9WgXcQ"
+    assert metadata.title == "Example"
+    assert metadata.channel == "Channel"
 
 
 if __name__ == "__main__":

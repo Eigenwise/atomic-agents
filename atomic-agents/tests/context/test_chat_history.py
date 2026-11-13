@@ -132,6 +132,69 @@ def test_get_history_allow_unicode(history):
     assert json.loads(history[1]["content"]) == {"test_field": "â"}
 
 
+@pytest.mark.parametrize(
+    "media",
+    [
+        instructor.Image(source="private.jpg", media_type="image/jpeg"),
+        instructor.processing.multimodal.Audio(source="private.mp3", media_type="audio/mp3"),
+        instructor.processing.multimodal.PDF(source="private.pdf", media_type="application/pdf"),
+        VideoURL(url="https://example.com/private.mp4"),
+    ],
+    ids=["image", "audio", "pdf", "video"],
+)
+def test_get_history_omits_excluded_multimodal_fields(history, media):
+    class PrivateMediaSchema(BaseIOSchema):
+        """Message carrying media that must stay local."""
+
+        instruction: str
+        private_media: Union[
+            instructor.Image, instructor.processing.multimodal.Audio, instructor.processing.multimodal.PDF, VideoURL
+        ] = Field(exclude=True)
+
+    content = PrivateMediaSchema(instruction="public", private_media=media)
+    history.add_message("user", content)
+
+    assert history.get_history() == [{"role": "user", "content": content.model_dump_json()}]
+
+
+def test_get_history_preserves_visible_media_beside_nested_excluded_media(history):
+    class Document(BaseIOSchema):
+        """Document with a public image and a local source."""
+
+        caption: str
+        image: instructor.Image
+        original: instructor.Image = Field(exclude=True)
+
+    class DocumentsSchema(BaseIOSchema):
+        """Documents provided to the model."""
+
+        documents: List[Document]
+
+    visible = instructor.Image(source="visible.jpg", media_type="image/jpeg")
+    private = instructor.Image(source="private.jpg", media_type="image/jpeg")
+    content = DocumentsSchema(documents=[Document(caption="public", image=visible, original=private)])
+    history.add_message("user", content)
+
+    parts = history.get_history()[0]["content"]
+    assert json.loads(parts[0]) == {"documents": [{"caption": "public"}]}
+    assert parts[1:] == [visible]
+
+
+@pytest.mark.parametrize("container", [list, tuple, lambda values: {"media": values[0]}], ids=["list", "tuple", "dict"])
+def test_get_history_skips_excluded_containers(history, container):
+    class PrivateContainerSchema(BaseIOSchema):
+        """Message with an excluded collection of source media."""
+
+        image: instructor.Image
+        originals: object = Field(exclude=True)
+
+    visible = instructor.Image(source="visible.jpg", media_type="image/jpeg")
+    private = instructor.Image(source="private.jpg", media_type="image/jpeg")
+    history.add_message("user", PrivateContainerSchema(image=visible, originals=container([private])))
+
+    assert history.get_history() == [{"role": "user", "content": [visible]}]
+
+
 def test_copy(history):
     history.add_message("user", InputSchema(test_field="Hello"))
     copied_history = history.copy()

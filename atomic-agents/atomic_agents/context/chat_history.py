@@ -153,7 +153,9 @@ class ChatHistory(BaseChatHistory):
         if hasattr(obj, "__class__") and hasattr(obj.__class__, "model_fields"):
             all_objects = []
             exclude = {}
-            for field_name in obj.__class__.model_fields:
+            for field_name, field_info in obj.__class__.model_fields.items():
+                if field_info.exclude:
+                    continue
                 if hasattr(obj, field_name):
                     field_value = getattr(obj, field_name)
                     objects, sub_exclude = ChatHistory._extract_multimodal_info(field_value)
