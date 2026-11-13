@@ -17,6 +17,7 @@ import mcp.types
 from atomic_agents.base.base_io_schema import BaseIOSchema
 from atomic_agents.base import BaseTool, BaseResource, BasePrompt
 from atomic_agents.connectors.mcp.schema_transformer import SchemaTransformer
+from atomic_agents.connectors.mcp.argument_serializer import ArgumentSerializer
 from atomic_agents.connectors.mcp.mcp_definition_service import (
     MCPAttributeType,
     MCPDefinitionService,
@@ -74,6 +75,7 @@ class _GeneratedMCPTool(Protocol):
     mcp_endpoint: str | None
     transport_type: MCPTransportType
     output_schema: type[BaseIOSchema]
+    _argument_serializer: ArgumentSerializer
 
 
 def _validated_tool_envelope(tool_result: _ToolResult) -> mcp.types.CallToolResult | None:
@@ -347,7 +349,9 @@ class MCPFactory:
                     bound_working_directory = getattr(self, "working_directory", None)
 
                     # Get arguments, excluding tool_name
-                    arguments = params.model_dump(exclude={"tool_name"}, exclude_none=True)
+                    arguments = self._argument_serializer.serialize(
+                        params.model_dump(exclude={"tool_name"}, exclude_unset=True)
+                    )
 
                     async def _connect_and_call():
                         stack = AsyncExitStack()
@@ -444,6 +448,7 @@ class MCPFactory:
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
                     "_has_typed_output_schema": has_typed_output_schema,
+                    "_argument_serializer": ArgumentSerializer(input_schema_dict),
                 }
 
                 # Create the class using new_class() for proper generic type support
