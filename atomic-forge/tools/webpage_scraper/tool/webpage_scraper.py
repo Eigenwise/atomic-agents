@@ -109,13 +109,21 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
             "Connection": "keep-alive",
         }
 
-        response = requests.get(url, headers=headers, timeout=self.config.timeout)
-        response.raise_for_status()
+        response = requests.get(url, headers=headers, timeout=self.config.timeout, stream=True)
+        try:
+            response.raise_for_status()
+            content = bytearray()
+            for chunk in response.iter_content(chunk_size=8192):
+                if len(content) + len(chunk) > self.config.max_content_length:
+                    raise ValueError(f"Content length exceeds maximum of {self.config.max_content_length} bytes")
+                content.extend(chunk)
 
-        if len(response.content) > self.config.max_content_length:
-            raise ValueError(f"Content length exceeds maximum of {self.config.max_content_length} bytes")
-
-        return response.text
+            # Populate the bounded body cache so Requests keeps its existing charset
+            # detection and invalid-charset fallback when decoding response.text.
+            response._content = bytes(content)
+            return response.text
+        finally:
+            response.close()
 
     def _extract_metadata(self, soup: BeautifulSoup, doc: Document, url: str) -> WebpageMetadata:
         """

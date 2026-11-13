@@ -24,7 +24,7 @@ You can install the tool using any of the following options:
 
 - `user_agent` (str): User agent string to use for requests. Defaults to Chrome/Windows user agent.
 - `timeout` (int): Timeout in seconds for HTTP requests. Defaults to 30.
-- `max_content_length` (int): Maximum content length in bytes to process. Defaults to 1,000,000.
+- `max_content_length` (int): Maximum response body length in bytes after HTTP decompression. Defaults to 1,000,000. The body is read incrementally and the response is closed as soon as this limit is exceeded, even when `Content-Length` is absent or inaccurate. Character decoding happens after the size check.
 
 ### Example
 
