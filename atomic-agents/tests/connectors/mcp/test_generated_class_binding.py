@@ -7,7 +7,7 @@ import pytest
 from mcp import ClientSession
 from mcp.types import GetPromptResult, PromptMessage, ReadResourceResult, TextContent, TextResourceContents
 
-from atomic_agents.connectors.mcp import MCPFactory, MCPPromptDefinition, MCPResourceDefinition
+from atomic_agents.connectors.mcp import MCPFactory, MCPPromptDefinition, MCPResourceDefinition, MCPToolDefinition
 
 
 @pytest.fixture(params=[False, True], ids=["owned", "borrowed"])
@@ -19,9 +19,9 @@ def connection(request, monkeypatch):
     monkeypatch.setattr("atomic_agents.connectors.mcp.mcp_factory.ClientSession", MagicMock(return_value=session))
     monkeypatch.setattr("atomic_agents.connectors.mcp.mcp_factory.streamablehttp_client", MagicMock(return_value=transport))
     with asyncio.Runner() as runner:
-        factory = MCPFactory("http://localhost", client_session=session, event_loop=runner.get_loop())
-        if not request.param:
-            factory.client_session = None
+        factory = MCPFactory(
+            "http://localhost", client_session=session if request.param else None, event_loop=runner.get_loop()
+        )
         yield factory, session, runner
 
 
@@ -83,3 +83,37 @@ def test_prompt_output_class_matches_each_prompt(connection, synchronous):
         assert type(result) is prompt.output_schema
         assert result.content == prompt.mcp_prompt_name
         session.get_prompt.assert_awaited_with(name=prompt.mcp_prompt_name, arguments={})
+
+
+@pytest.mark.parametrize(
+    "names,index", [(("first", "last"), 0), (("first", "last"), 1), (("only",), 0)], ids=["first", "last", "single"]
+)
+@pytest.mark.parametrize(
+    "kind,method,action", [("tool", "run", "execute"), ("resource", "read", "read"), ("prompt", "generate", "get")]
+)
+def test_sync_wrapper_error_names_each_generated_class(kind, method, action, names, index):
+    """A missing borrowed-session loop must not report the last definition's name."""
+    schema = {"type": "object", "properties": {}}
+    definitions = {
+        "tool": [MCPToolDefinition(name, None, schema) for name in names],
+        "resource": [MCPResourceDefinition(name, None, f"file:///{name}", schema) for name in names],
+        "prompt": [MCPPromptDefinition(name, None, schema) for name in names],
+    }
+    session = AsyncMock(spec=ClientSession)
+    with asyncio.Runner() as runner:
+        factory = MCPFactory(client_session=session, event_loop=runner.get_loop())
+        classes = getattr(factory, f"_create_{kind}_classes")(definitions[kind])
+        assert len(classes) == len(names)
+        component_class, name = classes[index], names[index]
+        component = component_class()
+        component._event_loop = None
+        params = component.input_schema(**{f"{kind}_name": name})
+        with pytest.raises(RuntimeError) as caught:
+            getattr(component, method)(params)
+        assert str(caught.value) == (
+            f"Failed to {action} MCP {kind} '{name}': " "'NoneType' object has no attribute 'run_until_complete'"
+        )
+        assert isinstance(caught.value.__cause__, AttributeError)
+    session.call_tool.assert_not_awaited()
+    session.read_resource.assert_not_awaited()
+    session.get_prompt.assert_not_awaited()

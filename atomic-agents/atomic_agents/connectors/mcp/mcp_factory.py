@@ -427,7 +427,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.arun(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to execute MCP tool '{tool_name}': {e}") from e
+                            raise RuntimeError(f"Failed to execute MCP tool '{self.mcp_tool_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.arun(params))
@@ -730,7 +730,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.aread(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to read MCP resource '{resource_name}': {e}") from e
+                            raise RuntimeError(f"Failed to read MCP resource '{self.mcp_resource_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.aread(params))
@@ -949,7 +949,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.agenerate(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to get MCP prompt '{prompt_name}': {e}") from e
+                            raise RuntimeError(f"Failed to get MCP prompt '{self.mcp_prompt_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.agenerate(params))
