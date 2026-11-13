@@ -131,6 +131,8 @@ class ArxivSearchTool(BaseTool[ArxivSearchToolInputSchema, ArxivSearchToolOutput
             return (el.text or "").strip() if el is not None else ""
 
         entry_id = _text("atom:id")
+        if re.match(r"^https?://arxiv\.org/api/errors(?:#|$)", entry_id):
+            raise ValueError(f"arXiv API error: {_text('atom:summary') or 'unspecified API error'}")
         arxiv_id = cls._extract_id(entry_id)
 
         title = " ".join(_text("atom:title").split())
