@@ -56,13 +56,15 @@ We follow these coding standards:
 
 When creating new tools:
 
-1. Create a Python module manually, for example `my_tool.py`. The `atomic` command
+1. Follow the [tool folder layout](https://github.com/Eigenwise/atomic-agents/blob/main/atomic-forge/guides/tool_structure.md)
+   and [Tools Guide](guides/tools.md) when adding a tool. The `atomic` command
    opens the tool browser and downloader; it does not scaffold new tools.
 
 2. Define input and output schemas with `BaseIOSchema` and pass them as type
    parameters to `BaseTool`. Give each schema a non-empty docstring and describe
-   its fields. Use `BaseToolConfig` to override the tool name or description;
-   otherwise they come from the input schema's title and docstring.
+   its fields. Use the `title` and `description` fields of `BaseToolConfig` to
+   override tool metadata; otherwise they come from the input schema's title
+   and docstring.
 
    ```python
    from pydantic import Field
@@ -70,46 +72,40 @@ When creating new tools:
    from atomic_agents import BaseIOSchema, BaseTool
 
 
-   class MyToolInput(BaseIOSchema):
+   class MyToolInputSchema(BaseIOSchema):
        """An integer to double."""
 
        value: int = Field(..., description="Integer to double.")
 
 
-   class MyToolOutput(BaseIOSchema):
+   class MyToolOutputSchema(BaseIOSchema):
        """The doubled integer."""
 
        doubled: int = Field(..., description="Twice the input value.")
 
 
-   class MyTool(BaseTool[MyToolInput, MyToolOutput]):
-       def run(self, params: MyToolInput) -> MyToolOutput:
-           return MyToolOutput(doubled=params.value * 2)
+   class MyTool(BaseTool[MyToolInputSchema, MyToolOutputSchema]):
+       def run(self, params: MyToolInputSchema) -> MyToolOutputSchema:
+           return MyToolOutputSchema(doubled=params.value * 2)
    ```
 
-3. Add tests for behavior and the public tool metadata, for example in
-   `test_my_tool.py` alongside `my_tool.py`:
+3. Add tests for your tool's behavior in its `tests/` directory, following the
+   linked folder layout. For example, in `tests/test_my_tool.py`:
 
    ```python
-   from atomic_agents import BaseToolConfig
-
-   from my_tool import MyTool, MyToolInput, MyToolOutput
+   from tool.my_tool import MyTool, MyToolInputSchema
 
 
    def test_my_tool():
-       tool = MyTool(config=BaseToolConfig(title="my_tool", description="Double an integer."))
-       result = tool.run(MyToolInput(value=3))
+       tool = MyTool()
+       result = tool.run(MyToolInputSchema(value=3))
 
-       assert isinstance(result, MyToolOutput)
        assert result.doubled == 6
-       assert tool.input_schema is MyToolInput
-       assert tool.output_schema is MyToolOutput
-       assert tool.tool_name == "my_tool"
-       assert tool.tool_description == "Double an integer."
    ```
 
-   Run the example test with `uv run pytest test_my_tool.py` and add cases for
-   your tool's edge cases and errors.
+   Run the example test from the tool's folder with
+   `uv run pytest tests/test_my_tool.py` and add cases for your tool's edge cases
+   and errors.
 
 4. Document your tool:
    - Add a README.md with usage examples
