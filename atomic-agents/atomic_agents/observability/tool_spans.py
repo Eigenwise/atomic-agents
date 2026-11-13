@@ -6,6 +6,7 @@ import functools
 import inspect
 import json
 import logging
+from collections import deque
 from contextlib import contextmanager
 from types import FunctionType
 from typing import Awaitable, Callable, Coroutine, Iterator, List, Optional, Type, TypeVar
@@ -45,10 +46,12 @@ _active_tool: contextvars.ContextVar[Optional[BaseTool]] = contextvars.ContextVa
 
 def _all_subclasses(base: Type) -> List[Type]:
     found: List[Type] = []
-    pending = list(base.__subclasses__())
+    seen: set[int] = set()
+    pending = deque(base.__subclasses__())
     while pending:
-        current = pending.pop(0)
-        if current not in found:
+        current = pending.popleft()
+        if id(current) not in seen:
+            seen.add(id(current))
             found.append(current)
             pending.extend(current.__subclasses__())
     return found
