@@ -14,7 +14,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 import mcp.types as types
 from pydantic import AnyUrl
-from urllib.parse import unquote as decode_uri
+from urllib.parse import unquote as decode_uri, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,17 @@ async def _fetch_all_pages(
         items.extend(get_items(response) or [])
         cursor = getattr(response, "nextCursor", None)
     return items
+
+
+def _transport_endpoint(endpoint: Optional[str], suffix: str) -> str:
+    """Resolve a base URL while preserving an explicit transport endpoint."""
+    if endpoint is None:
+        raise ValueError("Endpoint is required")
+    parts = urlsplit(endpoint)
+    if parts.path.rstrip("/").endswith(suffix.rstrip("/")):
+        return endpoint
+    path = parts.path.rstrip("/") + suffix
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
 
 class MCPTransportType(Enum):
@@ -106,7 +117,8 @@ class MCPDefinitionService:
         Initialize the service.
 
         Args:
-            endpoint: URL of the MCP server (for SSE/HTTP stream) or command string (for STDIO)
+            endpoint: MCP server base URL or explicit /mcp or /sse endpoint (for SSE/HTTP stream),
+                or command string (for STDIO). Query parameters are preserved.
             transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO)
             working_directory: Optional working directory to use when running STDIO commands
         """
@@ -146,13 +158,13 @@ class MCPDefinitionService:
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
                 # HTTP Stream transport - use trailing slash to avoid redirect
                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
-                transport_endpoint = f"{self.endpoint}/mcp/"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/mcp/")
                 logger.info(f"Attempting HTTP Stream connection to {transport_endpoint}")
                 transport = await stack.enter_async_context(streamablehttp_client(transport_endpoint))
                 read_stream, write_stream, _ = transport
             elif self.transport_type == MCPTransportType.SSE:
                 # SSE transport (deprecated)
-                transport_endpoint = f"{self.endpoint}/sse"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/sse")
                 logger.info(f"Attempting SSE connection to {transport_endpoint}")
                 transport = await stack.enter_async_context(sse_client(transport_endpoint))
                 read_stream, write_stream = transport
@@ -240,11 +252,11 @@ class MCPDefinitionService:
                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                 read_stream, write_stream = stdio_transport
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
-                transport_endpoint = f"{self.endpoint}/mcp/"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/mcp/")
                 transport = await stack.enter_async_context(streamablehttp_client(transport_endpoint))
                 read_stream, write_stream, _ = transport
             elif self.transport_type == MCPTransportType.SSE:
-                transport_endpoint = f"{self.endpoint}/sse"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/sse")
                 transport = await stack.enter_async_context(sse_client(transport_endpoint))
                 read_stream, write_stream = transport
             else:
@@ -370,11 +382,11 @@ class MCPDefinitionService:
                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                 read_stream, write_stream = stdio_transport
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
-                transport_endpoint = f"{self.endpoint}/mcp/"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/mcp/")
                 transport = await stack.enter_async_context(streamablehttp_client(transport_endpoint))
                 read_stream, write_stream, _ = transport
             elif self.transport_type == MCPTransportType.SSE:
-                transport_endpoint = f"{self.endpoint}/sse"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/sse")
                 transport = await stack.enter_async_context(sse_client(transport_endpoint))
                 read_stream, write_stream = transport
             else:

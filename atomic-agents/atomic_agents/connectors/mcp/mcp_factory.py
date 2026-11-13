@@ -18,6 +18,7 @@ from atomic_agents.base.base_io_schema import BaseIOSchema
 from atomic_agents.base import BaseTool, BaseResource, BasePrompt
 from atomic_agents.connectors.mcp.schema_transformer import SchemaTransformer
 from atomic_agents.connectors.mcp.mcp_definition_service import (
+    _transport_endpoint,
     MCPAttributeType,
     MCPDefinitionService,
     MCPToolDefinition,
@@ -240,7 +241,8 @@ class MCPFactory:
         Initialize the factory.
 
         Args:
-            mcp_endpoint: URL of the MCP server (for SSE/HTTP stream) or the full command to run the server (for STDIO)
+            mcp_endpoint: MCP server base URL or explicit /mcp or /sse endpoint (for SSE/HTTP stream),
+                or the full command to run the server (for STDIO). Query parameters are preserved.
             transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO)
             client_session: Optional pre-initialized ClientSession for reuse
             event_loop: Optional event loop for running asynchronous operations
@@ -373,13 +375,13 @@ class MCPFactory:
                             elif bound_transport_type == MCPTransportType.HTTP_STREAM:
                                 # HTTP Stream transport - use trailing slash to avoid redirect
                                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
-                                http_endpoint = f"{bound_mcp_endpoint}/mcp/"
+                                http_endpoint = _transport_endpoint(bound_mcp_endpoint, "/mcp/")
                                 logger.debug(f"Executing tool '{bound_tool_name}' via HTTP Stream: endpoint={http_endpoint}")
                                 http_transport = await stack.enter_async_context(streamablehttp_client(http_endpoint))
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
-                                sse_endpoint = f"{bound_mcp_endpoint}/sse"
+                                sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Executing tool '{bound_tool_name}' via SSE: endpoint={sse_endpoint}")
                                 sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
                                 read_stream, write_stream = sse_transport
@@ -651,7 +653,7 @@ class MCPFactory:
                             elif bound_transport_type == MCPTransportType.HTTP_STREAM:
                                 # HTTP Stream transport - use trailing slash to avoid redirect
                                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
-                                http_endpoint = f"{bound_mcp_endpoint}/mcp/"
+                                http_endpoint = _transport_endpoint(bound_mcp_endpoint, "/mcp/")
                                 logger.debug(
                                     f"Reading resource '{self.mcp_resource_name}' via HTTP Stream: endpoint={http_endpoint}"
                                 )
@@ -659,7 +661,7 @@ class MCPFactory:
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
-                                sse_endpoint = f"{bound_mcp_endpoint}/sse"
+                                sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Reading resource '{self.mcp_resource_name}' via SSE: endpoint={sse_endpoint}")
                                 sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
                                 read_stream, write_stream = sse_transport
@@ -870,13 +872,13 @@ class MCPFactory:
                             elif bound_transport_type == MCPTransportType.HTTP_STREAM:
                                 # HTTP Stream transport - use trailing slash to avoid redirect
                                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
-                                http_endpoint = f"{bound_mcp_endpoint}/mcp/"
+                                http_endpoint = _transport_endpoint(bound_mcp_endpoint, "/mcp/")
                                 logger.debug(f"Getting prompt '{bound_prompt_name}' via HTTP Stream: endpoint={http_endpoint}")
                                 http_transport = await stack.enter_async_context(streamablehttp_client(http_endpoint))
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
-                                sse_endpoint = f"{bound_mcp_endpoint}/sse"
+                                sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Getting prompt '{bound_prompt_name}' via SSE: endpoint={sse_endpoint}")
                                 sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
                                 read_stream, write_stream = sse_transport
