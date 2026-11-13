@@ -38,7 +38,11 @@ async def _fetch_all_pages(
     response = first_page
     items = list(get_items(response) or [])
     cursor = getattr(response, "nextCursor", None)
+    seen_cursors: set[str] = set()
     while isinstance(cursor, str):
+        if cursor in seen_cursors:
+            raise RuntimeError("MCP pagination returned a repeated cursor")
+        seen_cursors.add(cursor)
         response = await list_next(cursor)
         items.extend(get_items(response) or [])
         cursor = getattr(response, "nextCursor", None)
