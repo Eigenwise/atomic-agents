@@ -1011,8 +1011,9 @@ def test_get_context_token_count_no_system_prompt(mock_get_token_counter, mock_i
     mock_counter_instance = Mock()
     mock_get_token_counter.return_value = mock_counter_instance
     mock_counter_instance.count_context.return_value = TokenCountResult(
-        total=25, system_prompt=20, history=5, tools=0, model="gpt-5-mini"
+        total=20, system_prompt=20, history=0, tools=0, model="gpt-5-mini"
     )
+    mock_counter_instance.count_messages.return_value = 25
 
     config = AgentConfig(
         client=mock_instructor,
@@ -1023,7 +1024,9 @@ def test_get_context_token_count_no_system_prompt(mock_get_token_counter, mock_i
     )
     agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](config)
 
-    agent.get_context_token_count()
+    result = agent.get_context_token_count()
+    assert result.total == 25
+    assert result.history == 5
 
     # Even without system prompt, schema should be included (for JSON mode)
     call_args = mock_counter_instance.count_context.call_args

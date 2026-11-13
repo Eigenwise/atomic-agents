@@ -12,7 +12,7 @@ from atomic_agents.context.system_prompt_generator import (
     BaseSystemPromptGenerator,
 )
 from atomic_agents.base.base_io_schema import BaseIOSchema
-from atomic_agents.utils.token_counter import get_token_counter, TokenCountResult
+from atomic_agents.utils.token_counter import get_token_counter, TokenCounter, TokenCountResult
 import json
 
 from instructor.dsl.partial import PartialBase
@@ -598,6 +598,31 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             )
             return {"type": "text", "text": f"[{media_type.lower()} content]"}
 
+    def _count_prepared_json_context(
+        self, counter: TokenCounter, system_messages: List[Dict], history_messages: List[Dict]
+    ) -> TokenCountResult:
+        """Count Instructor's JSON instructions and message merging verbatim."""
+        from instructor.processing.response import handle_response_model
+
+        def prepare(messages: List[Dict]) -> List[Dict]:
+            _, request = handle_response_model(response_model=self.output_schema, mode=self.mode, messages=messages)
+            return request["messages"]
+
+        # Count instruction overhead without history first. MD_JSON includes a
+        # final formatting instruction, which can merge with the last user
+        # message; independently counting history would charge framing twice.
+        result = counter.count_context(
+            model=self.model, system_messages=prepare(system_messages), history_messages=[], tools=None
+        )
+        if not history_messages:
+            return result
+        total = counter.count_messages(self.model, prepare(system_messages + history_messages))
+        return result._replace(
+            total=total,
+            history=total - result.system_prompt,
+            utilization=total / result.max_tokens if result.max_tokens and result.max_tokens > 0 else None,
+        )
+
     def get_context_token_count(self) -> TokenCountResult:
         """
         Get the accurate token count for the current context.
@@ -609,7 +634,9 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         - Tools/schema overhead (using Instructor's actual schema generation)
 
         For TOOLS mode: Uses the actual tools parameter that Instructor sends.
-        For JSON modes: Appends the schema to the system message as Instructor does.
+        For OpenAI-compatible JSON and MD_JSON modes: Counts Instructor's prepared messages, including
+        formatting instructions and adjacent-message merging. Their system_prompt
+        breakdown includes all instruction overhead before history is added.
 
         Works with any model supported by LiteLLM including OpenAI, Anthropic,
         Google, and 100+ other providers.
@@ -658,8 +685,27 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         # Handle schema serialization based on mode
         tools = self._build_tools_definition()
 
+        history_messages = self._serialize_history_for_token_count()
+
+        if self.mode in (Mode.JSON, Mode.MD_JSON):
+            result = self._count_prepared_json_context(counter, system_messages, history_messages)
+        else:
+            result = self._count_context_with_schema(counter, system_messages, history_messages, tools)
+
+        # Dispatch hook for monitoring
+        self._dispatch_hook("token:counted", result)
+
+        return result
+
+    def _count_context_with_schema(
+        self,
+        counter: TokenCounter,
+        system_messages: List[Dict],
+        history_messages: List[Dict],
+        tools: Optional[List[Dict]],
+    ) -> TokenCountResult:
         if tools is None:
-            # JSON mode - append schema to system message like Instructor does
+            # Preserve schema-text estimation for the other non-tool modes.
             schema_context = self._build_schema_for_json_mode()
             if system_messages:
                 system_messages = [
@@ -671,17 +717,12 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             else:
                 system_messages = [{"role": "system", "content": schema_context}]
 
-        result = counter.count_context(
+        return counter.count_context(
             model=self.model,
             system_messages=system_messages,
-            history_messages=self._serialize_history_for_token_count(),
+            history_messages=history_messages,
             tools=tools,
         )
-
-        # Dispatch hook for monitoring
-        self._dispatch_hook("token:counted", result)
-
-        return result
 
     def run(self, user_input: Optional[InputSchema] = None) -> OutputSchema:
         """
