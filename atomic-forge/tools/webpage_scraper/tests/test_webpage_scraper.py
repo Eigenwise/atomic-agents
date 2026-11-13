@@ -113,17 +113,7 @@ class TestWebpageScraperTool(unittest.TestCase):
 
     def test_clean_markdown(self):
         """Test cleaning up markdown content."""
-        markdown = """# Title
-
-        
-
-        Some content
-          with weird spacing
-        
-        
-        
-        More content
-        """
+        markdown = "# Title\n\n  \n\nSome content\n  with weird spacing\n  \n\n\nMore content\n"
 
         expected = "# Title\n\nSome content\n  with weird spacing\n\nMore content\n"
 
@@ -133,9 +123,26 @@ class TestWebpageScraperTool(unittest.TestCase):
         # Assertions
         self.assertEqual(result, expected)
 
+    def test_clean_markdown_preserves_arbitrary_content(self):
+        markdown = "# Title of a real article\n\nArticle with weird spacing\n\nA unique conclusion."
+
+        self.assertEqual(self.tool._clean_markdown(markdown), markdown + "\n")
+
+    def test_clean_markdown_preserves_indented_code(self):
+        markdown = "Example:\n\n    if ready:\n        run()\n\n\nNext paragraph."
+
+        self.assertEqual(
+            self.tool._clean_markdown(markdown),
+            "Example:\n\n    if ready:\n        run()\n\nNext paragraph.\n",
+        )
+
+    def test_clean_markdown_normalizes_whitespace_only_blank_lines(self):
+        markdown = "First paragraph.\n \n\t\n\nSecond paragraph."
+
+        self.assertEqual(self.tool._clean_markdown(markdown), "First paragraph.\n\nSecond paragraph.\n")
+
     def test_clean_markdown_triple_newlines(self):
         """Test cleaning up markdown content with triple newlines."""
-        # Make sure we're not hitting the special case by using different content
         markdown = "Test\n\n\nMultiple\n\n\nNewlines"
 
         # Test the method

@@ -1,18 +1,25 @@
 """Module for transforming JSON schemas to Pydantic models."""
 
 import logging
-import re
 from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
-from pydantic import BeforeValidator, Field, create_model
+from pydantic import BeforeValidator, Field, TypeAdapter, WithJsonSchema, create_model
+from pydantic_core import SchemaError
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
 
 logger = logging.getLogger(__name__)
+
+
+def _reject_false_schema(value: Any) -> Any:
+    raise ValueError("Value is forbidden by a false JSON Schema")
+
+
+_FalseSchemaValue = Annotated[Any, BeforeValidator(_reject_false_schema), WithJsonSchema({"not": {}})]
 
 
 def _validate_ref(validator: Any, reference: str, value: Any, schema: Any) -> Any:
@@ -35,6 +42,43 @@ JSON_TYPE_MAP = {
     "object": dict,
     "null": type(None),
 }
+
+
+_NUMERIC_CONSTRAINTS = {
+    "minimum": "ge",
+    "maximum": "le",
+    "exclusiveMinimum": "gt",
+    "exclusiveMaximum": "lt",
+    "multipleOf": "multiple_of",
+}
+_STRING_CONSTRAINTS = {"minLength": "min_length", "maxLength": "max_length"}
+_ARRAY_CONSTRAINTS = {"minItems": "min_length", "maxItems": "max_length"}
+
+
+def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict[str, Any]) -> Type:
+    """Attach supported constraints without changing the regex engine or accepting boolean bounds."""
+    constraints = {}
+    if json_type in {"integer", "number"}:
+        for source, target in _NUMERIC_CONSTRAINTS.items():
+            value = prop_schema.get(source)
+            # Draft-04 boolean exclusive bounds are not numeric bounds.
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                constraints[target] = value
+    else:
+        keywords = _STRING_CONSTRAINTS if json_type == "string" else _ARRAY_CONSTRAINTS if json_type == "array" else {}
+        constraints.update({target: prop_schema[source] for source, target in keywords.items() if source in prop_schema})
+    if json_type == "string" and isinstance(prop_schema.get("pattern"), str):
+        pattern = prop_schema["pattern"]
+        try:
+            TypeAdapter(Annotated[str, Field(pattern=pattern)])
+        except SchemaError:
+            logger.warning("Unsupported JSON Schema pattern %r; skipping local pattern validation", pattern)
+        else:
+            constraints["pattern"] = pattern
+    if constraints:
+        # Recursive callers retain the value type but discard returned Field metadata.
+        return Annotated[python_type, Field(**constraints)]
+    return python_type
 
 
 class SchemaTransformer:
@@ -92,8 +136,9 @@ class SchemaTransformer:
             ref_schema = defs[ref_name]
             # Avoid infinite recursion by adding placeholder first
             model_cache[ref_name] = Any
-            if ref_schema.get("properties") or (
-                ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False
+            if isinstance(ref_schema, dict) and (
+                ref_schema.get("properties")
+                or (ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False)
             ):
                 model_name = ref_schema.get("title", ref_name)
                 model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
@@ -122,7 +167,7 @@ class SchemaTransformer:
 
     @staticmethod
     def json_to_pydantic_field(
-        prop_schema: Dict[str, Any],
+        prop_schema: Union[Dict[str, Any], bool],
         required: bool,
         root_schema: Optional[Dict[str, Any]] = None,
         model_cache: Optional[Dict[str, Type]] = None,
@@ -139,6 +184,10 @@ class SchemaTransformer:
         Returns:
             Tuple of (type, Field)
         """
+        if isinstance(prop_schema, bool):
+            value_type = Any if prop_schema else _FalseSchemaValue
+            return value_type, Field(default=... if required else None)
+
         if root_schema is None:
             root_schema = {}
         if model_cache is None:
@@ -164,12 +213,8 @@ class SchemaTransformer:
             if union_schemas:
                 union_types = []
                 for union_schema in union_schemas:
-                    if "$ref" in union_schema:
-                        union_types.append(SchemaTransformer._resolve_ref(union_schema["$ref"], root_schema, model_cache))
-                    else:
-                        # Recursively resolve the union member
-                        member_type, _ = SchemaTransformer.json_to_pydantic_field(union_schema, True, root_schema, model_cache)
-                        union_types.append(member_type)
+                    member_type, _ = SchemaTransformer.json_to_pydantic_field(union_schema, True, root_schema, model_cache)
+                    union_types.append(member_type)
 
                 if len(union_types) == 1:
                     python_type = union_types[0]
@@ -200,32 +245,7 @@ class SchemaTransformer:
                         value_type, _ = SchemaTransformer.json_to_pydantic_field(value_schema, True, root_schema, model_cache)
                         python_type = Dict[str, value_type]
 
-                constraints = {}
-                if json_type in {"integer", "number"}:
-                    keywords = {
-                        "minimum": "ge",
-                        "maximum": "le",
-                        "exclusiveMinimum": "gt",
-                        "exclusiveMaximum": "lt",
-                        "multipleOf": "multiple_of",
-                    }
-                elif json_type == "string":
-                    keywords = {"minLength": "min_length", "maxLength": "max_length"}
-                    if "pattern" in prop_schema:
-                        # Compiled patterns use Python's engine, including
-                        # lookarounds supported by JSON Schema patterns.
-                        constraints["pattern"] = re.compile(prop_schema["pattern"])
-                elif json_type == "array":
-                    keywords = {"minItems": "min_length", "maxItems": "max_length"}
-                else:
-                    keywords = {}
-                constraints.update(
-                    {target: prop_schema[source] for source, target in keywords.items() if source in prop_schema}
-                )
-                if constraints:
-                    # Keep validation on the value type: recursive callers
-                    # discard the returned Field when building lists/unions.
-                    python_type = Annotated[python_type, Field(**constraints)]
+                python_type = _constrained_value_type(python_type, json_type, prop_schema)
 
         field_kwargs = {"description": description}
         if required:
@@ -233,7 +253,8 @@ class SchemaTransformer:
         elif default is not None:
             field_kwargs["default"] = default
         else:
-            python_type = Optional[python_type]
+            if python_type is not _FalseSchemaValue:
+                python_type = Optional[python_type]
             field_kwargs["default"] = None
 
         return (python_type, Field(**field_kwargs))
