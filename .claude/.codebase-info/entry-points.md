@@ -1,6 +1,6 @@
 # Entry Points
 
-*Last Updated: 2026-10-21*
+*Last Updated: 2026-10-24*
 
 ## 1. Library API (the primary entry point)
 
@@ -62,8 +62,10 @@ MCP server tools/resources/prompts become agent components via `atomic_agents.co
 `opentelemetry-instrument` launcher). Both use the same installation state. The launcher needs
 its own SDK/exporter setup; only `opentelemetry-api` is required for the instrumentor, and
 `opentelemetry-bootstrap` does not install Atomic Agents. Set `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=atomic_agents`
-to disable launcher discovery; `ATOMIC_AGENTS_TRACE_*` environment variables configure hiding, size cap and
-LLM attempt spans on both automatic paths. See `docs/guides/observability.md`.
+to disable launcher discovery; `ATOMIC_AGENTS_TRACE_*` environment variables configure hiding, size cap,
+LLM attempt spans and default-off message capture on both automatic paths.
+`ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES=true` opts into supported chat text/tool message attributes; hiding still wins.
+See `docs/guides/observability.md`.
 
 ## Representative Flow
 

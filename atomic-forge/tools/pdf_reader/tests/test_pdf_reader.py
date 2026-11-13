@@ -55,6 +55,20 @@ def test_parse_page_range_clips_to_total(tool):
     assert PdfReaderTool.parse_page_range("1,3,5-7", 4) == [1, 3]
 
 
+@pytest.mark.parametrize(
+    "expression, expected",
+    [(f"1-{10**30}", [1, 2, 3]), (f"2-{10**30},1", [1, 2, 3]), (f"4-{10**30},2", [2])],
+)
+def test_parse_page_range_bounds_large_ranges(expression, expected):
+    assert PdfReaderTool.parse_page_range(expression, 3) == expected
+
+
+@pytest.mark.parametrize("expression, total_pages", [(f"4-{10**30}", 3), (f"1-{10**30}", 0)])
+def test_parse_page_range_rejects_large_ranges_without_pages(expression, total_pages):
+    with pytest.raises(ValueError, match="No pages selected"):
+        PdfReaderTool.parse_page_range(expression, total_pages)
+
+
 def test_parse_page_range_rejects_empty(tool):
     with pytest.raises(ValueError):
         PdfReaderTool.parse_page_range("", 10)
