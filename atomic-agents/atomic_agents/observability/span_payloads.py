@@ -73,8 +73,7 @@ def _set_input_safely(span: Span, value: object, primary: str = ATTR_INPUT) -> N
     _record_payload(span, _payload_keys(primary, False, config), value, config.hide_inputs, config)
 
 
-def _set_output_safely(span: Span, value: object, primary: str = ATTR_OUTPUT, *, config: TracingConfig | None = None) -> None:
-    config = config or installation._current_installation().config
+def _set_output_safely(span: Span, value: object, primary: str = ATTR_OUTPUT, *, config: TracingConfig) -> None:
     _record_payload(span, _payload_keys(primary, True, config), value, config.hide_outputs, config)
 
 
@@ -133,8 +132,7 @@ def _redacted_traceback(error: BaseException, config: TracingConfig) -> list[str
     return ["Traceback (most recent call last):\n", *traceback.format_list(frames), _failure_message(error, config) + "\n"]
 
 
-def _record_failure(span: Span, error: BaseException, config: TracingConfig | None = None) -> None:
-    config = config or installation._current_installation().config
+def _record_failure(span: Span, error: BaseException, config: TracingConfig) -> None:
     message = _bounded_text(_failure_message(error, config), config)
     span.set_attribute(ATTR_ERROR_TYPE, type(error).__qualname__)
     span.record_exception(

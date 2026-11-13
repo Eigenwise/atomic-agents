@@ -1360,12 +1360,13 @@ def test_error_status_and_recorded_message_are_bounded(configured_tracing):
 
 def test_hidden_validation_errors_do_not_export_model_output(configured_tracing):
     provider, exporter = configured_tracing
-    AtomicAgentsInstrumentor().instrument(tracer_provider=provider, config=tracing.TracingConfig(hide_outputs=True))
+    config = tracing.TracingConfig(hide_outputs=True)
+    AtomicAgentsInstrumentor().instrument(tracer_provider=provider, config=config)
     try:
         QuestionSchema.model_validate({"question": ["secret model output"]})
     except ValidationError as error:
         with provider.get_tracer("test").start_as_current_span("failure") as span:
-            span_payloads._record_failure(span, error)
+            span_payloads._record_failure(span, error, config)
     (span,) = spans_of(exporter)
     assert span.status.description == "ValidationError: 1 errors (__REDACTED__)"
     assert span.events[0].attributes["exception.message"] == span.status.description
@@ -1760,32 +1761,37 @@ async def test_deferred_stream_after_uninstrument_preserves_lifecycle(exporter, 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
 @pytest.mark.asyncio
-async def test_deferred_stream_after_uninstrument_closes_wrapped_generator(exporter, asynchronous):
-    closed = []
+async def test_deferred_public_stream_after_uninstrument_closes_agent_stream(exporter, monkeypatch, asynchronous):
+    instrumentor = AtomicAgentsInstrumentor()
+    instrumentor.uninstrument()
+    method = "run_async_stream" if asynchronous else "run_stream"
+    original = getattr(AtomicAgent, method)
+    inner_streams = []
 
-    def wrapped(agent):
-        try:
-            yield AnswerSchema(answer="4")
-            yield AnswerSchema(answer="42")
-        finally:
-            closed.append(True)
+    def capture_stream(*args, **kwargs):
+        stream = original(*args, **kwargs)
+        inner_streams.append(stream)
+        return stream
 
-    async def async_wrapped(agent):
-        try:
-            yield AnswerSchema(answer="4")
-            yield AnswerSchema(answer="42")
-        finally:
-            closed.append(True)
-
+    monkeypatch.setattr(AtomicAgent, method, capture_stream)
+    instrumentor.instrument(tracer_provider=exporter.provider)
     agent = make_agent(async_client() if asynchronous else sync_client())
-    trace = agent_spans._trace_agent_async_stream if asynchronous else agent_spans._trace_agent_stream
-    stream = trace(async_wrapped if asynchronous else wrapped)(agent)
-    AtomicAgentsInstrumentor().uninstrument()
+    stream = getattr(agent, method)(QuestionSchema(question="?"))
+    instrumentor.uninstrument()
     first = await anext(stream) if asynchronous else next(stream)
     assert first.answer == "4"
-    if asynchronous:
-        await stream.aclose()
-    else:
-        stream.close()
-    assert closed == [True]
-    assert spans_of(exporter) == []
+    (inner,) = inner_streams
+    frame = "ag_frame" if asynchronous else "gi_frame"
+    assert getattr(inner, frame) is not None
+    try:
+        if asynchronous:
+            await stream.aclose()
+        else:
+            stream.close()
+        assert getattr(inner, frame) is None
+        assert spans_of(exporter) == []
+    finally:
+        if asynchronous:
+            await inner.aclose()
+        else:
+            inner.close()
