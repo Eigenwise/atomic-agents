@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Type, Optional, Union, Tuple, cast, Protocol
 from contextlib import AsyncExitStack
 import shlex
 import types
+from urllib.parse import quote
 
 from pydantic import create_model, Field, BaseModel, JsonValue, ValidationError
 
@@ -631,6 +632,12 @@ class MCPFactory:
                     bound_working_directory = getattr(self, "working_directory", None)
 
                     arguments = params.model_dump(exclude={"resource_name"}, exclude_none=True)
+                    # Simple URI-template values are data, not path/query delimiters.
+                    call_args = {name: quote(str(value), safe="") for name, value in arguments.items()}
+                    try:
+                        concrete_uri = bound_uri.format(**call_args) if call_args else bound_uri
+                    except Exception:
+                        concrete_uri = bound_uri
 
                     async def _connect_and_read():
                         stack = AsyncExitStack()
@@ -674,27 +681,13 @@ class MCPFactory:
                             session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
                             await session.initialize()
 
-                            # Substitute URI placeholders with provided parameters when available.
-                            call_args = arguments if isinstance(arguments, dict) else {}
-                            # If params contain keys, format the URI template.
-                            try:
-                                concrete_uri = bound_uri.format(**call_args) if call_args else bound_uri
-                            except Exception:
-                                concrete_uri = bound_uri
                             resource_result: mcp.types.ReadResourceResult = await session.read_resource(uri=concrete_uri)
                             return resource_result
                         finally:
                             await stack.aclose()
 
                     async def _read_with_persistent_session():
-                        call_args = arguments if isinstance(arguments, dict) else {}
-
-                        try:
-                            concrete_uri_p = bound_uri.format(**call_args) if call_args else bound_uri
-                        except Exception:
-                            concrete_uri_p = bound_uri
-
-                        return await persistent_session.read_resource(uri=concrete_uri_p)
+                        return await persistent_session.read_resource(uri=concrete_uri)
 
                     try:
                         if persistent_session is not None:
