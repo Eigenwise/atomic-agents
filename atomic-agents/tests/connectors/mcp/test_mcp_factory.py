@@ -3129,6 +3129,11 @@ def named_output_tool_session(mocked_mcp_connection: tuple[AsyncMock, dict[str, 
     [
         (CallToolResult(content=[TextContent(type="text", text='{"name":"text"}')], structuredContent={"name": "sdk"}), "sdk"),
         (CallToolResult(content=[TextContent(type="text", text='{"name":"text"}')]), "text"),
+        (CallToolResult(content=[TextContent(type="text", text='{"name":"serialized"}')]).model_dump(), "serialized"),
+        (
+            CallToolResult(content=[TextContent(type="text", text='{"name":"without-null"}')]).model_dump(exclude_none=True),
+            "without-null",
+        ),
         (StructuredModelResult(structuredContent=NamedToolPayload(name="model")), "model"),
         (
             MockContentResult(content=[MockContentItem(text='{"name":"first"}'), MockContentItem(text='{"name":"second"}')]),

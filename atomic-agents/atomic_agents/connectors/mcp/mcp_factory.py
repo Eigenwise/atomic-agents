@@ -199,6 +199,11 @@ def _validate_typed_tool_output(tool_result: _ToolResult, output_schema: type[Ba
         if parsed_output is not None:
             return parsed_output
     elif isinstance(tool_result, dict):
+        envelope = _validated_tool_envelope(tool_result)
+        if envelope is not None:
+            parsed_output = _validate_model_tool_output(envelope, output_schema, tool_name)
+            if parsed_output is not None:
+                return parsed_output
         return _validate_mapping_tool_output(tool_result, output_schema)
     logger.error(
         f"Could not parse structured output for tool '{tool_name}'. "
