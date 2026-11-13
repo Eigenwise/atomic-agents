@@ -196,9 +196,25 @@ class SchemaTransformer:
                 python_type = JSON_TYPE_MAP[json_type]
 
                 if json_type == "array":
-                    items_schema = prop_schema.get("items", {})
-                    item_type, _ = SchemaTransformer.json_to_pydantic_field(items_schema, True, root_schema, model_cache)
-                    python_type = List[item_type]
+                    prefix_items = prop_schema.get("prefixItems")
+                    if (
+                        isinstance(prefix_items, list)
+                        and prefix_items
+                        and prop_schema.get("minItems") == len(prefix_items)
+                        and prop_schema.get("maxItems", len(prefix_items)) >= len(prefix_items)
+                        and (prop_schema.get("maxItems") == len(prefix_items) or prop_schema.get("items") is False)
+                    ):
+                        # Fixed tuples, including schemas emitted by FastMCP/Pydantic,
+                        # validate each position instead of applying items to the prefix.
+                        item_types = [
+                            SchemaTransformer.json_to_pydantic_field(item, True, root_schema, model_cache)[0]
+                            for item in prefix_items
+                        ]
+                        python_type = Tuple[tuple(item_types)]
+                    else:
+                        items_schema = prop_schema.get("items", {})
+                        item_type, _ = SchemaTransformer.json_to_pydantic_field(items_schema, True, root_schema, model_cache)
+                        python_type = List[item_type]
 
                 elif json_type == "object":
                     python_type = Dict[str, Any]
