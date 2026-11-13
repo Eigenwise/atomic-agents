@@ -131,8 +131,17 @@ class SearXNGSearchTool(BaseTool[SearXNGSearchToolInputSchema, SearXNGSearchTool
             Exception: If the request to SearXNG fails.
         """
         async with aiohttp.ClientSession() as session:
-            tasks = [self._fetch_search_results(session, query, params.category) for query in params.queries]
-            results = await asyncio.gather(*tasks)
+            tasks = [
+                asyncio.create_task(self._fetch_search_results(session, query, params.category)) for query in params.queries
+            ]
+            try:
+                results = await asyncio.gather(*tasks)
+            except BaseException:
+                # Finish every request before its shared session is closed.
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
 
         all_results = [item for sublist in results for item in sublist]
 

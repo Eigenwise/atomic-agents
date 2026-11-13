@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 import pytest
@@ -268,3 +269,57 @@ async def test_searxng_search_tool_error(mock_aiohttp_session):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_mode", ["request_error", "request_cancelled", "caller_cancelled"])
+async def test_pending_requests_finish_before_session_closes(failure_mode):
+    started = asyncio.Event()
+    cleaned = asyncio.Event()
+    session_states = []
+    requests = []
+    failure = RuntimeError("search failed") if failure_mode == "request_error" else asyncio.CancelledError()
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            session_states.append(cleaned.is_set())
+
+    async def fetch(session, query, setting):
+        requests.append(asyncio.current_task())
+        if query == "slow":
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                # Response cleanup may itself need an event-loop turn.
+                await asyncio.sleep(0)
+                cleaned.set()
+        await started.wait()
+        if failure_mode == "caller_cancelled":
+            await asyncio.Event().wait()
+        raise failure
+
+    tool = SearXNGSearchTool(SearXNGSearchToolConfig(base_url="https://searxng.example.com"))
+    with (
+        patch("aiohttp.ClientSession", return_value=Session()),
+        patch.object(tool, "_fetch_search_results", side_effect=fetch),
+    ):
+        operation = asyncio.create_task(tool.run_async(SearXNGSearchToolInputSchema(queries=["slow", "failure"])))
+        try:
+            await asyncio.wait_for(started.wait(), timeout=1)
+            if failure_mode == "caller_cancelled":
+                operation.cancel()
+            with pytest.raises(type(failure)) as caught:
+                await asyncio.wait_for(operation, timeout=1)
+            if failure_mode != "caller_cancelled":
+                assert caught.value is failure
+            assert session_states == [True]
+            assert all(request.done() for request in requests)
+        finally:
+            operation.cancel()
+            for request in requests:
+                request.cancel()
+            await asyncio.gather(operation, *requests, return_exceptions=True)

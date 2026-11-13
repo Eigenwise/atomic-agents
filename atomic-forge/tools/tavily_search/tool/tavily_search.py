@@ -124,8 +124,18 @@ class TavilySearchTool(BaseTool[TavilySearchToolInputSchema, TavilySearchToolOut
 
         async with aiohttp.ClientSession() as session:
             # Fetch results for all queries
-            tasks = [self._fetch_search_results(session, query, effective_max_results) for query in params.queries]
-            raw_responses = await asyncio.gather(*tasks)
+            tasks = [
+                asyncio.create_task(self._fetch_search_results(session, query, effective_max_results))
+                for query in params.queries
+            ]
+            try:
+                raw_responses = await asyncio.gather(*tasks)
+            except BaseException:
+                # Finish every request before its shared session is closed.
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
 
         # Process results for each query
         processed_results = []
