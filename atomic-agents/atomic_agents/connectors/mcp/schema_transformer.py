@@ -125,7 +125,24 @@ class SchemaTransformer:
             is_required = prop_name in required_fields
             fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, root_schema, model_cache)
 
-        return create_model(model_name, **fields)
+        config = SchemaTransformer._object_extra_policy(schema, root_schema, model_cache, fields)
+        return create_model(model_name, __config__=config, **fields)
+
+    @staticmethod
+    def _object_extra_policy(
+        schema: Dict[str, Any], root_schema: Dict[str, Any], model_cache: Dict[str, Type], fields: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply an explicitly advertised extension policy to object models."""
+        additional = schema.get("additionalProperties")
+        if additional is False:
+            return {"extra": "forbid"}
+        if additional is True:
+            return {"extra": "allow"}
+        if isinstance(additional, dict):
+            value_type, _ = SchemaTransformer.json_to_pydantic_field(additional, True, root_schema, model_cache)
+            fields["__pydantic_extra__"] = (Dict[str, value_type], Field(init=False))
+            return {"extra": "allow"}
+        return {}
 
     @staticmethod
     def json_to_pydantic_field(
@@ -270,11 +287,12 @@ class SchemaTransformer:
             )
 
         # Create the model
+        config = SchemaTransformer._object_extra_policy(schema, schema, model_cache, fields)
         model = create_model(
             model_name,
             __base__=BaseIOSchema,
             __doc__=docstring or f"Dynamically generated Pydantic model for {model_name}",
-            __config__={"title": tool_name_literal},
+            __config__={"title": tool_name_literal, **config},
             **fields,
         )
 
