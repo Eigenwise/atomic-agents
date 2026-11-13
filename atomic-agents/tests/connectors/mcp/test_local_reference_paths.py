@@ -65,7 +65,9 @@ def test_pointer_can_select_schema_from_an_array():
         model(value={})
 
 
-@pytest.mark.parametrize("reference", ["https://example.invalid/schema#/$defs/Value", "#/$defs/Missing/Value"])
+@pytest.mark.parametrize(
+    "reference", ["https://example.invalid/schema#/$defs/Value", "#/$defs/Missing/Value", "#/definitions/Value"]
+)
 def test_unresolved_reference_does_not_bind_an_unrelated_local_definition(reference, caplog):
     schema = {
         "type": "object",
