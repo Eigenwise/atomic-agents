@@ -43,7 +43,8 @@ class BaseVectorDBService(ABC):
         Args:
             query_text: Text to find similar documents for
             n_results: Number of results to return
-            where: Optional filter criteria
+            where: Metadata equality filters; all supplied fields must match.
+                None or an empty dictionary applies no metadata filter.
 
         Returns:
             QueryResult containing documents, metadata, distances and IDs
