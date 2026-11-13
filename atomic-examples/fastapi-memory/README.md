@@ -154,6 +154,8 @@ The example demonstrates several key architectural patterns:
 ### Server Architecture
 
 1. **Multi-User Session Management**:
+   - The session metadata registry is the source of truth, including empty sessions
+   - One asynchronous agent per session serves both standard and streaming responses
    - Data structure: `user_id → session_id → agent_instance`
    - Each user can have unlimited independent chat sessions
    - Sessions are isolated - no data leakage between users or sessions
@@ -162,7 +164,7 @@ The example demonstrates several key architectural patterns:
    - All messages are stored with timestamps
    - Separate storage: `user_id → session_id → messages[]`
    - History persists across client reconnections
-   - Automatically loaded when resuming a session
+   - The same model history is reused when switching response modes or reconnecting to a session
 
 3. **Auto-Generated Session IDs**:
    - Server generates UUIDs for new sessions
@@ -178,10 +180,17 @@ The example demonstrates several key architectural patterns:
    - Lifespan context manager ensures cleanup on shutdown
    - Memory released when sessions are deleted
    - History cleared along with session deletion
+   - A per-session async lock serializes turns and deletion; other sessions can continue
+   - Failed or cancelled turns restore model history and are not appended to displayed history
+   - A stream holds its lock until completion or cancellation; errors after headers are sent use SSE error events
 
 6. **Type Safety**:
    - Pydantic schemas validate all requests/responses
    - Clear API contracts with automatic documentation
+
+Session storage is in memory in one server process and does not survive a server restart.
+Create a session before chatting: a missing `session_id` returns 400, and an unknown,
+deleted, or different user's session returns 404 without creating a new conversation.
 
 ### Client Architecture
 
@@ -229,3 +238,16 @@ fastapi-memory/
 
 For more advanced usage, check out:
 - `mcp-agent/example-client/example_client/main_fastapi.py` - Advanced example with MCP protocol integration
+
+## Offline regression tests
+
+From the repository root:
+
+```bash
+uv run --frozen --package fastapi-memory --with pytest --with pytest-asyncio pytest atomic-examples/fastapi-memory/tests -q
+```
+
+These tests run the ASGI app in process and mock provider completions. They do not
+require an OpenAI API key or a running server. They cover empty-session lifecycle,
+HTTP status codes, history across response modes, session isolation, concurrent
+turns, deletion during streaming, and failed or cancelled turns.
