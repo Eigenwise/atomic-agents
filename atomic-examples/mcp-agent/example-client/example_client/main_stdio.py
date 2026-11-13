@@ -27,7 +27,6 @@ from mcp.client.stdio import stdio_client
 class MCPConfig:
     """Configuration for the MCP Agent system using STDIO transport."""
 
-    # gpt-5-mini shuts down on 2026-12-11. This client uses the listed replacement.
     openai_model: str = "gpt-5.6-terra"
     openai_api_key: str = os.getenv("OPENAI_API_KEY")
     reasoning_effort: str = "low"

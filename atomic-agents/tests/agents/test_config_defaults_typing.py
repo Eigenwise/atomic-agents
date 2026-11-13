@@ -21,7 +21,7 @@ def test_optional_agent_settings_have_defaults() -> None:
     assert (unpacked_configuration.model_api_parameters, unpacked_configuration.max_context_tokens) == (None, None)
 
 
-def test_default_model_is_current_openai_id() -> None:
+def test_default_model_pins_string_gpt_5_6_terra() -> None:
     with OpenAI(api_key="synthetic-test-key") as provider_client:
         client = instructor.from_openai(provider_client)
         configuration = AgentConfig(client=client)
