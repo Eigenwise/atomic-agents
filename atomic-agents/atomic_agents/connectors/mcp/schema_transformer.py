@@ -1,11 +1,11 @@
 """Module for transforming JSON schemas to Pydantic models."""
 
 import logging
-from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
+from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, ForwardRef, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
-from pydantic import BeforeValidator, Field, WithJsonSchema, create_model
+from pydantic import BaseModel, BeforeValidator, Field, WithJsonSchema, create_model
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
@@ -45,6 +45,21 @@ JSON_TYPE_MAP = {
 
 class SchemaTransformer:
     """Class for transforming JSON schemas to Pydantic models."""
+
+    @staticmethod
+    def _reference_type_name(ref_name: str) -> str:
+        # Definition names can contain spaces, punctuation, or Python keywords.
+        # Keep their forward-reference bindings distinct from schema titles.
+        return "_MCPRef_" + ref_name.encode("utf-8").hex()
+
+    @staticmethod
+    def _rebuild_reference_models(model_cache: Dict[str, Type]) -> None:
+        if any(isinstance(value, ForwardRef) for value in model_cache.values()):
+            return  # A mutually referenced object is still being constructed.
+        namespace = {SchemaTransformer._reference_type_name(name): value for name, value in model_cache.items()}
+        for value in model_cache.values():
+            if isinstance(value, type) and issubclass(value, BaseModel) and not value.__pydantic_complete__:
+                value.model_rebuild(_types_namespace=namespace)
 
     @staticmethod
     def _matches_scalar_type(value: Any, json_types: List[str]) -> bool:
@@ -96,17 +111,20 @@ class SchemaTransformer:
         defs = root_schema.get("$defs", root_schema.get("definitions", {}))
         if ref_name in defs:
             ref_schema = defs[ref_name]
-            # Avoid infinite recursion by adding placeholder first
-            model_cache[ref_name] = Any
             if isinstance(ref_schema, dict) and (
                 ref_schema.get("properties")
                 or (ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False)
             ):
+                # Bind recursive children to the eventual object model, not Any.
+                model_cache[ref_name] = ForwardRef(SchemaTransformer._reference_type_name(ref_name))
                 model_name = ref_schema.get("title", ref_name)
                 model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
             else:
+                # Keep the existing fallback for cyclic non-object aliases.
+                model_cache[ref_name] = Any
                 model, _ = SchemaTransformer.json_to_pydantic_field(ref_schema, True, root_schema, model_cache)
             model_cache[ref_name] = model
+            SchemaTransformer._rebuild_reference_models(model_cache)
             return model
 
         logger.warning(f"Could not resolve $ref: {ref_path}")
