@@ -143,7 +143,9 @@ class SearXNGSearchTool(BaseTool[SearXNGSearchToolInputSchema, SearXNGSearchTool
         seen_urls = set()
         unique_results = []
         for result in sorted_results:
-            if "content" not in result or "title" not in result or "url" not in result or "query" not in result:
+            if params.category and result.get("category") != params.category:
+                continue
+            if "title" not in result or "url" not in result or "query" not in result:
                 continue
             if result["url"] not in seen_urls:
                 unique_results.append(result)
@@ -153,13 +155,7 @@ class SearXNGSearchTool(BaseTool[SearXNGSearchToolInputSchema, SearXNGSearchTool
                     result["title"] = f"{result['title']} - (Published {result['publishedDate']})"
                 seen_urls.add(result["url"])
 
-        # Filter results to include only those with the correct category if it is set
-        if params.category:
-            filtered_results = [result for result in unique_results if result.get("category") == params.category]
-        else:
-            filtered_results = unique_results
-
-        filtered_results = filtered_results[: max_results or self.max_results]
+        filtered_results = unique_results[: max_results or self.max_results]
 
         return SearXNGSearchToolOutputSchema(
             results=[
