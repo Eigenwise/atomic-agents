@@ -117,7 +117,8 @@ class QdrantDBService(BaseVectorDBService):
         for result in search_results:
             documents.append(result.payload["text"])
             metadatas.append(result.payload["metadata"])
-            distances.append(result.score)
+            # Qdrant returns cosine similarity; expose the same distance as Chroma.
+            distances.append(1.0 - result.score)
             ids.append(result.id)
 
         return {
