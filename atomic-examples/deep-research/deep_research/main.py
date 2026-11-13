@@ -22,6 +22,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
+from atomic_agents import AtomicAgent, BaseIOSchema
+
 from deep_research.agents.decider_agent import DeciderInput, decider_agent
 from deep_research.agents.extractor_agent import ExtractorInput, extractor_agent
 from deep_research.agents.planner_agent import PlannerInput, planner_agent
@@ -56,6 +58,16 @@ console = Console()
 FOLLOW_UP_SUB_TOPICS = 2
 
 
+def _run_agent[
+    InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema
+](agent: AtomicAgent[InputSchema, OutputSchema], params: InputSchema, state: ResearchState) -> OutputSchema:
+    """Reserve one call before starting it, including attempts that later fail."""
+    if state.agent_calls >= ResearchBudget.hard_call_cap:
+        raise RuntimeError(f"Hard call cap reached ({ResearchBudget.hard_call_cap} agent call attempts).")
+    state.agent_calls += 1
+    return agent.run(params)
+
+
 def wire_context_providers(state: ResearchState) -> None:
     """Register the state + current-date providers on every agent.
 
@@ -74,8 +86,7 @@ def wire_context_providers(state: ResearchState) -> None:
 def plan_research(state: ResearchState, num_sub_topics: int = ResearchBudget.num_sub_topics) -> list[SubTopic]:
     """Run the planner, append new sub-topics to ``state.plan``, return just the new ones."""
     before = len(state.plan)
-    result = planner_agent.run(PlannerInput(question=state.question, num_sub_topics=num_sub_topics))
-    state.agent_calls += 1
+    result = _run_agent(planner_agent, PlannerInput(question=state.question, num_sub_topics=num_sub_topics), state)
 
     for st in result.sub_topics:
         state.plan.append(SubTopic(name=st.name, initial_queries=list(st.initial_queries)))
@@ -125,15 +136,16 @@ def extract_claims(sub_topic: SubTopic, scraped: list[tuple[str, str]], state: R
     new_claim_count = 0
     for source_id, content in scraped:
         source = next(s for s in state.sources if s.id == source_id)
-        result = extractor_agent.run(
+        result = _run_agent(
+            extractor_agent,
             ExtractorInput(
                 sub_topic=sub_topic.name,
                 source_url=source.url,
                 source_title=source.title,
                 content=content[: ResearchBudget.max_extractor_content_chars],
-            )
+            ),
+            state,
         )
-        state.agent_calls += 1
 
         for claim in result.claims:
             state.learnings.append(Learning(text=claim, source_id=source_id, sub_topic=sub_topic.name))
@@ -143,14 +155,15 @@ def extract_claims(sub_topic: SubTopic, scraped: list[tuple[str, str]], state: R
 
 def reflect(sub_topic: SubTopic, iteration: int, state: ResearchState) -> tuple[bool, list[str]]:
     """Ask the reflector whether this sub-topic has enough material. Returns (sufficient, next_queries)."""
-    result = reflector_agent.run(
+    result = _run_agent(
+        reflector_agent,
         ReflectorInput(
             sub_topic=sub_topic.name,
             iterations_so_far=iteration,
             max_iterations=ResearchBudget.max_depth_per_sub_topic,
-        )
+        ),
+        state,
     )
-    state.agent_calls += 1
 
     console.print(f"    [italic]{result.reasoning}[/italic]")
 
@@ -202,13 +215,11 @@ def write_report(state: ResearchState) -> tuple[str, str]:
     console.rule("[bold cyan]3. Write")
 
     writer_agent.reset_history()
-    draft = writer_agent.run(WriterInput(question=state.question, mode="draft", draft=""))
-    state.agent_calls += 1
+    draft = _run_agent(writer_agent, WriterInput(question=state.question, mode="draft", draft=""), state)
     console.print("  [dim]draft written, verifying citations…[/dim]")
 
     writer_agent.reset_history()
-    verified = writer_agent.run(WriterInput(question=state.question, mode="verify", draft=draft.report))
-    state.agent_calls += 1
+    verified = _run_agent(writer_agent, WriterInput(question=state.question, mode="verify", draft=draft.report), state)
     return verified.headline, verified.report
 
 
@@ -260,8 +271,7 @@ def display_qa_answer(answer: str, follow_ups: list[str]) -> None:
 
 def answer_from_state(question: str, state: ResearchState) -> None:
     """Q&A pass against the current ResearchState. Used on follow-ups."""
-    result = qa_agent.run(QAInput(question=question))
-    state.agent_calls += 1
+    result = _run_agent(qa_agent, QAInput(question=question), state)
     display_qa_answer(result.answer, result.follow_up_questions)
 
 
@@ -291,8 +301,7 @@ def handle_follow_up(user_message: str, state: ResearchState, search: SearXNGSea
         console.print("[red]Hard call cap reached — cannot process follow-up.[/red]")
         return
 
-    decision = decider_agent.run(DeciderInput(user_message=user_message))
-    state.agent_calls += 1
+    decision = _run_agent(decider_agent, DeciderInput(user_message=user_message), state)
 
     title = "Performing new research" if decision.needs_research else "Answering from existing state"
     border = "yellow" if decision.needs_research else "green"
