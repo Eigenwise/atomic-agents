@@ -1,5 +1,6 @@
 """Preserve MCP resource identifiers across catalog discovery and reads."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -20,9 +21,16 @@ ENCODED_URIS = [
 ]
 
 
-def resource_session(uri: str) -> AsyncMock:
+def resource_session(uri: str, adapter: str = "sdk") -> AsyncMock:
     session = AsyncMock()
-    session.list_resources.return_value = types.ListResourcesResult(resources=[types.Resource(name="document", uri=uri)])
+    if adapter == "sdk":
+        response = types.ListResourcesResult(resources=[types.Resource(name="document", uri=uri)])
+    else:
+        resource = {"name": "document", "description": None, "uri": uri}
+        if adapter == "object":
+            resource = SimpleNamespace(**resource)
+        response = SimpleNamespace(resources=[resource], nextCursor=None)
+    session.list_resources.return_value = response
     session.list_resource_templates.return_value = types.ListResourceTemplatesResult(resourceTemplates=[])
     session.read_resource.return_value = types.ReadResourceResult(contents=[])
     return session
@@ -30,8 +38,9 @@ def resource_session(uri: str) -> AsyncMock:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("uri", ENCODED_URIS)
-async def test_discovery_preserves_literal_resource_uri(uri: str) -> None:
-    session = resource_session(uri)
+@pytest.mark.parametrize("adapter", ["sdk", "dict", "object"])
+async def test_discovery_preserves_literal_resource_uri(uri: str, adapter: str) -> None:
+    session = resource_session(uri, adapter)
     definition = (await MCPDefinitionService.fetch_resource_definitions_from_session(session))[0]
 
     assert definition.uri == uri
@@ -40,8 +49,9 @@ async def test_discovery_preserves_literal_resource_uri(uri: str) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("uri", ENCODED_URIS)
-async def test_generated_resource_reads_the_advertised_identifier(uri: str) -> None:
-    session = resource_session(uri)
+@pytest.mark.parametrize("adapter", ["sdk", "dict", "object"])
+async def test_generated_resource_reads_the_advertised_identifier(uri: str, adapter: str) -> None:
+    session = resource_session(uri, adapter)
     resource_class = (await fetch_mcp_resources_async(client_session=session))[0]
     resource = resource_class()
 
@@ -61,11 +71,12 @@ async def test_template_expands_only_the_declared_parameter(literal: str) -> Non
     session = resource_session("resource://bucket/static")
     session.list_resources.return_value = types.ListResourcesResult(resources=[])
     session.list_resource_templates.return_value = types.ListResourceTemplatesResult(
-        resourceTemplates=[types.ResourceTemplate(name="document", uriTemplate=uri_template)]
+        resourceTemplates=[types.ResourceTemplate(name="document", uriTemplate=uri_template, mimeType="text/plain")]
     )
     definition = (await MCPDefinitionService.fetch_resource_definitions_from_session(session))[0]
 
     assert definition.uri == uri_template
+    assert definition.mime_type == "text/plain"
     assert definition.input_schema["required"] == ["item"]
     assert set(definition.input_schema["properties"]) == {"item"}
 
@@ -74,3 +85,24 @@ async def test_template_expands_only_the_declared_parameter(literal: str) -> Non
     await resource.aread(resource.input_schema(resource_name="document", item="entry"))
 
     session.read_resource.assert_awaited_once_with(uri=f"resource://bucket/{literal}/entry")
+
+
+@pytest.mark.asyncio
+async def test_plain_sdk_resource_with_braces_does_not_gain_parameters() -> None:
+    session = resource_session("resource://bucket/{literal}")
+    resource = session.list_resources.return_value.resources[0]
+
+    definition = (await MCPDefinitionService.fetch_resource_definitions_from_session(session))[0]
+
+    assert definition.uri == str(resource.uri)
+    assert definition.input_schema == {"type": "object", "properties": {}, "required": []}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("adapter", ["dict", "object"])
+async def test_adapter_keeps_explicit_template_placeholders(adapter: str) -> None:
+    session = resource_session("resource://bucket/%7Bliteral%7D/{item}", adapter)
+    definition = (await MCPDefinitionService.fetch_resource_definitions_from_session(session))[0]
+
+    assert definition.uri == "resource://bucket/%7Bliteral%7D/{item}"
+    assert definition.input_schema["required"] == ["item"]

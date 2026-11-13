@@ -13,7 +13,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 import mcp.types as types
-from urllib.parse import unquote as decode_uri, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -317,19 +317,23 @@ class MCPDefinitionService:
                 if hasattr(mcp_resource, "name"):
                     name = mcp_resource.name
                     description = mcp_resource.description
-                    uri = mcp_resource.uriTemplate if isinstance(mcp_resource, types.ResourceTemplate) else mcp_resource.uri
+                    if isinstance(mcp_resource, types.ResourceTemplate):
+                        uri = str(mcp_resource.uriTemplate)
+                        parse_placeholders = True
+                    else:
+                        uri = str(mcp_resource.uri)
+                        parse_placeholders = not isinstance(mcp_resource, types.Resource)
                 elif isinstance(mcp_resource, dict):
                     # assume mapping
                     name = mcp_resource["name"]
                     description = mcp_resource.get("description")
-                    uri = mcp_resource.get("uri", "")
+                    uri = str(mcp_resource.get("uri", ""))
+                    parse_placeholders = True
                 else:
                     raise ValueError(f"Unexpected resource format: {mcp_resource}")
 
-                # SDK resources are literal identifiers, while templates retain their raw expressions.
-                # Preserve the historical decoding behavior only for non-SDK adapters.
-                uri = str(uri) if isinstance(mcp_resource, (types.Resource, types.ResourceTemplate)) else decode_uri(str(uri))
-                placeholders = re.findall(r"\{([^}]+)\}", uri) if uri and not isinstance(mcp_resource, types.Resource) else []
+                # Preserve encoded URI identity; only explicit template braces define parameters.
+                placeholders = re.findall(r"\{([^}]+)\}", uri) if parse_placeholders else []
                 properties: Dict[str, Any] = {}
                 for param_name in placeholders:
                     properties[param_name] = {"type": "string", "description": f"URI parameter {param_name}"}
@@ -339,11 +343,7 @@ class MCPDefinitionService:
                         name=name,
                         description=description,
                         uri=uri,
-                        mime_type=(
-                            None
-                            if isinstance(mcp_resource, types.ResourceTemplate)
-                            else getattr(mcp_resource, "mimeType", None)
-                        ),
+                        mime_type=getattr(mcp_resource, "mimeType", None),
                         input_schema={"type": "object", "properties": properties, "required": list(placeholders)},
                     )
                 )
