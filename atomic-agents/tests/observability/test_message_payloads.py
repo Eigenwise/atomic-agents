@@ -190,3 +190,55 @@ def test_capture_defaults_preserve_positional_fields(monkeypatch):
     monkeypatch.delenv("ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES", raising=False)
     assert TracingConfig(True, False, 50, False, False).capture_messages is False
     assert TracingConfig.from_environment().capture_messages is False
+
+
+@pytest.mark.parametrize("direction", ["input", "output"])
+@pytest.mark.parametrize("delta", [-1, 0, 1])
+@pytest.mark.parametrize("with_call", [False, True])
+def test_multiple_message_serialization_boundary_controls(direction, delta, with_call):
+    source = [
+        {"role": "user", "content": 'Ghent ☀️ 漢字 "quote"\\line\nnext'},
+        {"role": "assistant", "content": "answer"},
+    ]
+    normalized = [
+        {"role": "user", "parts": [{"type": "text", "content": source[0]["content"]}]},
+        {"role": "assistant", "parts": [{"type": "text", "content": "answer"}]},
+    ]
+    if with_call:
+        source[1]["tool_calls"] = [
+            {
+                "type": "function",
+                "id": "call-1",
+                "function": {"name": "lookup", "arguments": ' { "city": "東京", "n": [1, null, true] } '},
+            }
+        ]
+        normalized[1]["parts"].append(
+            {
+                "type": "tool_call",
+                "name": "lookup",
+                "arguments": {"city": "東京", "n": [1, None, True]},
+                "id": "call-1",
+            }
+        )
+    expected = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    value = source if direction == "input" else {"choices": [{"message": item} for item in source]}
+    actual = captured(value, direction, max_attribute_length=len(expected) + delta)
+    assert actual == ({} if delta < 0 else {f"gen_ai.{direction}.messages": expected})
+
+
+@pytest.mark.parametrize("direction", ["input", "output"])
+def test_normalization_stops_after_overflow(direction):
+    class LaterMessage:
+        reads = 0
+        content = "later content"
+
+        @property
+        def role(self):
+            self.reads += 1
+            return "user"
+
+    later = LaterMessage()
+    messages = [{"role": "user", "content": "x" * 4096}, *([later] * 1000)]
+    value = messages if direction == "input" else {"choices": [{"message": item} for item in messages]}
+    assert captured(value, direction) == {}
+    assert later.reads == 0
