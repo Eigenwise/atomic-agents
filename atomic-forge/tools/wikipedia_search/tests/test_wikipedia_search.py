@@ -100,6 +100,32 @@ async def test_run_async_skips_404_summaries(tool):
     assert out.results[0].title == "Real Page"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("summary_failure", [None, RuntimeError("unavailable")])
+@pytest.mark.parametrize("full_text", [True, False])
+async def test_full_text_follows_first_returned_article(tool, summary_failure, full_text):
+    summaries = [
+        summary_failure,
+        {"title": "Available Page", "extract": "Summary"},
+        {"title": "Another Page", "extract": "Another summary"},
+    ]
+    with (
+        patch.object(tool, "_search_titles", AsyncMock(return_value=["Missing Page", "Available Page", "Another Page"])),
+        patch.object(tool, "_fetch_summary", AsyncMock(side_effect=summaries)),
+        patch.object(tool, "_fetch_full_extract", AsyncMock(return_value="Full article")) as extract,
+    ):
+        result = await tool._process_query(MagicMock(), "topic", "en", 3, full_text)
+
+    assert [article.title for article in result] == ["Available Page", "Another Page"]
+    assert result[0].full_text == ("Full article" if full_text else None)
+    assert result[1].full_text is None
+    if full_text:
+        extract.assert_awaited_once()
+        assert extract.await_args.args[1:] == ("Available Page", "en")
+    else:
+        extract.assert_not_awaited()
+
+
 def test_run_invokes_run_async_in_thread(tool):
     """run() should drive run_async in a worker thread and return its result."""
     sentinel = WikipediaSearchToolOutputSchema(results=[])

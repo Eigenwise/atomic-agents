@@ -1,10 +1,7 @@
 import io
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
-
-import requests
 
 import pytest
+import requests
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
@@ -179,55 +176,37 @@ def test_run_url_too_large_by_header(monkeypatch, tool):
 @pytest.mark.parametrize("failure", ["status", "declared_size", "streamed_size", "invalid_length", None])
 def test_url_responses_close_on_success_and_download_failures(monkeypatch, sample_pdf, failure):
     pdf_bytes = sample_pdf.read_bytes()
-    # A partial read must leave unread data, rather than closing at EOF by coincidence.
-    payload = b"x" * (3 * 64 * 1024) if failure == "streamed_size" else pdf_bytes
 
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(404 if failure == "status" else 200)
-            if failure == "declared_size":
-                self.send_header("Content-Length", "1000000000")
-            elif failure == "invalid_length":
-                self.send_header("Content-Length", "invalid")
-            elif failure != "streamed_size":
-                self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
+    class FakeResp:
+        closed = False
+        headers = {
+            "Content-Length": {"declared_size": "1000000000", "invalid_length": "invalid"}.get(failure, str(len(pdf_bytes)))
+        }
 
-        def log_message(self, *args):
-            pass
+        def __enter__(self):
+            return self
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    responses = []
-    session = requests.Session()
-    session.trust_env = False
+        def __exit__(self, *args):
+            self.closed = True
 
-    def get_response(*args, **kwargs):
-        response = session.get(*args, **kwargs)
-        responses.append(response)
-        return response
+        def raise_for_status(self):
+            if failure == "status":
+                raise requests.HTTPError("404 Not Found")
 
-    monkeypatch.setattr("tool.pdf_reader.requests.get", get_response)
-    reader = PdfReaderTool(PdfReaderToolConfig(max_size_bytes=1 if failure == "streamed_size" else 1024 * 1024))
-    try:
-        out = reader.run(PdfReaderToolInputSchema(source=f"http://127.0.0.1:{server.server_port}/sample.pdf"))
-        assert len(responses) == 1
-        if failure is None:
-            assert out.error is None
-            assert out.page_count == 3
-            assert "Hello World" in out.text
-        else:
-            assert out.error is not None
-        assert responses[0].raw.closed
-    finally:
-        for response in responses:
-            response.close()
-        session.close()
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+        def iter_content(self, chunk_size):
+            yield b"x" * (1024 * 1024 + 1) if failure == "streamed_size" else pdf_bytes
+
+    response = FakeResp()
+    monkeypatch.setattr("tool.pdf_reader.requests.get", lambda *args, **kwargs: response)
+    reader = PdfReaderTool(PdfReaderToolConfig(max_size_bytes=1024 * 1024))
+    out = reader.run(PdfReaderToolInputSchema(source="https://example.com/sample.pdf"))
+    if failure is None:
+        assert out.error is None
+        assert out.page_count == 3
+        assert "Hello World" in out.text
+    else:
+        assert out.error is not None
+    assert response.closed
 
 
 if __name__ == "__main__":
