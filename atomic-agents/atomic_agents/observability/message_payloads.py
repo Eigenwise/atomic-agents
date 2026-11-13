@@ -1,6 +1,7 @@
 """Bounded, opt-in GenAI chat message attributes."""
 
 import json
+from collections.abc import Iterator
 
 from opentelemetry import context as context_api
 from opentelemetry.trace import Span
@@ -78,17 +79,33 @@ def _message(message: object) -> dict[str, object] | None:
     return {"role": role, "parts": parts} if parts else None
 
 
-def _messages(values: object) -> list[dict[str, object]]:
+def _messages(values: object) -> Iterator[dict[str, object]]:
     if not isinstance(values, list):
-        return []
-    return [message for value in values if (message := _message(value)) is not None]
+        return
+    for value in values:
+        if (message := _message(value)) is not None:
+            yield message
 
 
-def _output_messages(response: object) -> list[dict[str, object]]:
+def _output_messages(response: object) -> Iterator[dict[str, object]]:
     choices = _field(response, "choices")
     if not isinstance(choices, list):
-        return []
-    return [message for choice in choices if (message := _message(_field(choice, "message"))) is not None]
+        return
+    for choice in choices:
+        if (message := _message(_field(choice, "message"))) is not None:
+            yield message
+
+
+def _encode_messages(messages: Iterator[dict[str, object]], limit: int) -> str | None:
+    parts = []
+    size = 2  # The opening and closing array brackets are part of the limit.
+    for message in messages:
+        encoded = json.dumps(message, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        size += len(encoded) + bool(parts)
+        if size > limit:
+            return None
+        parts.append(encoded)
+    return "[" + ",".join(parts) + "]" if parts else None
 
 
 def _messages_hidden(direction: str, config: TracingConfig) -> bool:
@@ -109,10 +126,8 @@ def write_messages(span: Span, value: object, direction: str, config: TracingCon
 def _write_visible_messages(span: Span, value: object, direction: str, config: TracingConfig) -> None:
     try:
         messages = _messages(value) if direction == "input" else _output_messages(value)
-        if not messages:
-            return
-        serialized = json.dumps(messages, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-        if len(serialized) <= config.max_attribute_length:
+        serialized = _encode_messages(messages, config.max_attribute_length)
+        if serialized is not None:
             span.set_attribute(f"gen_ai.{direction}.messages", serialized)
     except Exception:
         return
