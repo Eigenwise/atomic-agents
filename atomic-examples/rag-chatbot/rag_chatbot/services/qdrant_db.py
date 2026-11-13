@@ -70,13 +70,17 @@ class QdrantDBService(BaseVectorDBService):
         metadatas: Optional[List[Dict[str, str]]] = None,
         ids: Optional[List[str]] = None,
     ) -> List[str]:
-        ids = ids or [str(uuid.uuid4()) for _ in documents]
-        metadatas = metadatas or [{} for _ in documents]
+        if ids is not None and len(ids) != len(documents):
+            raise ValueError("ids must have the same length as documents")
+        if metadatas is not None and len(metadatas) != len(documents):
+            raise ValueError("metadatas must have the same length as documents")
+        ids = ids if ids is not None else [str(uuid.uuid4()) for _ in documents]
+        metadatas = metadatas if metadatas is not None else [{} for _ in documents]
 
         embeddings = self._get_embeddings(documents)
 
         points = []
-        for doc_id, doc, embedding, metadata in zip(ids, documents, embeddings, metadatas):
+        for doc_id, doc, embedding, metadata in zip(ids, documents, embeddings, metadatas, strict=True):
             point = PointStruct(id=doc_id, vector=embedding, payload={"text": doc, "metadata": metadata})
             points.append(point)
 
