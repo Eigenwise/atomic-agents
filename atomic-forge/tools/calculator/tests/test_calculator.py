@@ -38,6 +38,19 @@ def test_calculator_tool():
         ("1e-400", "1.00000000000000e-400"),
         ("0.12345678901234567890 - 0.12345678901234567891", "-9.95263713023803e-21"),
         ("2.5j + 1", "1.0 + 2.5*I"),
+        ("sec(0)", "1.00000000000000"),
+        ("csc(pi/2)", "1.00000000000000"),
+        ("cot(pi/4)", "1.00000000000000"),
+        ("Mod(7, 3)", "1.00000000000000"),
+        ("gamma(5)", "24.0000000000000"),
+        ("binomial(5, 2)", "10.0000000000000"),
+        ("gcd(12, 8)", "4.00000000000000"),
+        ("lcm(12, 8)", "24.0000000000000"),
+        ("erf(1)", "0.842700792949715"),
+        ("Rational(1, 3)", "0.333333333333333"),
+        ("integrate(x**2, x)", "0.333333333333333*x**3"),
+        ("diff(x**3, x)", "3.0*x**2"),
+        ("factorial(5)", "120.000000000000"),
     ],
 )
 def test_safe_calculator_math(expression, expected):
@@ -58,6 +71,9 @@ def test_safe_calculator_math(expression, expected):
         "[x for x in (1, 2)][0]",
         "sin(*(pi,))",
         "sqrt(4, evaluate=False)",
+        "5!",
+        "Rational('1/3')",
+        "diff(x.__class__, x)",
     ],
 )
 def test_safe_calculator_rejects_non_math_operations(expression):
