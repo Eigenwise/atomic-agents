@@ -77,15 +77,20 @@ class ChromaDBService(BaseVectorDBService):
         Args:
             query_text: Text to find similar documents for
             n_results: Number of results to return
-            where: Optional filter criteria
+            where: Metadata equality filters; all supplied fields must match.
 
         Returns:
             QueryResult containing documents, metadata, distances and IDs
         """
+        chroma_filter = None
+        if where:
+            predicates = [{key: value} for key, value in where.items()]
+            chroma_filter = predicates[0] if len(predicates) == 1 else {"$and": predicates}
+
         results = self.collection.query(
             query_texts=[query_text],
             n_results=n_results,
-            where=where,
+            where=chroma_filter,
             include=["documents", "metadatas", "distances"],
         )
 
