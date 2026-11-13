@@ -26,7 +26,10 @@ class WikipediaSearchToolInputSchema(BaseIOSchema):
     queries: List[str] = Field(..., description="One or more search queries to look up on Wikipedia.")
     language: str = Field(
         default="en",
-        description="Wikipedia language edition code (e.g. 'en', 'fr', 'de', 'nl', 'ja').",
+        min_length=1,
+        max_length=63,
+        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$",
+        description="Wikipedia edition code as a single hostname label (e.g. 'en', 'fr', 'simple', 'zh-min-nan').",
     )
     max_results_per_query: int = Field(
         default=3,

@@ -17,7 +17,7 @@ Searches Wikipedia and returns matching articles with titles, URLs, summaries, a
 
 ### Input Schema
 - `queries` (list[str]): one or more search queries — each is searched in parallel.
-- `language` (str): Wikipedia language edition (default `en`).
+- `language` (str): Wikipedia edition code (default `en`), such as `simple` or `zh-min-nan`. Supply one ASCII hostname label, up to 63 characters, with letters/digits at either end and optional interior hyphens. URLs, hostnames containing dots, paths and query strings are rejected before opening a network session.
 - `max_results_per_query` (int): how many articles to return per query (1–20, default 3).
 - `full_text` (bool): when true, the top result for each query also includes the full plain-text extract.
 
