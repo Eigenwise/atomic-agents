@@ -22,6 +22,7 @@ class TracingConfig:
     max_attribute_length: int = DEFAULT_MAX_ATTRIBUTE_LENGTH
     openinference_attributes: bool | None = None
     llm_spans: bool = True
+    capture_messages: bool = False
 
     @classmethod
     def from_environment(cls) -> "TracingConfig":
@@ -30,6 +31,7 @@ class TracingConfig:
             hide_outputs=_visibility_environment("OUTPUTS").lower() in ("true", "1"),
             max_attribute_length=_attribute_length_environment(),
             llm_spans=os.environ.get("ATOMIC_AGENTS_TRACE_LLM_SPANS", "true").lower() not in ("false", "0"),
+            capture_messages=os.environ.get("ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES", "").lower() in ("true", "1"),
         )
 
     @classmethod

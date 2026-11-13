@@ -11,6 +11,13 @@ from atomic_agents import BaseIOSchema, VideoURL
 import instructor
 
 
+class TupleAttachments(BaseIOSchema):
+    """A message with typed attachments held in tuples."""
+
+    attachments: tuple[instructor.Image, instructor.processing.multimodal.PDF]
+    nested: dict[str, tuple[tuple[instructor.Image, ...], ...]]
+
+
 class InputSchema(BaseIOSchema):
     """Test Input Schema"""
 
@@ -130,6 +137,69 @@ def test_get_history_allow_unicode(history):
     assert history[1]["content"] == '{"test_field":"â"}'
     assert json.loads(history[0]["content"]) == {"test_field": "àéèï"}
     assert json.loads(history[1]["content"]) == {"test_field": "â"}
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        instructor.Image(source="private.jpg", media_type="image/jpeg"),
+        instructor.processing.multimodal.Audio(source="private.mp3", media_type="audio/mp3"),
+        instructor.processing.multimodal.PDF(source="private.pdf", media_type="application/pdf"),
+        VideoURL(url="https://example.com/private.mp4"),
+    ],
+    ids=["image", "audio", "pdf", "video"],
+)
+def test_get_history_omits_excluded_multimodal_fields(history, media):
+    class PrivateMediaSchema(BaseIOSchema):
+        """Message carrying media that must stay local."""
+
+        instruction: str
+        private_media: Union[
+            instructor.Image, instructor.processing.multimodal.Audio, instructor.processing.multimodal.PDF, VideoURL
+        ] = Field(exclude=True)
+
+    content = PrivateMediaSchema(instruction="public", private_media=media)
+    history.add_message("user", content)
+
+    assert history.get_history() == [{"role": "user", "content": content.model_dump_json()}]
+
+
+def test_get_history_preserves_visible_media_beside_nested_excluded_media(history):
+    class Document(BaseIOSchema):
+        """Document with a public image and a local source."""
+
+        caption: str
+        image: instructor.Image
+        original: instructor.Image = Field(exclude=True)
+
+    class DocumentsSchema(BaseIOSchema):
+        """Documents provided to the model."""
+
+        documents: List[Document]
+
+    visible = instructor.Image(source="visible.jpg", media_type="image/jpeg")
+    private = instructor.Image(source="private.jpg", media_type="image/jpeg")
+    content = DocumentsSchema(documents=[Document(caption="public", image=visible, original=private)])
+    history.add_message("user", content)
+
+    parts = history.get_history()[0]["content"]
+    assert json.loads(parts[0]) == {"documents": [{"caption": "public"}]}
+    assert parts[1:] == [visible]
+
+
+@pytest.mark.parametrize("container", [list, tuple, lambda values: {"media": values[0]}], ids=["list", "tuple", "dict"])
+def test_get_history_skips_excluded_containers(history, container):
+    class PrivateContainerSchema(BaseIOSchema):
+        """Message with an excluded collection of source media."""
+
+        image: instructor.Image
+        originals: object = Field(exclude=True)
+
+    visible = instructor.Image(source="visible.jpg", media_type="image/jpeg")
+    private = instructor.Image(source="private.jpg", media_type="image/jpeg")
+    history.add_message("user", PrivateContainerSchema(image=visible, originals=container([private])))
+
+    assert history.get_history() == [{"role": "user", "content": [visible]}]
 
 
 def test_copy(history):
@@ -710,6 +780,53 @@ def test_process_multimodal_paths_comprehensive():
     assert loaded_content.images[0].source == Path("test/sample.jpg")
     assert isinstance(loaded_content.pdfs[0].source, Path)
     assert loaded_content.pdfs[0].source == Path("test/doc.pdf")
+
+
+def test_tuple_attachment_paths_survive_history_round_trip():
+    original = ChatHistory()
+    original.add_message(
+        "user",
+        TupleAttachments(
+            attachments=(
+                instructor.Image(source=Path("image.png"), media_type="image/png"),
+                instructor.processing.multimodal.PDF(source=Path("document.pdf"), media_type="application/pdf"),
+            ),
+            nested={"images": ((instructor.Image(source=Path("nested.png"), media_type="image/png"),),)},
+        ),
+    )
+
+    restored = ChatHistory()
+    restored.load(original.dump())
+    content = restored.history[0].content
+
+    assert content.attachments[0].source == Path("image.png")
+    assert content.attachments[1].source == Path("document.pdf")
+    assert content.nested["images"][0][0].source == Path("nested.png")
+    assert isinstance(content.attachments, tuple)
+    parts = restored.get_history()[0]["content"]
+    assert len(parts) == 3
+    assert all(isinstance(part.source, Path) for part in parts)
+
+
+def test_tuple_url_and_data_sources_survive_history_round_trip():
+    original = ChatHistory()
+    original.add_message(
+        "user",
+        TupleAttachments(
+            attachments=(
+                instructor.Image(source="https://example.com/image.png", media_type="image/png"),
+                instructor.processing.multimodal.PDF(
+                    source="data:application/pdf;base64,JVBERi0=", media_type="application/pdf"
+                ),
+            ),
+            nested={},
+        ),
+    )
+    restored = ChatHistory()
+    restored.load(original.dump())
+    attachments = restored.history[0].content.attachments
+    assert attachments[0].source == "https://example.com/image.png"
+    assert attachments[1].source == "data:application/pdf;base64,JVBERi0="
 
 
 def test_get_history_nested_pydantic_with_toplevel_multimodal(history):
