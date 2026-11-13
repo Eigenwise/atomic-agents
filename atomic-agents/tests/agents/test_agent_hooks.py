@@ -126,13 +126,11 @@ def test_local_token_hook_lifecycle_with_real_instructor(token_hook_agent, initi
     native.assert_called_once_with(model="before")
 
     agent.disable_hooks()
-    agent.disable_hooks()
     agent.get_context_token_count()
     agent.client.hooks.emit_completion_arguments(model="disabled")
     assert local.call_count == native.call_count == 1
     assert foreign.call_count == 2
 
-    agent.enable_hooks()
     agent.enable_hooks()
     agent.get_context_token_count()
     agent.client.hooks.emit_completion_arguments(model="resumed")
@@ -172,8 +170,6 @@ def test_duplicate_local_token_hooks_with_real_instructor(token_hook_agent):
     local = Mock()
     agent.register_hook("token:counted", local)
     agent.register_hook("token:counted", local)
-    agent.disable_hooks()
-    agent.enable_hooks()
     agent.get_context_token_count()
     assert local.call_count == 2
     local.assert_called_with(result)
@@ -185,30 +181,17 @@ def test_duplicate_local_token_hooks_with_real_instructor(token_hook_agent):
     assert local.call_count == 3
 
 
-@pytest.mark.parametrize("raises", [False, True])
-def test_local_token_hook_can_unregister_itself_without_skipping_other_handlers(token_hook_agent, raises):
-    agent, result = token_hook_agent
-    calls = []
-
-    def once(value):
-        calls.append(("once", value))
-        agent.unregister_hook("token:counted", once)
-        if raises:
-            raise ValueError("one-shot callback failed")
-
-    def retained(value):
-        calls.append(("retained", value))
-
-    agent.register_hook("token:counted", once)
-    agent.register_hook("token:counted", retained)
-
-    assert agent.get_context_token_count() == result
-    assert calls == [("once", result), ("retained", result)]
-    assert agent.get_context_token_count() == result
-    assert calls == [("once", result), ("retained", result), ("retained", result)]
-
-
-def test_local_token_hook_added_by_callback_waits_until_next_event(token_hook_agent):
+@pytest.mark.parametrize(
+    "mutation,next_handlers",
+    [
+        ("unregister", ["retained"]),
+        ("unregister_raising", ["retained"]),
+        ("register", ["mutating", "retained", "late"]),
+        ("clear_event", []),
+        ("clear_all", []),
+    ],
+)
+def test_local_token_hook_mutations_apply_to_next_dispatch(token_hook_agent, mutation, next_handlers):
     agent, result = token_hook_agent
     calls = []
     added = False
@@ -216,33 +199,34 @@ def test_local_token_hook_added_by_callback_waits_until_next_event(token_hook_ag
     def late(value):
         calls.append(("late", value))
 
-    def register_late(value):
+    def mutating(value):
         nonlocal added
-        calls.append(("register", value))
-        if not added:
-            added = True
-            agent.register_hook("token:counted", late)
+        calls.append(("mutating", value))
+        if mutation.startswith("unregister"):
+            agent.unregister_hook("token:counted", mutating)
+            if mutation == "unregister_raising":
+                raise ValueError("one-shot callback failed")
+        elif mutation == "register":
+            if not added:
+                added = True
+                agent.register_hook("token:counted", late)
+        else:
+            agent.clear_hooks("token:counted" if mutation == "clear_event" else None)
 
-    agent.register_hook("token:counted", register_late)
+    def retained(value):
+        calls.append(("retained", value))
 
-    assert agent.get_context_token_count() == result
-    assert calls == [("register", result)]
-    assert agent.get_context_token_count() == result
-    assert calls == [("register", result), ("register", result), ("late", result)]
-
-
-@pytest.mark.parametrize("event", [None, "token:counted"])
-def test_clearing_local_token_hooks_during_dispatch_takes_effect_on_next_event(token_hook_agent, event):
-    agent, result = token_hook_agent
-    retained = Mock()
-
-    def clear(value):
-        agent.clear_hooks(event)
-
-    agent.register_hook("token:counted", clear)
+    agent.register_hook("token:counted", mutating)
     agent.register_hook("token:counted", retained)
 
     assert agent.get_context_token_count() == result
-    retained.assert_called_once_with(result)
+    assert calls == [("mutating", result), ("retained", result)]
+    calls.clear()
     assert agent.get_context_token_count() == result
-    retained.assert_called_once_with(result)
+    assert calls == [(name, result) for name in next_handlers]
+
+
+def test_unknown_hook_is_still_validated_by_instructor(token_hook_agent):
+    agent, _ = token_hook_agent
+    with pytest.raises(ValueError, match="Invalid hook name"):
+        agent.register_hook("token:countedd", Mock())

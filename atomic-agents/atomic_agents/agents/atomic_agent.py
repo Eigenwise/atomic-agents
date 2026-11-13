@@ -54,6 +54,11 @@ _TOOL_MODES = frozenset(
 # Events emitted by AtomicAgent itself, not accepted by Instructor's hook registry.
 _LOCAL_HOOK_EVENTS = frozenset({"token:counted"})
 
+
+def _is_instructor_hook(event: str) -> bool:
+    return event not in _LOCAL_HOOK_EVENTS
+
+
 # Instructor multimodal objects that can be lowered to a chat-format content part.
 _InstructorMedia = Union[Image, Audio, PDF]
 
@@ -109,9 +114,7 @@ class AgentConfig(BaseModel):
     client: instructor.Instructor = Field(..., description="Client for interacting with the language model.")
     name: Optional[str] = Field(
         default=None,
-        description=(
-            "Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name."
-        ),
+        description="Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name.",
     )
     model: str = Field(default="gpt-5-mini", description="The model to use for generating responses.")
     history: Optional[BaseChatHistory] = Field(default=None, description="History component for storing chat history.")
@@ -177,8 +180,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         history (BaseChatHistory): History component for storing chat history.
         system_prompt_generator (BaseSystemPromptGenerator): Component for generating system prompts.
         system_role (Optional[str]): The role of the system in the conversation. None means no system prompt.
-        assistant_role (str): The role of the assistant in the conversation.
-            Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
+        assistant_role (str): The role of the assistant in the conversation. Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
         initial_history (ChatHistory): Initial state of the history.
         current_user_input (Optional[InputSchema]): The current user input being processed.
         model_api_parameters (dict): Additional parameters passed to the API provider.
@@ -881,9 +883,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         Registers a hook handler for a specific event.
 
-        Locally dispatched events use the handlers registered when dispatch begins.
-        Changes made by a callback apply to subsequent events, not the current one.
-        Instructor-managed events retain the client's dispatch behavior.
+        Local events use a snapshot of the registered handlers for each dispatch.
 
         Args:
             event (str): The event name (e.g., 'parse:error', 'completion:kwargs', etc.)
@@ -894,7 +894,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hook_handlers[event].append(handler)
 
         # Register with instructor client if it supports hooks
-        if event not in _LOCAL_HOOK_EVENTS and self._hooks_enabled and hasattr(self.client, "on"):
+        if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "on"):
             self.client.on(event, handler)
 
     def unregister_hook(self, event: str, handler: Callable) -> None:
@@ -909,7 +909,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self._hook_handlers[event].remove(handler)
 
             # Remove from instructor client if it supports hooks
-            if event not in _LOCAL_HOOK_EVENTS and self._hooks_enabled and hasattr(self.client, "off"):
+            if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "off"):
                 self.client.off(event, handler)
 
     def clear_hooks(self, event: Optional[str] = None) -> None:
@@ -953,7 +953,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = True
         if hasattr(self.client, "on"):
             for event, handlers in self._hook_handlers.items():
-                if event in _LOCAL_HOOK_EVENTS:
+                if not _is_instructor_hook(event):
                     continue
                 for handler in handlers:
                     self.client.on(event, handler)
@@ -965,7 +965,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = False
         if hasattr(self.client, "off"):
             for event, handlers in self._hook_handlers.items():
-                if event in _LOCAL_HOOK_EVENTS:
+                if not _is_instructor_hook(event):
                     continue
                 for handler in handlers:
                     self.client.off(event, handler)
