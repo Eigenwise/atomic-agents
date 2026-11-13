@@ -34,6 +34,7 @@ class MCPToolOutputSchema(BaseIOSchema):
 
     Used as a fallback when the MCP server does not provide an outputSchema definition.
     Tools with MCP-provided outputSchema will have typed output schemas instead.
+    When a result has no content blocks, its structuredContent is returned directly.
     """
 
     result: Any = Field(..., description="The result returned by the MCP tool.")
@@ -210,6 +211,10 @@ def _validate_typed_tool_output(tool_result: _ToolResult, output_schema: type[Ba
 
 
 def _render_generic_tool_output(tool_result: _ToolResult, output_schema: type[BaseIOSchema]) -> BaseIOSchema:
+    envelope = _validated_tool_envelope(tool_result)
+    if envelope is not None and not envelope.content and envelope.structuredContent is not None:
+        return output_schema(**{"result": envelope.structuredContent})
+
     content: _ToolContent | _ToolResult
     if isinstance(tool_result, BaseModel) and hasattr(tool_result, "content"):
         content = getattr(tool_result, "content")
