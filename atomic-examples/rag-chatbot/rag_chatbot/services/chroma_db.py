@@ -1,6 +1,6 @@
 import os
-import shutil
 import chromadb
+from chromadb.errors import NotFoundError
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 from typing import Dict, List, Optional
 import uuid
@@ -29,13 +29,14 @@ class ChromaDBService(BaseVectorDBService):
             api_key=os.getenv("OPENAI_API_KEY"), model_name="text-embedding-3-small"
         )
 
-        # If recreating, delete the entire persist directory
-        if recreate_collection and os.path.exists(persist_directory):
-            shutil.rmtree(persist_directory)
-            os.makedirs(persist_directory)
-
         # Initialize persistent client
         self.client = chromadb.PersistentClient(path=persist_directory)
+
+        if recreate_collection:
+            try:
+                self.client.delete_collection(name=collection_name)
+            except NotFoundError:
+                pass
 
         # Get or create collection
         self.collection = self.client.get_or_create_collection(
