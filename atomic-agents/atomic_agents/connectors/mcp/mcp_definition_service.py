@@ -187,12 +187,15 @@ class MCPDefinitionService:
         return definitions
 
     @staticmethod
-    async def fetch_tool_definitions_from_session(session: ClientSession) -> List[MCPToolDefinition]:
+    async def fetch_tool_definitions_from_session(
+        session: ClientSession, *, initialize: bool = True
+    ) -> List[MCPToolDefinition]:
         """
         Fetch tool definitions from an existing session.
 
         Args:
             session: MCP client session
+            initialize: Initialize the session first; pass False for an already initialized session.
 
         Returns:
             List of tool definitions
@@ -202,9 +205,8 @@ class MCPDefinitionService:
         """
         definitions: List[MCPToolDefinition] = []
         try:
-            # `initialize` is idempotent – calling it twice is safe and
-            # ensures the session is ready.
-            await session.initialize()
+            if initialize:
+                await session.initialize()
             mcp_tools = await _fetch_all_pages(
                 await session.list_tools(), lambda cursor: session.list_tools(cursor=cursor), lambda response: response.tools
             )
@@ -278,12 +280,15 @@ class MCPDefinitionService:
         return resources
 
     @staticmethod
-    async def fetch_resource_definitions_from_session(session: ClientSession) -> List[MCPResourceDefinition]:
+    async def fetch_resource_definitions_from_session(
+        session: ClientSession, *, initialize: bool = True
+    ) -> List[MCPResourceDefinition]:
         """
         Fetch resource definitions from an existing session.
 
         Args:
             session: MCP client session
+            initialize: Initialize the session first; pass False for an already initialized session.
 
         Returns:
             List of resource definitions
@@ -291,7 +296,8 @@ class MCPDefinitionService:
         resources: List[MCPResourceDefinition] = []
 
         try:
-            await session.initialize()
+            if initialize:
+                await session.initialize()
             resources_iterable = await _fetch_all_pages(
                 await session.list_resources(),
                 lambda cursor: session.list_resources(cursor=cursor),
@@ -408,19 +414,23 @@ class MCPDefinitionService:
         return prompts
 
     @staticmethod
-    async def fetch_prompt_definitions_from_session(session: ClientSession) -> List[MCPPromptDefinition]:
+    async def fetch_prompt_definitions_from_session(
+        session: ClientSession, *, initialize: bool = True
+    ) -> List[MCPPromptDefinition]:
         """
         Fetch prompt/template definitions from an existing session.
 
         Args:
             session: MCP client session
+            initialize: Initialize the session first; pass False for an already initialized session.
 
         Returns:
             List of prompt definitions
         """
         prompts: List[MCPPromptDefinition] = []
         try:
-            await session.initialize()
+            if initialize:
+                await session.initialize()
             mcp_prompts = await _fetch_all_pages(
                 await session.list_prompts(),
                 lambda cursor: session.list_prompts(cursor=cursor),
