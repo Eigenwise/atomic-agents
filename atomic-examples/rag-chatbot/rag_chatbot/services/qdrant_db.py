@@ -61,8 +61,10 @@ class QdrantDBService(BaseVectorDBService):
 
     def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
         response = self.openai_client.embeddings.create(model=self.embedding_model, input=texts)
-
-        return [embedding.embedding for embedding in response.data]
+        embeddings = sorted(response.data, key=lambda embedding: embedding.index)
+        if [embedding.index for embedding in embeddings] != list(range(len(texts))):
+            raise ValueError("Embedding response indices must cover the input batch exactly once")
+        return [embedding.embedding for embedding in embeddings]
 
     def add_documents(
         self,
