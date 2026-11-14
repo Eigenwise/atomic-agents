@@ -25,6 +25,8 @@ Searches Hacker News stories, comments, Show HN, Ask HN, and polls via the free 
 ### Output Schema
 A list of `HackerNewsItem` items, each with `object_id`, `title`, `url`, `hn_url`, `author`, `points`, `num_comments`, `created_at`, `story_text`, `comment_text`, `parent_id`, `story_id`.
 
+`failures` lists each unsuccessful query and its error. Successful queries retain their results when another query fails. HTTP errors, transport errors, and malformed responses are reported here, so an outage or invalid filter does not look like a successful search with no matches. A successful empty search returns both `results=[]` and `failures=[]`.
+
 ## Usage
 
 ```python
