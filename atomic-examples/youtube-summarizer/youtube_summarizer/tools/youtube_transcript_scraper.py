@@ -151,8 +151,11 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
         """
         api_key = os.getenv("YOUTUBE_API_KEY")
         youtube = build("youtube", "v3", developerKey=api_key)
-        request = youtube.videos().list(part="snippet", id=video_id)
-        response = request.execute()
+        try:
+            request = youtube.videos().list(part="snippet", id=video_id)
+            response = request.execute()
+        finally:
+            youtube.close()
 
         if not response["items"]:
             raise Exception(f"No metadata found for video '{video_id}'")
