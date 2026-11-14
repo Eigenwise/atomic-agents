@@ -244,10 +244,16 @@ Attributes, GenAI keys first. All of them are written whether or not the OpenInf
 | `gen_ai.usage.input_tokens` | AGENT, LLM | Input tokens (AGENT: total across attempts) |
 | `gen_ai.usage.output_tokens` | AGENT, LLM | Output tokens |
 | `gen_ai.usage.cache_read.input_tokens` | AGENT, LLM | Cached input tokens, when the provider reports them |
+| `gen_ai.usage.cache_write.input_tokens` | AGENT, LLM | Input tokens used to create a cache entry, when reported separately |
 | `gen_ai.usage.reasoning.output_tokens` | AGENT, LLM | Reasoning tokens, when the provider reports them |
 | `gen_ai.input.messages`, `gen_ai.output.messages` | LLM | Opt-in canonical message JSON, omitted when hidden or over the size cap |
 | `gen_ai.conversation.id` | all | Set by `using_conversation` |
 | `error.type` | failed spans | Exception class name |
+
+Input totals include cached tokens. Anthropic reports cache reads and writes separately from its uncached
+`input_tokens`, so tracing adds both to the input total and also records each cache category. OpenAI's input
+total already includes its nested `cached_tokens`, so that value is not added again. Each attempt records its
+own counts, and the AGENT span accumulates those counts across retries.
 
 Atomic Agents' own keys:
 
@@ -292,8 +298,8 @@ run) and removes them again in `uninstrument()`:
 - `completion:error` records the exception, sets `error.type` and ends the span with status `ERROR`.
 - `parse:error` adds a `validation_error` event (with `atomic_agents.llm.attempt`) to the AGENT span and sets
   `atomic_agents.llm.last_validation_error`. Instructor then retries, which opens the next attempt span.
-- `completion:usage` writes the running totals to the AGENT span: the four `gen_ai.usage.*` keys and
-  `atomic_agents.llm.attempts`.
+- Usage from each `completion:response` is accumulated, then written to the AGENT span with
+  `atomic_agents.llm.attempts` when the run finishes.
 
 An attempt is one call to the model. A retry is any attempt after the first, normally because the response failed
 validation, so two attempt spans under one agent span means one retry. Hooks you registered on the same client yourself
