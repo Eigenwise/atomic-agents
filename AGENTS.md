@@ -98,6 +98,7 @@ Each example is self-contained and demonstrates specific patterns and capabiliti
 - `arxiv_search/` - Academic paper search via the public arXiv API
 - `bocha_search/` - BoCha web search
 - `calculator/` - Mathematical computation tool
+- `datacircle/` - GTM API plans ranked by score out of 100, with their prices, via the Datacircle API (no key)
 - `datetime_tool/` - Timezone-aware now / parse / convert / shift / diff
 - `fia_signals/` - Crypto market intelligence (regime, signals, yields, gas, trending, wallet risk)
 - `firecrawl_search/` - Web and news search via the Firecrawl API, with optional page content as Markdown

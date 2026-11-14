@@ -148,6 +148,7 @@ The Atomic Forge ships with several pre-built tools:
 - **arXiv Search**: Search arXiv for academic papers (free public API)
 - **BoCha Search**: Web search
 - **Calculator**: Perform mathematical calculations
+- **Datacircle**: The best GTM API plans (email finders, LinkedIn profiles, company data, SERP and more) by score out of 100, with their prices (no key required)
 - **DateTime**: Timezone-aware now / parse / convert / shift / diff (no key required)
 - **Fía Signals**: Crypto market intelligence — market regime, trading signals, DeFi yields, gas prices, Solana trending tokens, and wallet risk scoring
 - **Firecrawl Search**: Web and news search via the Firecrawl API, with optional page content as Markdown
