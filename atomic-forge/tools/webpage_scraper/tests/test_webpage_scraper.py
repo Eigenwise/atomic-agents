@@ -65,6 +65,7 @@ class TestWebpageScraperTool(unittest.TestCase):
         mock_response = Mock()
         mock_response.text = self.sample_html
         mock_response.content = self.sample_html.encode("utf-8")
+        mock_response.headers = {"Content-Type": "text/html; charset=utf-8"}
         mock_get.return_value = mock_response
 
         # Test the method
