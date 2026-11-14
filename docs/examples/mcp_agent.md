@@ -130,6 +130,14 @@ async def setup_tools():
     return tools
 ```
 
+Discovery follows the server's negotiated `tools`, `resources`, and `prompts`
+capabilities. A catalog that the server does not advertise returns an empty list
+without sending its list requests. This lets `fetch_mcp_attributes_with_schema`
+combine the available catalogs from servers that expose only some of these
+features. Errors from advertised tool, static-resource and prompt listings, and
+from continuation pages, still propagate to the caller. An unavailable initial
+resource-template listing retains its existing empty-list fallback.
+
 ## MCP Transport Methods
 
 The example implements three distinct transport methods via the `MCPTransportType` enum, each with its own advantages:
