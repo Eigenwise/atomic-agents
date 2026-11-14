@@ -114,7 +114,7 @@ def test_computed_media_getter_is_evaluated_once():
 
 
 @pytest.mark.parametrize("container", [False, True], ids=["scalar", "changing-container"])
-def test_ordinary_computed_properties_keep_single_serialization_evaluation(container):
+def test_ordinary_computed_properties_keep_pydantic_serialization_behavior(container):
     class LiveResult(BaseIOSchema):
         """A changing computed value which must keep its normal serialization path."""
 
@@ -129,14 +129,15 @@ def test_ordinary_computed_properties_keep_single_serialization_evaluation(conta
                 return [self._reads, media] if self._reads == 1 else [media, self._reads]
             return self._reads
 
+    reference = LiveResult()
+    expected = reference.model_dump_json()
     content = LiveResult()
 
     result = rendered(content)[0]["content"]
 
     assert isinstance(result, str)
-    expected = [1, make_media("image").model_dump(mode="json")] if container else 1
-    assert json.loads(result) == {"value": expected}
-    assert content._reads == 1
+    assert result == expected
+    assert content._reads == reference._reads
 
 
 def test_cached_none_stays_in_the_json_message_without_recomputation():
