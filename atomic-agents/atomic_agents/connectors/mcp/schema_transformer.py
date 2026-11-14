@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annot
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
-from pydantic import BeforeValidator, Field, WithJsonSchema, create_model
+from pydantic import AfterValidator, BeforeValidator, Field, WithJsonSchema, create_model
+from pydantic_core import to_jsonable_python
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
@@ -30,6 +31,17 @@ def _validate_ref(validator: Any, reference: str, value: Any, schema: Any) -> An
 
 
 _ScalarChoiceValidator = validators.extend(Draft202012Validator, {"$ref": _validate_ref})
+_UniqueItemsValidator = Draft202012Validator({"uniqueItems": True})
+
+
+def _validate_unique_items(value: Any) -> Any:
+    # Compare the values that will be sent, including normalized nested models.
+    # JSON equality distinguishes booleans from numbers and ignores object key order.
+    if isinstance(value, (list, tuple)) and len(value) > 1:
+        if not _UniqueItemsValidator.is_valid(to_jsonable_python(value)):
+            raise ValueError("Array items must be unique")
+    return value
+
 
 # JSON type mapping
 JSON_TYPE_MAP = {
@@ -206,6 +218,11 @@ class SchemaTransformer:
                     if isinstance(value_schema, dict):
                         value_type, _ = SchemaTransformer.json_to_pydantic_field(value_schema, True, root_schema, model_cache)
                         python_type = Dict[str, value_type]
+
+        if prop_schema.get("uniqueItems") is True:
+            python_type = Annotated[
+                python_type, AfterValidator(_validate_unique_items), Field(json_schema_extra={"uniqueItems": True})
+            ]
 
         field_kwargs = {"description": description}
         if required:
