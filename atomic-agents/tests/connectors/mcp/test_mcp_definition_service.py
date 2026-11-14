@@ -460,8 +460,8 @@ class TestToolDefinitionService:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("code", [types.METHOD_NOT_FOUND, types.INTERNAL_ERROR])
-    async def test_resource_template_continuation_error_is_propagated(self, code):
-        mock_session = AsyncMock()
+    async def test_resource_template_continuation_error_is_propagated(self, code, paginated_session):
+        mock_session = paginated_session
         mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
         error = McpError(types.ErrorData(code=code, message="Continuation failed"))
         mock_session.list_resource_templates.side_effect = [

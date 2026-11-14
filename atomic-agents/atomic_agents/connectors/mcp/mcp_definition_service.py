@@ -13,7 +13,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 import mcp.types as types
-from pydantic import AnyUrl
+from pydantic import AnyUrl, SerializerFunctionWrapHandler, model_serializer
 from urllib.parse import unquote as decode_uri, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,33 @@ PageType = TypeVar(
     types.ListPromptsResult,
 )
 ItemType = TypeVar("ItemType", types.Tool, types.Resource, types.ResourceTemplate, types.Prompt)
+
+
+class _LegacyPaginatedRequest(types.ClientRequest):
+    """Serialize the old SDK's root cursor at the protocol's params.cursor."""
+
+    @model_serializer(mode="wrap")
+    def _serialize_cursor(self, handler: SerializerFunctionWrapHandler) -> Dict[str, Any]:
+        request = handler(self)
+        request["params"] = {"cursor": request.pop("cursor")}
+        return request
+
+
+async def _fetch_next_page(
+    session: ClientSession,
+    list_method: Callable[..., Awaitable[PageType]],
+    method: str,
+    result_type: type[PageType],
+    cursor: str,
+) -> PageType:
+    # Older supported SDKs put cursor at the request root (and 1.8 has no list
+    # argument for it). Keep newer native methods: they also cache tool output
+    # schemas while listing continuation pages.
+    if "cursor" not in types.PaginatedRequest.model_fields:
+        return await list_method(cursor=cursor)
+    return await session.send_request(
+        _LegacyPaginatedRequest.model_validate({"method": method, "cursor": cursor}), result_type
+    )
 
 
 async def _fetch_all_pages(
@@ -206,7 +233,9 @@ class MCPDefinitionService:
             # ensures the session is ready.
             await session.initialize()
             mcp_tools = await _fetch_all_pages(
-                await session.list_tools(), lambda cursor: session.list_tools(cursor=cursor), lambda response: response.tools
+                await session.list_tools(),
+                lambda cursor: _fetch_next_page(session, session.list_tools, "tools/list", types.ListToolsResult, cursor),
+                lambda response: response.tools,
             )
             for mcp_tool in mcp_tools:
                 # Capture outputSchema if the MCP server provides one
@@ -294,7 +323,9 @@ class MCPDefinitionService:
             await session.initialize()
             resources_iterable = await _fetch_all_pages(
                 await session.list_resources(),
-                lambda cursor: session.list_resources(cursor=cursor),
+                lambda cursor: _fetch_next_page(
+                    session, session.list_resources, "resources/list", types.ListResourcesResult, cursor
+                ),
                 lambda response: response.resources,
             )
 
@@ -306,7 +337,13 @@ class MCPDefinitionService:
             else:
                 res_templates = await _fetch_all_pages(
                     first_page,
-                    lambda cursor: session.list_resource_templates(cursor=cursor),
+                    lambda cursor: _fetch_next_page(
+                        session,
+                        session.list_resource_templates,
+                        "resources/templates/list",
+                        types.ListResourceTemplatesResult,
+                        cursor,
+                    ),
                     lambda response: response.resourceTemplates,
                 )
                 for template in res_templates:
@@ -423,7 +460,9 @@ class MCPDefinitionService:
             await session.initialize()
             mcp_prompts = await _fetch_all_pages(
                 await session.list_prompts(),
-                lambda cursor: session.list_prompts(cursor=cursor),
+                lambda cursor: _fetch_next_page(
+                    session, session.list_prompts, "prompts/list", types.ListPromptsResult, cursor
+                ),
                 lambda response: response.prompts,
             )
             for mcp_prompt in mcp_prompts:

@@ -1,7 +1,7 @@
-from unittest.mock import AsyncMock, call
+from unittest.mock import call
 
 import pytest
-from mcp import ClientSession, types
+from mcp import types
 
 from atomic_agents.connectors.mcp import MCPDefinitionService
 
@@ -35,8 +35,8 @@ CATALOGS = [
 
 
 @pytest.fixture
-def session():
-    client = AsyncMock(spec=ClientSession)
+def session(paginated_session):
+    client = paginated_session
     client.list_resources.return_value = types.ListResourcesResult(resources=[])
     client.list_resource_templates.return_value = types.ListResourceTemplatesResult(resourceTemplates=[])
     return client
