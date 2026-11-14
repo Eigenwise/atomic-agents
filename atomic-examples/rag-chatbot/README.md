@@ -61,6 +61,10 @@ The RAG Chatbot supports two vector databases:
 
 - **Local storage**: Data is stored locally in the `qdrant_db/` directory
 - **Configuration**: Set `VECTOR_DB_TYPE=qdrant` in your `.env` file
+- **Embedding association**: Response entries are matched to their input documents
+  by the embedding `index`, so a reordered response keeps each document's vector,
+  ID and metadata together. Duplicate, missing or out-of-range indices fail before
+  the batch is written. The same check applies to a query's single embedding.
 
 ## Usage
 
