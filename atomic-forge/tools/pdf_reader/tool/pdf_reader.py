@@ -154,9 +154,8 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
                     raise ValueError(f"Invalid page range segment '{chunk}'.") from e
                 if start < 1 or end < 1 or end < start:
                     raise ValueError(f"Invalid page range segment '{chunk}'.")
-                for page in range(start, end + 1):
-                    if page <= total_pages:
-                        result.add(page)
+                for page in range(start, min(end, total_pages) + 1):
+                    result.add(page)
             else:
                 try:
                     page = int(chunk)
