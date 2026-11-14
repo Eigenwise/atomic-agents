@@ -11,6 +11,13 @@ from atomic_agents import BaseIOSchema, VideoURL
 import instructor
 
 
+class TupleAttachments(BaseIOSchema):
+    """A message with typed attachments held in tuples."""
+
+    attachments: tuple[instructor.Image, instructor.processing.multimodal.PDF]
+    nested: dict[str, tuple[tuple[instructor.Image, ...], ...]]
+
+
 class InputSchema(BaseIOSchema):
     """Test Input Schema"""
 
@@ -773,6 +780,53 @@ def test_process_multimodal_paths_comprehensive():
     assert loaded_content.images[0].source == Path("test/sample.jpg")
     assert isinstance(loaded_content.pdfs[0].source, Path)
     assert loaded_content.pdfs[0].source == Path("test/doc.pdf")
+
+
+def test_tuple_attachment_paths_survive_history_round_trip():
+    original = ChatHistory()
+    original.add_message(
+        "user",
+        TupleAttachments(
+            attachments=(
+                instructor.Image(source=Path("image.png"), media_type="image/png"),
+                instructor.processing.multimodal.PDF(source=Path("document.pdf"), media_type="application/pdf"),
+            ),
+            nested={"images": ((instructor.Image(source=Path("nested.png"), media_type="image/png"),),)},
+        ),
+    )
+
+    restored = ChatHistory()
+    restored.load(original.dump())
+    content = restored.history[0].content
+
+    assert content.attachments[0].source == Path("image.png")
+    assert content.attachments[1].source == Path("document.pdf")
+    assert content.nested["images"][0][0].source == Path("nested.png")
+    assert isinstance(content.attachments, tuple)
+    parts = restored.get_history()[0]["content"]
+    assert len(parts) == 3
+    assert all(isinstance(part.source, Path) for part in parts)
+
+
+def test_tuple_url_and_data_sources_survive_history_round_trip():
+    original = ChatHistory()
+    original.add_message(
+        "user",
+        TupleAttachments(
+            attachments=(
+                instructor.Image(source="https://example.com/image.png", media_type="image/png"),
+                instructor.processing.multimodal.PDF(
+                    source="data:application/pdf;base64,JVBERi0=", media_type="application/pdf"
+                ),
+            ),
+            nested={},
+        ),
+    )
+    restored = ChatHistory()
+    restored.load(original.dump())
+    attachments = restored.history[0].content.attachments
+    assert attachments[0].source == "https://example.com/image.png"
+    assert attachments[1].source == "data:application/pdf;base64,JVBERi0="
 
 
 def test_get_history_nested_pydantic_with_toplevel_multimodal(history):
