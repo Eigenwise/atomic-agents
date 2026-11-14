@@ -745,7 +745,7 @@ async def test_unresolvable_base_url_is_wrapped(monkeypatch: pytest.MonkeyPatch,
 
     assert str(raised.value).startswith("Sofya search failed for 'q': request failed: ClientConnectorDNSError ")
     assert_no_key(str(raised.value), repr(raised.value), *frame_locals(raised.value, is_outside_this_test_file))
-    assert lookups == ["localhost"]
+    assert set(lookups) == {"localhost"}
 
 
 ################

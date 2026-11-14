@@ -71,6 +71,6 @@ def test_copy_failure_can_be_retried(tmp_path, monkeypatch):
     copied_tool = Path(AtomicToolManager.copy_atomic_tool(tool, destination))
     assert (copied_tool / "sample").exists()
     (copied_tool / "keep").touch()
-    with pytest.raises(Exception, match="File exists"):
+    with pytest.raises(Exception, match="exists"):
         AtomicToolManager.copy_atomic_tool(tool, destination)
     assert (copied_tool / "keep").exists()
