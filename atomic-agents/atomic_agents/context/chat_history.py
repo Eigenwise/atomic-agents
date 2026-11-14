@@ -158,6 +158,9 @@ class ChatHistory(BaseChatHistory):
                     continue
                 if hasattr(obj, field_name):
                     field_value = getattr(obj, field_name)
+                    exclude_if = getattr(field_info, "exclude_if", None)
+                    if exclude_if is not None and exclude_if(field_value):
+                        continue
                     objects, sub_exclude = ChatHistory._extract_multimodal_info(field_value)
                     if objects:
                         all_objects.extend(objects)
