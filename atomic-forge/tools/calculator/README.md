@@ -43,6 +43,42 @@ result = calculator.run(input_data)
 print(result)  # Expected output: {"result":"1.70710678118655"}
 ```
 
+## Expression configuration
+
+`safe_mode=True` is the default. It accepts numeric literals, symbolic variables,
+parentheses, arithmetic (`+`, `-`, `*`, `/`, `//`, `%`, `**`, and `^`), and named
+math functions: `sin`, `cos`, `tan`, `sec`, `csc`, `cot`, `asin`, `acos`, `atan`,
+`atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `exp`, `log`, `ln`,
+`sqrt`, `cbrt`, `root`, `Abs`, `abs`, `sign`, `floor`, `ceiling`, `factorial`,
+`Min`, `Max`, `Mod`, `gamma`, `binomial`, `gcd`, `lcm`, `erf`, `Rational`,
+`integrate`, and `diff`. Calls use positional math arguments, for example
+`Rational(1, 3)`, `integrate(x**2, x)`, or `diff(x**3, x)`. Write `factorial(n)`;
+postfix `n!` is not supported. The input schema includes this syntax reference
+so it is also available to models using the tool.
+
+Constants are `pi`, `E`, `I`, `oo`, `nan`, `GoldenRatio`, `EulerGamma`, and
+`Catalan`. Expressions are built directly from their
+syntax tree; Python attribute access, indexing, comprehensions, strings, keyword
+arguments, and arbitrary function calls raise `ValueError`.
+
+Applications can explicitly supply trusted functions through configuration:
+
+```python
+calculator = CalculatorTool(
+    CalculatorToolConfig(allowed_functions={"double": lambda value: 2 * value})
+)
+result = calculator.run(CalculatorTool.input_schema(expression="double(3) + 1"))
+```
+
+Configured functions can override built-in math functions. They receive SymPy
+expressions and should return a SymPy expression or a Python number. They run
+application code, so only the application should define this configuration.
+
+Setting `safe_mode=False` restores the full SymPy string parser, including its
+Python evaluation behavior. Use that mode only with trusted expressions. Safe
+mode restricts expression syntax; it does not impose time or memory limits on
+expensive mathematical calculations.
+
 ## Contributing
 
 Contributions are welcome! To contribute:
