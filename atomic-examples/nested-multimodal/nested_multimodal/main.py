@@ -75,7 +75,7 @@ class AnalysisOutput(BaseIOSchema):
 agent = AtomicAgent[AnalysisInput, AnalysisOutput](
     config=AgentConfig(
         client=instructor.from_openai(openai.OpenAI(api_key=API_KEY)),
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         model_api_parameters={"reasoning_effort": "low"},
         system_prompt_generator=SystemPromptGenerator(
             background=[

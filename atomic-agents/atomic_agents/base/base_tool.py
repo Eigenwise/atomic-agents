@@ -1,4 +1,4 @@
-from typing import Optional, Type, get_args, get_origin
+from typing import Optional, Type, get_args
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
@@ -50,31 +50,32 @@ class BaseTool[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema](ABC):
         self.config = config if config is not None else BaseToolConfig()
 
     def __init_subclass__(cls, **kwargs):
-        """
-        Hook called when a class is subclassed.
-
-        Captures generic type parameters during class creation and stores them as class attributes
-        to work around the unreliable __orig_class__ attribute in modern Python generic syntax.
-        """
+        """Keep the cooperative hook used by tracing without caching schema types."""
         super().__init_subclass__(**kwargs)
-        if hasattr(cls, "__orig_bases__"):
-            for base in cls.__orig_bases__:
-                if get_origin(base) is BaseTool:
-                    args = get_args(base)
-                    if len(args) == 2:
-                        cls._input_schema_cls = args[0]
-                        cls._output_schema_cls = args[1]
-                        break
 
     @property
     def input_schema(self) -> Type[InputSchema]:
         """Return the input schema resolved through this instance's specialized bases."""
-        return resolve_schema_types(self, BaseTool)[0]
+        schemas = resolve_schema_types(self, BaseTool)
+        if schemas is not None:
+            return schemas[0]
+        # Preserve legacy dynamic subclasses that do not forward base parameters.
+        if hasattr(self, "__orig_class__"):
+            input_schema, _ = get_args(self.__orig_class__)
+            return input_schema
+        return BaseIOSchema
 
     @property
     def output_schema(self) -> Type[OutputSchema]:
         """Return the output schema resolved through this instance's specialized bases."""
-        return resolve_schema_types(self, BaseTool)[1]
+        schemas = resolve_schema_types(self, BaseTool)
+        if schemas is not None:
+            return schemas[1]
+        # Preserve legacy dynamic subclasses that do not forward base parameters.
+        if hasattr(self, "__orig_class__"):
+            _, output_schema = get_args(self.__orig_class__)
+            return output_schema
+        return BaseIOSchema
 
     @property
     def tool_name(self) -> str:

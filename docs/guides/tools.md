@@ -149,13 +149,16 @@ The Atomic Forge ships with several pre-built tools:
 - **BoCha Search**: Web search
 - **Calculator**: Perform mathematical calculations
 - **DateTime**: Timezone-aware now / parse / convert / shift / diff (no key required)
+- **deed.page Publisher**: Publish HTML pages to a public URL via the deed.page API (no key required)
 - **Fía Signals**: Crypto market intelligence — market regime, trading signals, DeFi yields, gas prices, Solana trending tokens, and wallet risk scoring
 - **Firecrawl Search**: Web and news search via the Firecrawl API, with optional page content as Markdown
 - **FXMacroData**: Macroeconomic releases with official announcement times, release calendars, FX rates, and COT positioning (USD data needs no key)
 - **Hacker News Search**: Search HN stories, comments, Show HN, Ask HN, polls (free Algolia API)
+- **Outcrawl Search**: Web search via the Outcrawl API, with optional page content as Markdown
 - **PDF Reader**: Extract text and metadata from local or remote PDFs, with page-range filtering
 - **SearXNG Search**: Search the web using SearXNG
 - **Serply Search**: Google web, news, and scholar search via the Serply API
+- **Sofya Search**: Web and news search via the Sofya API, with page text for each result
 - **Tavily Search**: AI-powered web search
 - **Weather**: Current conditions and daily/hourly forecasts via Open-Meteo (no key required)
 - **Webpage Scraper**: Extract content from web pages

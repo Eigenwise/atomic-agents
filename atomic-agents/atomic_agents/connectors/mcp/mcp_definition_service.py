@@ -4,7 +4,7 @@ import logging
 import re
 import shlex
 from contextlib import AsyncExitStack
-from typing import List, NamedTuple, Optional, Dict, Any, Callable, Awaitable, TypeVar
+from typing import List, NamedTuple, Optional, Dict, Any, Callable, Awaitable, TypeVar, Union
 from enum import Enum
 
 from mcp import ClientSession, StdioServerParameters
@@ -13,8 +13,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 import mcp.types as types
-from pydantic import AnyUrl
-from urllib.parse import unquote as decode_uri
+from urllib.parse import urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +37,26 @@ async def _fetch_all_pages(
     response = first_page
     items = list(get_items(response) or [])
     cursor = getattr(response, "nextCursor", None)
+    seen_cursors: set[str] = set()
     while isinstance(cursor, str):
+        if cursor in seen_cursors:
+            raise RuntimeError("MCP pagination returned a repeated cursor")
+        seen_cursors.add(cursor)
         response = await list_next(cursor)
         items.extend(get_items(response) or [])
         cursor = getattr(response, "nextCursor", None)
     return items
+
+
+def _transport_endpoint(endpoint: Optional[str], suffix: str) -> str:
+    """Resolve a base URL while preserving an explicit transport endpoint."""
+    if endpoint is None:
+        raise ValueError("Endpoint is required")
+    parts = urlsplit(endpoint)
+    if parts.path.rstrip("/").endswith(suffix.rstrip("/")):
+        return endpoint
+    path = parts.path.rstrip("/") + suffix
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
 
 class MCPTransportType(Enum):
@@ -102,7 +116,8 @@ class MCPDefinitionService:
         Initialize the service.
 
         Args:
-            endpoint: URL of the MCP server (for SSE/HTTP stream) or command string (for STDIO)
+            endpoint: MCP server base URL or explicit /mcp or /sse endpoint (for SSE/HTTP stream),
+                or command string (for STDIO). Query parameters are preserved.
             transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO)
             working_directory: Optional working directory to use when running STDIO commands
         """
@@ -142,13 +157,13 @@ class MCPDefinitionService:
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
                 # HTTP Stream transport - use trailing slash to avoid redirect
                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
-                transport_endpoint = f"{self.endpoint}/mcp/"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/mcp/")
                 logger.info(f"Attempting HTTP Stream connection to {transport_endpoint}")
                 transport = await stack.enter_async_context(streamablehttp_client(transport_endpoint))
                 read_stream, write_stream, _ = transport
             elif self.transport_type == MCPTransportType.SSE:
                 # SSE transport (deprecated)
-                transport_endpoint = f"{self.endpoint}/sse"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/sse")
                 logger.info(f"Attempting SSE connection to {transport_endpoint}")
                 transport = await stack.enter_async_context(sse_client(transport_endpoint))
                 read_stream, write_stream = transport
@@ -236,11 +251,11 @@ class MCPDefinitionService:
                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                 read_stream, write_stream = stdio_transport
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
-                transport_endpoint = f"{self.endpoint}/mcp/"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/mcp/")
                 transport = await stack.enter_async_context(streamablehttp_client(transport_endpoint))
                 read_stream, write_stream, _ = transport
             elif self.transport_type == MCPTransportType.SSE:
-                transport_endpoint = f"{self.endpoint}/sse"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/sse")
                 transport = await stack.enter_async_context(sse_client(transport_endpoint))
                 read_stream, write_stream = transport
             else:
@@ -276,10 +291,12 @@ class MCPDefinitionService:
 
         try:
             await session.initialize()
-            resources_iterable = await _fetch_all_pages(
-                await session.list_resources(),
-                lambda cursor: session.list_resources(cursor=cursor),
-                lambda response: response.resources,
+            resources_iterable: List[Union[types.Resource, types.ResourceTemplate]] = list(
+                await _fetch_all_pages(
+                    await session.list_resources(),
+                    lambda cursor: session.list_resources(cursor=cursor),
+                    lambda response: response.resources,
+                )
             )
 
             try:
@@ -293,33 +310,30 @@ class MCPDefinitionService:
                     lambda cursor: session.list_resource_templates(cursor=cursor),
                     lambda response: response.resourceTemplates,
                 )
-                for template in res_templates:
-                    # Resource templates have no "input_schema" value and use URI templates with parameters.
-                    resources_iterable.append(
-                        types.Resource(
-                            name=template.name,
-                            description=template.description,
-                            uri=AnyUrl(template.uriTemplate),
-                        )
-                    )
+                resources_iterable.extend(res_templates)
 
             for mcp_resource in resources_iterable:
                 # Support both attribute-style objects and dict-like responses
                 if hasattr(mcp_resource, "name"):
                     name = mcp_resource.name
                     description = mcp_resource.description
-                    uri = mcp_resource.uri
+                    if isinstance(mcp_resource, types.ResourceTemplate):
+                        uri = str(mcp_resource.uriTemplate)
+                        parse_placeholders = True
+                    else:
+                        uri = str(mcp_resource.uri)
+                        parse_placeholders = not isinstance(mcp_resource, types.Resource)
                 elif isinstance(mcp_resource, dict):
                     # assume mapping
                     name = mcp_resource["name"]
                     description = mcp_resource.get("description")
-                    uri = mcp_resource.get("uri", "")
+                    uri = str(mcp_resource.get("uri", ""))
+                    parse_placeholders = True
                 else:
                     raise ValueError(f"Unexpected resource format: {mcp_resource}")
 
-                # Extract placeholders from the chosen source
-                uri = decode_uri(str(uri))
-                placeholders = re.findall(r"\{([^}]+)\}", uri) if uri else []
+                # Preserve encoded URI identity; only explicit template braces define parameters.
+                placeholders = re.findall(r"\{([^}]+)\}", uri) if parse_placeholders else []
                 properties: Dict[str, Any] = {}
                 for param_name in placeholders:
                     properties[param_name] = {"type": "string", "description": f"URI parameter {param_name}"}
@@ -366,11 +380,11 @@ class MCPDefinitionService:
                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                 read_stream, write_stream = stdio_transport
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
-                transport_endpoint = f"{self.endpoint}/mcp/"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/mcp/")
                 transport = await stack.enter_async_context(streamablehttp_client(transport_endpoint))
                 read_stream, write_stream, _ = transport
             elif self.transport_type == MCPTransportType.SSE:
-                transport_endpoint = f"{self.endpoint}/sse"
+                transport_endpoint = _transport_endpoint(self.endpoint, "/sse")
                 transport = await stack.enter_async_context(sse_client(transport_endpoint))
                 read_stream, write_stream = transport
             else:

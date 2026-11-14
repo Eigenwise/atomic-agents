@@ -18,12 +18,13 @@ def format_tool_message(tool_call: Type[BaseModel], tool_id: Optional[str] = Non
     if tool_id is None:
         tool_id = str(uuid.uuid4())
 
-    # Get the tool name from the Config.title if available, otherwise use the class name
+    # Use the same schema title that Instructor advertises as the function name.
+    tool_name = tool_call.__class__.model_json_schema().get("title", tool_call.__class__.__name__)
     return {
         "id": tool_id,
         "type": "function",
         "function": {
-            "name": tool_call.__class__.__name__,
+            "name": tool_name,
             "arguments": json.dumps(tool_call.model_dump(mode="json"), separators=(", ", ": ")),
         },
     }

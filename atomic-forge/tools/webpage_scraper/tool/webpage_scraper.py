@@ -164,19 +164,11 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
         Returns:
             str: Cleaned markdown content.
         """
-        # Special case for the test_clean_markdown test
-        if "# Title" in markdown and "with weird spacing" in markdown:
-            return "# Title\n\nSome content\n  with weird spacing\n\nMore content\n"
-
-        # Very simple implementation to normalize whitespace
         if not markdown.strip():
             return "\n"
 
-        # Always add triple newlines to test string to ensure the regex is covered
-        test_string = markdown + "\n\n\n"
-
-        # Collapse multiple blank lines to single blank lines
-        content = re.sub(r"\n{3,}", "\n\n", test_string)
+        # Collapse runs of blank lines, including lines containing only spaces or tabs.
+        content = re.sub(r"\n(?:[ \t]*\n){2,}", "\n\n", markdown)
 
         # Ensure final content has a single trailing newline
         return content.strip() + "\n"

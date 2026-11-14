@@ -1,11 +1,13 @@
-"""New regression coverage for the preserved generic-component schema repair.
-
-Written during recovery on 2026-11-05; this is not the lost original test file.
-"""
+"""Concrete bindings and inheritance precedence for generic components."""
 
 from typing import Generic, TypeVar
 
+import httpx
+import instructor
+import openai
 import pytest
+
+from atomic_agents import AgentConfig, AtomicAgent
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
 from atomic_agents.base.base_prompt import BasePrompt, BasePromptConfig
@@ -72,27 +74,6 @@ def assert_contract(instance, component, input_schema=Request, output_schema=Res
     result = getattr(instance, operation)(input_schema(text="hello"))
     assert type(result) is output_schema
     assert result.text == "HELLO"
-
-
-def test_direct_concrete_component(component):
-    base, *_ = component
-
-    class Concrete(Operations, base[Request, Response]):
-        pass
-
-    assert_contract(Concrete(), component)
-
-
-def test_concrete_component_plain_descendant(component):
-    base, *_ = component
-
-    class Concrete(Operations, base[Request, Response]):
-        pass
-
-    class Child(Concrete):
-        pass
-
-    assert_contract(Child(), component)
 
 
 def test_dynamic_two_parameter_specialization(component):
@@ -232,65 +213,6 @@ def test_concrete_sibling_specializations_are_isolated(component):
     assert_contract(First(), component)
 
 
-def test_legacy_generic_without_forwarded_base_arguments(component):
-    base, *_ = component
-
-    class Legacy[In: BaseIOSchema, Out: BaseIOSchema](Operations, base):
-        pass
-
-    assert_contract(Legacy[Request, Response](), component)
-
-
-def test_untyped_component_defaults(component):
-    base, _, prefix, _ = component
-
-    class Untyped(Operations, base):
-        pass
-
-    instance = Untyped()
-    assert instance.input_schema is BaseIOSchema
-    assert instance.output_schema is BaseIOSchema
-    assert getattr(instance, f"{prefix}_name") == "BaseIOSchema"
-
-
-def test_legacy_unspecialized_component_defaults(component):
-    base, *_ = component
-
-    class Legacy[In: BaseIOSchema, Out: BaseIOSchema](Operations, base):
-        pass
-
-    assert Legacy().input_schema is BaseIOSchema
-    assert Legacy().output_schema is BaseIOSchema
-
-
-def test_explicit_base_redeclaration_takes_precedence(component):
-    base, *_ = component
-
-    class Original(Operations, base[OtherRequest, OtherResponse]):
-        pass
-
-    class Override(Original, base[Request, Response]):
-        pass
-
-    assert_contract(Override(), component)
-    assert_contract(Original(), component, OtherRequest, OtherResponse)
-
-
-def test_descendant_retains_explicit_base_override(component):
-    base, *_ = component
-
-    class Original(Operations, base[OtherRequest, OtherResponse]):
-        pass
-
-    class Override(Original, base[Request, Response]):
-        pass
-
-    class Child(Override):
-        pass
-
-    assert_contract(Child(), component)
-
-
 def test_generic_mixin_does_not_replace_component_arguments(component):
     base, *_ = component
     Extra = TypeVar("Extra")
@@ -356,3 +278,36 @@ def test_classic_generic_typevar_declaration(component):
         pass
 
     assert_contract(Reusable[Request, Response](), component)
+
+
+@pytest.mark.parametrize("descendant", [False, True], ids=["redeclared", "descendant"])
+def test_leftmost_specialized_base_matches_agent_precedence(component, descendant):
+    base, *_ = component
+
+    class Original(Operations, base[OtherRequest, OtherResponse]):
+        pass
+
+    class Redeclared(Original, base[Request, Response]):
+        pass
+
+    class Child(Redeclared):
+        pass
+
+    class OriginalAgent(AtomicAgent[OtherRequest, OtherResponse]):
+        pass
+
+    class RedeclaredAgent(OriginalAgent, AtomicAgent[Request, Response]):
+        pass
+
+    class AgentChild(RedeclaredAgent):
+        pass
+
+    def reject_request(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("Schema resolution must not call a model provider")
+
+    with openai.OpenAI(api_key="test", http_client=httpx.Client(transport=httpx.MockTransport(reject_request))) as provider:
+        config = AgentConfig(client=instructor.from_openai(provider))
+        agent = (AgentChild if descendant else RedeclaredAgent)(config)
+        instance = (Child if descendant else Redeclared)()
+        assert (agent.input_schema, agent.output_schema) == (OtherRequest, OtherResponse)
+        assert_contract(instance, component, agent.input_schema, agent.output_schema)

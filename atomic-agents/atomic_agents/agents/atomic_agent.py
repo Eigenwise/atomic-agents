@@ -2,7 +2,7 @@ import instructor
 from instructor import Mode
 from instructor.processing.multimodal import Image, Audio, PDF
 from pydantic import BaseModel, Field
-from typing import Optional, Type, Generator, AsyncGenerator, get_args, get_origin, Dict, List, Callable, Union, Any
+from typing import Optional, Type, Generator, AsyncGenerator, Dict, List, Callable, Union, Any
 import logging
 from atomic_agents.context.chat_history import ChatHistory
 from atomic_agents.context.base_chat_history import BaseChatHistory
@@ -12,6 +12,7 @@ from atomic_agents.context.system_prompt_generator import (
     BaseSystemPromptGenerator,
 )
 from atomic_agents.base.base_io_schema import BaseIOSchema
+from atomic_agents.base._schema_types import resolve_schema_types
 from atomic_agents.utils.token_counter import get_token_counter, TokenCountResult
 import json
 
@@ -50,6 +51,14 @@ _TOOL_MODES = frozenset(
         Mode.BEDROCK_TOOLS,
     }
 )
+
+# Events emitted by AtomicAgent itself, not accepted by Instructor's hook registry.
+_LOCAL_HOOK_EVENTS = frozenset({"token:counted"})
+
+
+def _is_instructor_hook(event: str) -> bool:
+    return event not in _LOCAL_HOOK_EVENTS
+
 
 # Instructor multimodal objects that can be lowered to a chat-format content part.
 _InstructorMedia = Union[Image, Audio, PDF]
@@ -106,9 +115,11 @@ class AgentConfig(BaseModel):
     client: instructor.Instructor = Field(..., description="Client for interacting with the language model.")
     name: Optional[str] = Field(
         default=None,
-        description="Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name.",
+        description=(
+            "Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name."
+        ),
     )
-    model: str = Field(default="gpt-5-mini", description="The model to use for generating responses.")
+    model: str = Field(default="gpt-5.6-terra", description="The model to use for generating responses.")
     history: Optional[BaseChatHistory] = Field(default=None, description="History component for storing chat history.")
     system_prompt_generator: Optional[BaseSystemPromptGenerator] = Field(
         default=None,
@@ -172,7 +183,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         history (BaseChatHistory): History component for storing chat history.
         system_prompt_generator (BaseSystemPromptGenerator): Component for generating system prompts.
         system_role (Optional[str]): The role of the system in the conversation. None means no system prompt.
-        assistant_role (str): The role of the assistant in the conversation. Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
+        assistant_role (str): The role of the assistant in the conversation.
+            Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
         initial_history (ChatHistory): Initial state of the history.
         current_user_input (Optional[InputSchema]): The current user input being processed.
         model_api_parameters (dict): Additional parameters passed to the API provider.
@@ -340,24 +352,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self.history.add_message(self.tool_result_role, content)
 
     def _resolve_schema_types(self) -> tuple[Type[BaseIOSchema], Type[BaseIOSchema]]:
-        """Resolve AtomicAgent's schemas through the instance's specialized bases."""
-
-        def resolve(base: Any, bindings: Dict[Any, Any]) -> Optional[tuple[Any, Any]]:
-            origin = get_origin(base) or base
-            arguments = tuple(bindings.get(argument, argument) for argument in get_args(base))
-            if origin is AtomicAgent:
-                return (arguments[0], arguments[1]) if len(arguments) == 2 else None
-
-            bindings = {**bindings, **dict(zip(getattr(origin, "__parameters__", ()), arguments))}
-            # Read only bases declared on this class; inherited __orig_bases__
-            # can skip a specialization introduced by an intermediate subclass.
-            for parent in origin.__dict__.get("__orig_bases__", origin.__bases__):
-                schemas = resolve(parent, bindings)
-                if schemas is not None:
-                    return schemas
-            return None
-
-        return resolve(getattr(self, "__orig_class__", type(self)), {}) or (BasicChatInputSchema, BasicChatOutputSchema)
+        """Resolve schemas using the same inheritance rule as component bases."""
+        return resolve_schema_types(self, AtomicAgent) or (BasicChatInputSchema, BasicChatOutputSchema)
 
     @property
     def input_schema(self) -> Type[BaseIOSchema]:
@@ -875,6 +871,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         Registers a hook handler for a specific event.
 
+        Local events use a snapshot of the registered handlers for each dispatch.
+
         Args:
             event (str): The event name (e.g., 'parse:error', 'completion:kwargs', etc.)
             handler (Callable): The callback function to handle the event
@@ -884,7 +882,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hook_handlers[event].append(handler)
 
         # Register with instructor client if it supports hooks
-        if self._hooks_enabled and hasattr(self.client, "on"):
+        if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "on"):
             self.client.on(event, handler)
 
     def unregister_hook(self, event: str, handler: Callable) -> None:
@@ -899,7 +897,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self._hook_handlers[event].remove(handler)
 
             # Remove from instructor client if it supports hooks
-            if self._hooks_enabled and hasattr(self.client, "off"):
+            if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "off"):
                 self.client.off(event, handler)
 
     def clear_hooks(self, event: Optional[str] = None) -> None:
@@ -928,7 +926,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         if not self._hooks_enabled or event not in self._hook_handlers:
             return
 
-        for handler in self._hook_handlers[event]:
+        for handler in tuple(self._hook_handlers[event]):
             try:
                 handler(*args, **kwargs)
             except Exception as e:
@@ -943,6 +941,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = True
         if hasattr(self.client, "on"):
             for event, handlers in self._hook_handlers.items():
+                if not _is_instructor_hook(event):
+                    continue
                 for handler in handlers:
                     self.client.on(event, handler)
 
@@ -953,6 +953,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = False
         if hasattr(self.client, "off"):
             for event, handlers in self._hook_handlers.items():
+                if not _is_instructor_hook(event):
+                    continue
                 for handler in handlers:
                     self.client.off(event, handler)
 
@@ -1054,11 +1056,11 @@ if __name__ == "__main__":
         """
         if streaming:
             client = instructor.from_openai(AsyncOpenAI())
-            config = AgentConfig(client=client, model="gpt-5-mini")
+            config = AgentConfig(client=client, model="gpt-5.6-terra")
             agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](config)
         else:
             client = instructor.from_openai(OpenAI())
-            config = AgentConfig(client=client, model="gpt-5-mini")
+            config = AgentConfig(client=client, model="gpt-5.6-terra")
             agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](config)
 
         # Display agent information before starting the chat
