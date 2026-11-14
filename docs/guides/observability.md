@@ -245,7 +245,7 @@ Attributes, GenAI keys first. All of them are written whether or not the OpenInf
 | `gen_ai.usage.output_tokens` | AGENT, LLM | Output tokens |
 | `gen_ai.usage.cache_read.input_tokens` | AGENT, LLM | Cached input tokens, when the provider reports them |
 | `gen_ai.usage.reasoning.output_tokens` | AGENT, LLM | Reasoning tokens, when the provider reports them |
-| `gen_ai.input.messages`, `gen_ai.output.messages` | LLM | Opt-in canonical message JSON, omitted when hidden or over the size cap |
+| `gen_ai.input.messages`, `gen_ai.output.messages` | LLM | Opt-in canonical message JSON, omitted when hidden or over the size cap (then `<key>.original_length` carries the size) |
 | `gen_ai.conversation.id` | all | Set by `using_conversation` |
 | `error.type` | failed spans | Exception class name |
 
@@ -383,7 +383,10 @@ Native Responses calls record request text and no response. Anthropic-format req
 `tool_use`/`tool_result` blocks and the separate `system` prompt are left out, and so is the response.
 
 Message attributes are compact JSON using the GenAI `role`/`parts` schema. A complete serialized attribute exceeding
-`max_attribute_length` is omitted, including at tiny caps; it is never sliced or given a truncation marker. Empty or
+`max_attribute_length` is omitted, including at tiny caps; it is never sliced. Its size is recorded instead as
+`gen_ai.input.messages.original_length` or `gen_ai.output.messages.original_length`, so a missing attribute on a large
+request points at the size cap (`ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH`). Tool-call arguments that are not valid
+JSON, such as a truncated answer or one containing `NaN`, are kept as their raw string. Empty or
 malformed content can also be omitted. The instrumentor therefore never emits cut-off JSON itself, but an SDK
 `SpanLimits(max_attribute_length=...)` below this cap still truncates the value afterwards. Live backend display is
 unverified.

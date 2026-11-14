@@ -137,6 +137,7 @@ def test_hidden_outputs_omit_request_messages_replaying_model_output():
         None,
         UnconsumableStream(),
         UnreadableContent(),
+        [UnreadableContent()],
         {},
         [{"content": "missing role"}],
         [{"role": "user", "content": object()}],
@@ -145,11 +146,28 @@ def test_hidden_outputs_omit_request_messages_replaying_model_output():
         [{"role": "tool", "content": None}],
         [{"role": "assistant", "tool_calls": [{"type": "other"}]}],
         [{"role": "assistant", "tool_calls": [{"type": "function", "function": {"arguments": "{}"}}]}],
-        [{"role": "assistant", "tool_calls": [{"type": "function", "function": {"name": "call", "arguments": "broken"}}]}],
     ],
 )
 def test_unrepresentable_input_is_omitted(value):
     assert captured(value) == {}
+
+
+@pytest.mark.parametrize("arguments", ['{"title": "Lease en', '{"title": NaN}', '{"ratio": -Infinity}', "broken"])
+@pytest.mark.parametrize("direction", ["input", "output"])
+def test_unparseable_tool_call_arguments_keep_their_raw_text(arguments, direction):
+    rejected_answer = {
+        "role": "assistant",
+        "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "answer", "arguments": arguments}}],
+    }
+    value = (
+        [{"role": "user", "content": "question"}, rejected_answer]
+        if direction == "input"
+        else {"choices": [{"message": rejected_answer}]}
+    )
+
+    tool_call = decoded(value, direction)[-1]["parts"][0]
+
+    assert tool_call == {"type": "tool_call", "name": "answer", "arguments": arguments, "id": "call_1"}
 
 
 @pytest.mark.parametrize(
@@ -171,8 +189,18 @@ def test_complete_json_length_bound(text):
     encoded = captured(messages)["gen_ai.input.messages"]
     assert json.loads(encoded)[0]["parts"][0]["content"] == text
     assert captured(messages, max_attribute_length=len(encoded))["gen_ai.input.messages"] == encoded
-    assert captured(messages, max_attribute_length=len(encoded) - 1) == {}
-    assert captured(messages, max_attribute_length=1) == {}
+    oversized = {"gen_ai.input.messages.original_length": len(encoded)}
+    assert captured(messages, max_attribute_length=len(encoded) - 1) == oversized
+    assert captured(messages, max_attribute_length=1) == oversized
+
+
+def test_oversized_output_messages_record_only_their_length():
+    response = {"choices": [{"message": {"role": "assistant", "content": "a long answer"}}]}
+    encoded = captured(response, "output")["gen_ai.output.messages"]
+
+    assert captured(response, "output", max_attribute_length=len(encoded) - 1) == {
+        "gen_ai.output.messages.original_length": len(encoded)
+    }
 
 
 @pytest.mark.parametrize("setting, expected", [("true", True), ("TRUE", True), ("1", True), ("false", False), ("yes", False)])
