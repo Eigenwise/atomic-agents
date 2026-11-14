@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annot
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
-from pydantic import BeforeValidator, Field, WithJsonSchema, create_model
+from pydantic import BeforeValidator, Field, TypeAdapter, WithJsonSchema, create_model
+from pydantic_core import SchemaError
 from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
 from referencing.jsonschema import DRAFT202012
@@ -42,6 +43,43 @@ JSON_TYPE_MAP = {
     "object": dict,
     "null": type(None),
 }
+
+
+_NUMERIC_CONSTRAINTS = {
+    "minimum": "ge",
+    "maximum": "le",
+    "exclusiveMinimum": "gt",
+    "exclusiveMaximum": "lt",
+    "multipleOf": "multiple_of",
+}
+_STRING_CONSTRAINTS = {"minLength": "min_length", "maxLength": "max_length"}
+_ARRAY_CONSTRAINTS = {"minItems": "min_length", "maxItems": "max_length"}
+
+
+def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict[str, Any]) -> Type:
+    """Attach supported constraints without changing the regex engine or accepting boolean bounds."""
+    constraints = {}
+    if json_type in {"integer", "number"}:
+        for source, target in _NUMERIC_CONSTRAINTS.items():
+            value = prop_schema.get(source)
+            # Draft-04 boolean exclusive bounds are not numeric bounds.
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                constraints[target] = value
+    else:
+        keywords = _STRING_CONSTRAINTS if json_type == "string" else _ARRAY_CONSTRAINTS if json_type == "array" else {}
+        constraints.update({target: prop_schema[source] for source, target in keywords.items() if source in prop_schema})
+    if json_type == "string" and isinstance(prop_schema.get("pattern"), str):
+        pattern = prop_schema["pattern"]
+        try:
+            TypeAdapter(Annotated[str, Field(pattern=pattern)])
+        except SchemaError:
+            logger.warning("Unsupported JSON Schema pattern %r; skipping local pattern validation", pattern)
+        else:
+            constraints["pattern"] = pattern
+    if constraints:
+        # Recursive callers retain the value type but discard returned Field metadata.
+        return Annotated[python_type, Field(**constraints)]
+    return python_type
 
 
 class SchemaTransformer:
@@ -206,6 +244,8 @@ class SchemaTransformer:
                     if isinstance(value_schema, dict):
                         value_type, _ = SchemaTransformer.json_to_pydantic_field(value_schema, True, root_schema, model_cache)
                         python_type = Dict[str, value_type]
+
+                python_type = _constrained_value_type(python_type, json_type, prop_schema)
 
         field_kwargs = {"description": description}
         if required:
