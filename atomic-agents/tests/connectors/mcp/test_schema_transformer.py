@@ -2,7 +2,7 @@ import logging
 
 import pytest
 from jsonschema import Draft202012Validator
-from typing import Any, Dict, List, Optional, Union
+from typing import Annotated, Any, Dict, List, Optional, Union, get_args, get_origin
 
 from pydantic import ValidationError
 
@@ -556,8 +556,9 @@ class TestCreateModelFromSchema:
         """Test oneOf creates Union types."""
         prop_schema = {"oneOf": [{"type": "string"}, {"type": "integer"}], "description": "A union field"}
         result = SchemaTransformer.json_to_pydantic_field(prop_schema, True)
-        # Should create Union[str, int]
-        assert result[0] == Union[str, int]
+        # Should create Union[str, int], annotated to keep oneOf exclusivity
+        assert get_origin(result[0]) is Annotated
+        assert get_args(result[0])[0] == Union[str, int]
         assert result[1].description == "A union field"
 
     def test_union_type_anyof(self):
@@ -589,10 +590,10 @@ class TestCreateModelFromSchema:
             "description": "Array of union items",
         }
         result = SchemaTransformer.json_to_pydantic_field(prop_schema, True)
-        # Should be List[Union[str, int]]
+        # Should be List[Union[str, int]], annotated to keep oneOf exclusivity
         assert hasattr(result[0], "__origin__") and result[0].__origin__ is list
         inner_type = result[0].__args__[0]
-        assert inner_type == Union[str, int]
+        assert get_args(inner_type)[0] == Union[str, int]
 
     def test_model_with_complex_types(self):
         """Test create_model_from_schema with complex types."""
