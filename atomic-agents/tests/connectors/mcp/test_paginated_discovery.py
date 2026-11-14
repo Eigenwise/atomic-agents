@@ -1,7 +1,6 @@
-from unittest.mock import AsyncMock, call
+from unittest.mock import call
 
 import pytest
-from mcp import ClientSession
 from mcp import types
 
 from atomic_agents.connectors.mcp import MCPDefinitionService
@@ -9,10 +8,10 @@ from atomic_agents.connectors.mcp import MCPDefinitionService
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("empty_first_page", [False, True])
-async def test_discover_all_tool_pages(empty_first_page):
+async def test_discover_all_tool_pages(empty_first_page, paginated_session):
     first = types.Tool(name="first", inputSchema={"type": "object"})
     last = types.Tool(name="last", inputSchema={"type": "object"}, outputSchema={"type": "string"})
-    session = AsyncMock(spec=ClientSession)
+    session = paginated_session
     session.list_tools.side_effect = [
         types.ListToolsResult(tools=[] if empty_first_page else [first], nextCursor="tools-next"),
         types.ListToolsResult(tools=[last]),
@@ -28,8 +27,8 @@ async def test_discover_all_tool_pages(empty_first_page):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("empty_first_page", [False, True])
-async def test_discover_all_prompt_pages(empty_first_page):
-    session = AsyncMock(spec=ClientSession)
+async def test_discover_all_prompt_pages(empty_first_page, paginated_session):
+    session = paginated_session
     session.list_prompts.side_effect = [
         types.ListPromptsResult(prompts=[] if empty_first_page else [types.Prompt(name="first")], nextCursor="prompts-next"),
         types.ListPromptsResult(
@@ -46,8 +45,8 @@ async def test_discover_all_prompt_pages(empty_first_page):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("empty_first_page", [False, True])
-async def test_discover_all_resource_and_template_pages(empty_first_page):
-    session = AsyncMock(spec=ClientSession)
+async def test_discover_all_resource_and_template_pages(empty_first_page, paginated_session):
+    session = paginated_session
     session.list_resources.side_effect = [
         types.ListResourcesResult(
             resources=[] if empty_first_page else [types.Resource(name="first", uri="file:///first")],
