@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annot
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
 from pydantic import BeforeValidator, Field, WithJsonSchema, create_model
+from pydantic_core import to_jsonable_python
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
@@ -30,6 +31,17 @@ def _validate_ref(validator: Any, reference: str, value: Any, schema: Any) -> An
 
 
 _ScalarChoiceValidator = validators.extend(Draft202012Validator, {"$ref": _validate_ref})
+
+
+class _OneOfJsonSchema:
+    """Advertise a converted union with oneOf instead of Pydantic's anyOf."""
+
+    def __get_pydantic_json_schema__(self, core_schema: Any, handler: Any) -> Dict[str, Any]:
+        json_schema = handler(core_schema)
+        if "anyOf" in json_schema:
+            json_schema["oneOf"] = json_schema.pop("anyOf")
+        return json_schema
+
 
 # JSON type mapping
 JSON_TYPE_MAP = {
@@ -81,6 +93,21 @@ class SchemaTransformer:
             # Keep type metadata inside the choice branch when Optional wraps it.
             choice_type = Annotated[choice_type, Field(json_schema_extra={"type": declared_type})]
         return choice_type
+
+    @staticmethod
+    def _one_of_type(union_type: Any, branch_schemas: List[Any], root_schema: Dict[str, Any]) -> Any:
+        """Require exactly one oneOf branch to match, which a Pydantic Union cannot express."""
+        validator = _ScalarChoiceValidator(root_schema, registry=Registry())
+        branch_validators = [validator.evolve(schema=branch_schema) for branch_schema in branch_schemas]
+
+        def validate_one_of(value: Any) -> Any:
+            json_value = to_jsonable_python(value)
+            matches = sum(branch_validator.is_valid(json_value) for branch_validator in branch_validators)
+            if matches != 1:
+                raise ValueError(f"Value matches {matches} oneOf branches, expected exactly one")
+            return value
+
+        return Annotated[union_type, BeforeValidator(validate_one_of), _OneOfJsonSchema()]
 
     @staticmethod
     def _resolve_ref(ref_path: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]) -> Type:
@@ -182,6 +209,8 @@ class SchemaTransformer:
                     python_type = union_types[0]
                 else:
                     python_type = Union[tuple(union_types)]
+                    if "oneOf" in prop_schema:
+                        python_type = SchemaTransformer._one_of_type(python_type, union_schemas, root_schema)
         # A JSON Schema type array is a union of its listed types.
         elif isinstance(prop_schema.get("type"), list):
             union_types = [
