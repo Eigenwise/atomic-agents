@@ -450,10 +450,10 @@ is this flow. On the Phoenix path the provider's tracers are OpenInference `OITr
 
 ## Re-instrumentation
 
-`instrument()` with the same provider and config as the active installation does nothing. With a different provider or
-config it replaces them in place and logs a WARNING that says so. Spans already in flight finish on the provider they
-started with; new spans use the new one. `uninstrument()` followed by `instrument()` is the clean way to change
-settings, and `uninstrument()` restores the original methods on `AtomicAgent` and on every tool class.
+`instrument()` is a no-op for the same provider and config; otherwise it replaces them with a warning, with new spans
+using the new settings and in-flight spans retaining their original provider, payload visibility, and size limits.
+`uninstrument()` restores original agent and tool methods without interrupting active calls or streams; saved methods
+and deferred calls or streams that first execute afterwards run without tracing unless instrumentation is enabled again.
 
 In a test suite, call `instrument(tracer_provider=provider)` with a fresh in-memory provider in each test. The replace
 behavior means you do not need to uninstrument between tests, and the warning is expected there:

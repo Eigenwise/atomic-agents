@@ -16,6 +16,7 @@ from opentelemetry.util.types import AttributeValue
 from atomic_agents.base.base_tool import BaseTool
 
 from . import installation
+from .tracing_config import TracingConfig
 from .span_attributes import _best_effort_attributes, _optional_attributes, _suppressed, _without_none
 from .span_payloads import _bounded_text, _record_failure, _set_input_safely, _set_output_safely
 from .span_attributes import (
@@ -130,9 +131,11 @@ def _tool_start_attributes(tool: BaseTool) -> dict[str, AttributeValue]:
 
 
 @contextmanager
-def _tool_span(tool: BaseTool, args: tuple[object, ...], kwargs: dict[str, object]) -> Iterator[Span]:
+def _tool_span(tool: BaseTool, args: tuple[object, ...], kwargs: dict[str, object]) -> Iterator[tuple[Span, TracingConfig]]:
+    installed = installation._current_installation()
+    config = installed.config
     attributes = _tool_start_attributes(tool)
-    with installation._current_installation().tracer.start_as_current_span(
+    with installed.tracer.start_as_current_span(
         f"execute_tool {attributes[ATTR_TOOL_NAME]}",
         attributes=attributes,
         record_exception=False,
@@ -140,12 +143,12 @@ def _tool_span(tool: BaseTool, args: tuple[object, ...], kwargs: dict[str, objec
     ) as span:
         _set_input_safely(span, _tool_input_from_call(args, kwargs), ATTR_TOOL_ARGUMENTS)
         try:
-            yield span
+            yield span, config
         except (asyncio.CancelledError, GeneratorExit):
             span.set_attribute("atomic_agents.cancelled", True)
             raise
         except BaseException as error:
-            _record_failure(span, error)
+            _record_failure(span, error, config)
             raise
 
 
@@ -161,11 +164,11 @@ def _trace_tool_method(
 
     @functools.wraps(wrapped)
     def traced(tool: BaseTool, *args: object, **kwargs: object) -> OutputSchema:
-        if _active_tool.get() is tool or _suppressed():
+        if not installation.is_installed() or _active_tool.get() is tool or _suppressed():
             return wrapped(tool, *args, **kwargs)
-        with _tool_span(tool, args, kwargs) as span:
+        with _tool_span(tool, args, kwargs) as (span, config):
             result = _run_as_active_tool(tool, wrapped, args, kwargs)
-            _set_output_safely(span, result, ATTR_TOOL_RESULT)
+            _set_output_safely(span, result, ATTR_TOOL_RESULT, config=config)
             span.set_status(Status(StatusCode.OK))
             return result
 
@@ -177,11 +180,11 @@ def _trace_tool_async_method(
 ) -> Callable[..., Coroutine[object, object, OutputSchema]]:
     @functools.wraps(wrapped)
     async def traced(tool: BaseTool, *args: object, **kwargs: object) -> OutputSchema:
-        if _active_tool.get() is tool or _suppressed():
+        if not installation.is_installed() or _active_tool.get() is tool or _suppressed():
             return await wrapped(tool, *args, **kwargs)
-        with _tool_span(tool, args, kwargs) as span:
+        with _tool_span(tool, args, kwargs) as (span, config):
             result = await _await_as_active_tool(tool, wrapped, args, kwargs)
-            _set_output_safely(span, result, ATTR_TOOL_RESULT)
+            _set_output_safely(span, result, ATTR_TOOL_RESULT, config=config)
             span.set_status(Status(StatusCode.OK))
             return result
 
