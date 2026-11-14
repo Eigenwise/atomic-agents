@@ -22,6 +22,7 @@ The Atomic Forge project includes the following tools:
 - [Firecrawl Search](/atomic-forge/tools/firecrawl_search/README.md) — web and news search via the Firecrawl API, with optional page content as Markdown.
 - [FXMacroData](/atomic-forge/tools/fxmacrodata/README.md)
 - [Hacker News Search](/atomic-forge/tools/hackernews_search/README.md) — search HN stories, comments, Show HN, Ask HN via the free Algolia API.
+- [Outcrawl Search](/atomic-forge/tools/outcrawl_search/README.md)
 - [PDF Reader](/atomic-forge/tools/pdf_reader/README.md) — extract text and metadata from a local or remote PDF, with page-range filtering.
 - [SearXNG Search](/atomic-forge/tools/searxng_search/README.md)
 - [Serply Search](/atomic-forge/tools/serply_search/README.md)

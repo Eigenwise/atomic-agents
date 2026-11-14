@@ -104,6 +104,7 @@ Each example is self-contained and demonstrates specific patterns and capabiliti
 - `firecrawl_search/` - Web and news search via the Firecrawl API, with optional page content as Markdown
 - `fxmacrodata/` - Macroeconomic releases, release calendars, FX rates, and COT positioning via the FXMacroData API
 - `hackernews_search/` - Hacker News search via the free Algolia API
+- `outcrawl_search/` - Web search via the Outcrawl API, with optional page content as Markdown
 - `pdf_reader/` - PDF text + metadata extraction (local file or URL, page-range support)
 - `searxng_search/` - Privacy-focused search integration
 - `serply_search/` - Google web, news, and scholar search via the Serply API

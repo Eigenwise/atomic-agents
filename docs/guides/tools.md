@@ -154,6 +154,7 @@ The Atomic Forge ships with several pre-built tools:
 - **Firecrawl Search**: Web and news search via the Firecrawl API, with optional page content as Markdown
 - **FXMacroData**: Macroeconomic releases with official announcement times, release calendars, FX rates, and COT positioning (USD data needs no key)
 - **Hacker News Search**: Search HN stories, comments, Show HN, Ask HN, polls (free Algolia API)
+- **Outcrawl Search**: Web search via the Outcrawl API, with optional page content as Markdown
 - **PDF Reader**: Extract text and metadata from local or remote PDFs, with page-range filtering
 - **SearXNG Search**: Search the web using SearXNG
 - **Serply Search**: Google web, news, and scholar search via the Serply API
