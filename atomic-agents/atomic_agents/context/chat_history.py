@@ -2,6 +2,7 @@ import json
 import uuid
 from copy import deepcopy
 from enum import Enum
+from importlib import import_module
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
 
@@ -262,10 +263,15 @@ class ChatHistory(BaseChatHistory):
         serialized_history = []
         for message in self.history:
             content_class = message.content.__class__
+            class_name = content_class.__qualname__
+            # A function-local class may be explicitly exported under its simple
+            # name. Preserve that existing convention; <locals> is not importable.
+            if "<locals>" in class_name:
+                class_name = content_class.__name__
             serialized_message = {
                 "role": message.role,
                 "content": {
-                    "class_name": f"{content_class.__module__}.{content_class.__name__}",
+                    "class_name": f"{content_class.__module__}.{class_name}",
                     "data": message.content.model_dump_json(),
                 },
                 "turn_id": message.turn_id,
@@ -328,9 +334,26 @@ class ChatHistory(BaseChatHistory):
         Raises:
             AttributeError: If the class cannot be found.
         """
-        module_name, class_name = class_string.rsplit(".", 1)
-        module = __import__(module_name, fromlist=[class_name])
-        return getattr(module, class_name)
+        parts = class_string.split(".")
+        import_error = None
+        for boundary in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:boundary])
+            try:
+                obj = import_module(module_name)
+            except ModuleNotFoundError as error:
+                # Only shorten a missing module path. A missing dependency inside
+                # an existing schema module must retain its original exception.
+                if error.name != module_name and not module_name.startswith(f"{error.name}."):
+                    raise
+                if import_error is None:
+                    import_error = error
+                continue
+            for name in parts[boundary:]:
+                obj = getattr(obj, name)
+            return obj
+        if import_error is not None:
+            raise import_error
+        raise ValueError(f"Expected a fully qualified schema class name: {class_string}")
 
     def _process_multimodal_paths(self, obj):
         """
