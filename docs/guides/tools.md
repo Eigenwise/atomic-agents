@@ -175,6 +175,8 @@ atomic
 
 This presents a menu to select and download tools. Each tool ships with input/output schemas, usage examples, dependencies, and installation instructions.
 
+The tool catalogue loads in the background. You can press Escape to return to the menu while it loads; an in-progress Git checkout finishes before its temporary files are removed. Loading errors are reported in the explorer so you can return to the menu and try again.
+
 ### Tool layout
 
 Each downloaded tool follows a standard structure:
