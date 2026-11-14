@@ -97,6 +97,31 @@ class CustomOutputSchema(BaseIOSchema):
     )
 ```
 
+### Reusable Generic Schemas
+
+Document a generic schema once on its declaration. Pydantic's generated
+specializations retain that docstring for their JSON Schema description, while
+their fields use the concrete types:
+
+```python
+from atomic_agents import BaseIOSchema
+
+class Result[T](BaseIOSchema):
+    """A validated result with a typed payload."""
+
+    payload: T
+
+result = Result[int](payload=42)
+assert Result[int].model_json_schema()["properties"]["payload"]["type"] == "integer"
+```
+
+This also applies to nested and partially specialized generic schemas. A class
+you declare yourself, including a subclass of `Result[int]`, still needs its own
+non-empty docstring. Explicit JSON Schema descriptions and titles remain in
+effect. Pydantic's `model_parametrized_name()` can provide a name suitable for a
+provider's tool-name requirements when a specialization is used as an agent
+output schema.
+
 ## Base Agent
 
 The `AtomicAgent` class is the foundation for building AI agents in the Atomic Agents framework. It handles chat interactions, history management, system prompts, and responses from language models.

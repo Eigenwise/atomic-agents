@@ -16,6 +16,11 @@ class BaseIOSchema(BaseModel):
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs):
         super().__pydantic_init_subclass__(**kwargs)
+        # Pydantic creates parametrized subclasses without copying the docstring.
+        # An explicitly declared subclass has no generic origin and must document itself.
+        origin = cls.__pydantic_generic_metadata__["origin"]
+        if cls.__doc__ is None and origin is not None:
+            cls.__doc__ = origin.__doc__
         cls._validate_description()
 
     @classmethod
