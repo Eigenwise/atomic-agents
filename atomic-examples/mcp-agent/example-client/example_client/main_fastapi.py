@@ -25,7 +25,7 @@ class MCPConfig:
     """Configuration for the MCP Agent system using HTTP Stream transport."""
 
     mcp_server_url: str = "http://localhost:6969"
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-5.6-terra"
     openai_api_key: str = os.getenv("OPENAI_API_KEY") or ""
     reasoning_effort: str = "low"
 

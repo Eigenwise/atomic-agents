@@ -32,7 +32,7 @@ State the plan in one short block:
 
 - File: `<project>/agents/<agent_name>.py` (or directly in `main.py` for a tiny project — see `../framework/references/project-structure.md`).
 - Schemas: which pair, where they live.
-- Provider + model + Instructor mode. Default models: OpenAI `gpt-5-mini`, Anthropic `claude-haiku-4-5`, Groq `llama-3.3-70b-versatile`, Ollama `llama3.1`, Gemini `gemini-2.5-flash`.
+- Provider + model + Instructor mode. Default models: OpenAI `gpt-5.6-terra`, Anthropic `claude-haiku-4-5`, Groq `llama-3.3-70b-versatile`, Ollama `llama3.1`, Gemini `gemini-2.5-flash`.
 - `SystemPromptGenerator` content — three sections: `background`, `steps`, `output_instructions`.
 - History? Hooks? Context providers?
 
@@ -57,7 +57,7 @@ The full per-provider matrix lives in `../framework/references/providers.md`. Qu
 # OpenAI — default mode is Mode.TOOLS
 import os, instructor, openai
 client = instructor.from_openai(openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"]))
-model = "gpt-5-mini"
+model = "gpt-5.6-terra"
 api_params: dict = {}
 
 # Anthropic — Mode.TOOLS, max_tokens REQUIRED in model_api_parameters

@@ -154,7 +154,7 @@ def create_agent_with_hooks(schema_type: type, system_prompt: str = None) -> Ato
 
     config = AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         model_api_parameters={"reasoning_effort": "low"},
         history=ChatHistory(),
         system_prompt_generator=system_prompt_generator,

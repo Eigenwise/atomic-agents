@@ -23,5 +23,5 @@ def get_api_key() -> str:
 
 # Constants
 DEFAULT_SESSION_ID = "default"
-MODEL_NAME = "gpt-5-mini"
+MODEL_NAME = "gpt-5.6-terra"
 NUM_SUGGESTED_QUESTIONS = 3

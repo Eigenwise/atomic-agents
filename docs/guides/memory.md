@@ -136,7 +136,7 @@ client = instructor.from_openai(openai.OpenAI())
 agent = AtomicAgent[ChatInput, ChatOutput](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=history,
     )
 )
@@ -231,7 +231,7 @@ class Output(BaseIOSchema):
 history = ChatHistory()
 agent = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=history
 ))
 
@@ -329,7 +329,7 @@ history.load(serialized)
 # Use with agent
 agent = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=history,  # Restored history!
 ))
 
@@ -642,7 +642,7 @@ system_prompt = SystemPromptGenerator(
 
 agent = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     system_prompt_generator=system_prompt,
 ))
 
@@ -770,7 +770,7 @@ shared_history = ChatHistory()
 # Agent A - Technical Expert
 technical_agent = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=shared_history,  # Same history
     system_prompt_generator=SystemPromptGenerator(
         background=["You are a technical expert."]
@@ -780,7 +780,7 @@ technical_agent = AtomicAgent[Input, Output](config=AgentConfig(
 # Agent B - Communication Expert
 communication_agent = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=shared_history,  # Same history!
     system_prompt_generator=SystemPromptGenerator(
         background=["You simplify technical explanations."]
@@ -828,13 +828,13 @@ flowchart TB
 # Each agent has its own history
 agent_a = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=ChatHistory(),  # Independent
 ))
 
 agent_b = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=ChatHistory(),  # Independent
 ))
 
@@ -902,13 +902,13 @@ class ReviewerOutput(BaseIOSchema):
 # Create agents with independent histories
 writer = AtomicAgent[WriterInput, WriterOutput](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=ChatHistory(),
 ))
 
 reviewer = AtomicAgent[ReviewerInput, ReviewerOutput](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=ChatHistory(),
 ))
 
@@ -1002,14 +1002,14 @@ task_context = TaskContextProvider()
 # All agents see the same context
 supervisor = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=ChatHistory(),
 ))
 supervisor.register_context_provider("task", task_context)
 
 worker1 = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=ChatHistory(),
 ))
 worker1.register_context_provider("task", task_context)
@@ -1065,7 +1065,7 @@ memory_provider = MemoryContextProvider(long_term)
 
 agent = AtomicAgent[Input, Output](config=AgentConfig(
     client=client,
-    model="gpt-5-mini",
+    model="gpt-5.6-terra",
     history=ChatHistory(max_messages=20),  # Short-term limited
 ))
 agent.register_context_provider("memory", memory_provider)
@@ -1136,7 +1136,7 @@ def agent_with_history(fresh_history):
     """Agent with clean history."""
     return AtomicAgent[Input, Output](config=AgentConfig(
         client=mock_client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=fresh_history,
     ))
 

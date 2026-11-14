@@ -85,7 +85,7 @@ class ToolRegistryProvider(BaseDynamicContextProvider):
 def create_tool_finder_agent(
     registry: ToolRegistry,
     client: instructor.Instructor,
-    model: str = "gpt-5-mini",
+    model: str = "gpt-5.6-terra",
 ) -> tuple[AtomicAgent, None, None]:
     """Create a tool finder agent with access to tool metadata.
 
@@ -95,7 +95,7 @@ def create_tool_finder_agent(
     Args:
         registry: Tool registry containing metadata about available tools.
         client: Instructor-wrapped LLM client.
-        model: Model to use for the finder agent. Default is gpt-5-mini
+        model: Model to use for the finder agent. Default is gpt-5.6-terra
                for cost efficiency since this is a discovery task.
 
     Returns:
