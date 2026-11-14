@@ -697,7 +697,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.client, instructor.AsyncInstructor
         ), "The run method is not supported for async clients. Use run_async instead."
 
-        if user_input:
+        if user_input is not None:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
@@ -732,7 +732,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.client, instructor.AsyncInstructor
         ), "The run_stream method is not supported for async clients. Use run_async instead."
 
-        if user_input:
+        if user_input is not None:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
@@ -753,7 +753,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             last_response = partial_response
             yield partial_response
 
-        if last_response:
+        if last_response is not None:
             # model_dump() keys the data by field name, so accept field names
             # for output schemas whose fields have an alias.
             full_response_content = self.output_schema.model_validate(last_response.model_dump(), by_name=True)
@@ -777,7 +777,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         assert isinstance(self.client, instructor.AsyncInstructor), "The run_async method is for async clients."
 
-        if user_input:
+        if user_input is not None:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
@@ -804,7 +804,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             OutputSchema: Partial responses from the chat agent.
         """
         assert isinstance(self.client, instructor.AsyncInstructor), "The run_async method is for async clients."
-        if user_input:
+        if user_input is not None:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
@@ -825,7 +825,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             last_response = partial_response
             yield partial_response
 
-        if last_response:
+        if last_response is not None:
             # See run_stream(): accept field names for aliased output schemas.
             full_response_content = self.output_schema.model_validate(last_response.model_dump(), by_name=True)
             self.history.add_message(self.assistant_role, full_response_content)
