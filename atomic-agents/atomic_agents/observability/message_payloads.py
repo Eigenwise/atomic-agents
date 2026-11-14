@@ -1,6 +1,7 @@
 """Bounded, opt-in GenAI chat message attributes."""
 
 import json
+import math
 
 from opentelemetry import context as context_api
 from opentelemetry.trace import Span
@@ -40,6 +41,13 @@ def _call_id(part: dict[str, object], value: object, field: str) -> dict[str, ob
     return part
 
 
+def _finite_json_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError("Non-finite tool argument")
+    return parsed
+
+
 def _tool_call(call: object) -> dict[str, object] | None:
     if _field(call, "type") != "function":
         return None
@@ -50,7 +58,11 @@ def _tool_call(call: object) -> dict[str, object] | None:
     part: dict[str, object] = {"type": "tool_call", "name": name}
     arguments = _field(function, "arguments")
     if isinstance(arguments, str):
-        part["arguments"] = json.loads(arguments)
+        try:
+            part["arguments"] = json.loads(arguments, parse_float=_finite_json_float, parse_constant=_finite_json_float)
+        except (ValueError, RecursionError):
+            # A rejected model answer is still useful when diagnosing an Instructor retry.
+            part["arguments"] = arguments
     return _call_id(part, call, "id")
 
 
