@@ -56,7 +56,7 @@ class SchemaTransformer:
         return (value is None and "null" in json_types) or (isinstance(value, str) and "string" in json_types)
 
     @staticmethod
-    def _scalar_choice_type(prop_schema: Dict[str, Any], choices: List[Any], root_schema: Dict[str, Any]) -> Type:
+    def _choice_type(prop_schema: Dict[str, Any], choices: List[Any], root_schema: Dict[str, Any]) -> Type:
         """Keep only choices satisfying all advertised constraints, including compositions."""
         declared_type = prop_schema.get("type")
         json_types = declared_type if isinstance(declared_type, list) else [declared_type]
@@ -65,7 +65,24 @@ class SchemaTransformer:
         validator = _ScalarChoiceValidator(root_schema, registry=Registry()).evolve(schema=prop_schema)
         choices = [value for value in choices if validator.is_valid(value)]
         if not choices:
-            raise ValueError("Scalar choices do not match the declared JSON Schema constraints")
+            raise ValueError("JSON Schema choices do not match the declared constraints")
+
+        if any(isinstance(choice, (dict, list)) for choice in choices):
+            # Literal cannot represent unhashable JSON containers. The surviving
+            # finite choices already imply the original composition constraints.
+            choice_schema = {"const": choices[0]} if "const" in prop_schema else {"enum": choices}
+            if declared_type is not None:
+                choice_schema["type"] = declared_type
+            choice_validator = Draft202012Validator(choice_schema)
+
+            def validate_structured_choice(value: Any) -> Any:
+                # JSON equality distinguishes nested booleans from numbers and
+                # compares object members without depending on their order.
+                if not choice_validator.is_valid(value):
+                    raise ValueError("Value does not match the JSON Schema choices")
+                return value
+
+            return Annotated[Any, BeforeValidator(validate_structured_choice), WithJsonSchema(choice_schema)]
 
         def validate_choice(value: Any) -> Any:
             if declared_type is not None and not SchemaTransformer._matches_scalar_type(value, json_types):
@@ -98,7 +115,9 @@ class SchemaTransformer:
             ref_schema = defs[ref_name]
             # Avoid infinite recursion by adding placeholder first
             model_cache[ref_name] = Any
-            if isinstance(ref_schema, dict) and (
+            if isinstance(ref_schema, dict) and ("const" in ref_schema or ref_schema.get("enum")):
+                model, _ = SchemaTransformer.json_to_pydantic_field(ref_schema, True, root_schema, model_cache)
+            elif isinstance(ref_schema, dict) and (
                 ref_schema.get("properties")
                 or (ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False)
             ):
@@ -162,13 +181,11 @@ class SchemaTransformer:
         # Handle $ref
         if "$ref" in prop_schema:
             python_type = SchemaTransformer._resolve_ref(prop_schema["$ref"], root_schema, model_cache)
-        # Scalar value constraints must also appear in the model-facing schema.
-        elif "const" in prop_schema and isinstance(prop_schema["const"], (str, int, float, bool, type(None))):
-            python_type = SchemaTransformer._scalar_choice_type(prop_schema, [prop_schema["const"]], root_schema)
-        elif prop_schema.get("enum") and all(
-            isinstance(value, (str, int, float, bool, type(None))) for value in prop_schema["enum"]
-        ):
-            python_type = SchemaTransformer._scalar_choice_type(prop_schema, prop_schema["enum"], root_schema)
+        # Finite value constraints must also appear in the model-facing schema.
+        elif "const" in prop_schema:
+            python_type = SchemaTransformer._choice_type(prop_schema, [prop_schema["const"]], root_schema)
+        elif prop_schema.get("enum"):
+            python_type = SchemaTransformer._choice_type(prop_schema, prop_schema["enum"], root_schema)
         # Handle oneOf/anyOf (unions)
         elif "oneOf" in prop_schema or "anyOf" in prop_schema:
             union_schemas = prop_schema.get("oneOf", prop_schema.get("anyOf", []))

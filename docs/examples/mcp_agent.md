@@ -455,6 +455,15 @@ You: Generate a random number between 1 and 100
 
 ## Tool Results and Errors
 
+Generated input and typed output schemas preserve finite `const` and `enum`
+choices, including complete JSON arrays and objects. For example, a choice of
+`{"format": "json", "fields": ["title"]}` does not also allow extra object
+members or a differently ordered array. Boolean values remain distinct from
+numbers inside these choices. Choices are intersected with the server's other
+schema constraints before the model is built; an impossible intersection rejects
+that tool definition. The existing optional-field defaults and `None` allowance
+are unchanged.
+
 Tools generated from an MCP server (sync and async) read the SDK result in this order:
 
 1. If the server returned `structuredContent` that is not `None`, it is validated against the tool's output schema. This includes empty values. Data that does not fit the schema is rejected, not repaired.
