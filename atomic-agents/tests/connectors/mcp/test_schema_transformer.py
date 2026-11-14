@@ -363,6 +363,30 @@ class TestCreateModelFromSchema:
             model.model_validate(values)
         assert error.value.errors()[0]["loc"] == (invalid_field, "count")
 
+    def test_inline_object_properties_are_validated(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "properties": {"mode": {"type": "string", "enum": ["fast", "safe"]}, "retries": {"type": "integer"}},
+                    "required": ["mode"],
+                },
+                "items": {
+                    "type": "array",
+                    "items": {"type": "object", "properties": {"count": {"type": "integer"}}, "required": ["count"]},
+                },
+            },
+            "required": ["options", "items"],
+        }
+        model = SchemaTransformer.create_model_from_schema(schema, "InlineObjectInput", "run")
+
+        values = {"tool_name": "run", "options": {"mode": "fast", "retries": 2}, "items": [{"count": 1}]}
+        assert model.model_validate(values).model_dump() == values
+        for invalid in ({"options": {"mode": "other"}}, {"options": {"retries": 2}}, {"items": [{"count": "x"}]}):
+            with pytest.raises(ValidationError):
+                model.model_validate({**values, **invalid})
+
     def test_unresolved_reference_warns_and_preserves_value(self, caplog: pytest.LogCaptureFixture) -> None:
         schema = {
             "type": "object",
@@ -689,3 +713,119 @@ class TestCreateModelFromSchema:
 
         assert "resource_name" not in model.model_fields
         assert "data" in model.model_fields
+
+
+@pytest.mark.parametrize("use_ref", [False, True], ids=["inline", "ref"])
+@pytest.mark.parametrize(
+    "additional", [None, True, {}, False, {"type": "integer"}], ids=["absent", "true", "empty", "false", "typed"]
+)
+def test_nested_additional_properties(use_ref, additional):
+    nested = {"type": "object", "properties": {"mode": {"type": "string"}}, "required": ["mode"]}
+    if additional is not None:
+        nested["additionalProperties"] = additional
+    schema = {
+        "type": "object",
+        "$defs": {"Options": nested},
+        "properties": {"options": {"$ref": "#/$defs/Options"} if use_ref else nested},
+        "required": ["options"],
+    }
+    model = SchemaTransformer.create_model_from_schema(schema, "Input", "run")
+    values = {"tool_name": "run", "options": {"mode": "fast", "extra": 5}}
+    if additional is False:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            model.model_validate(values)
+        emitted = model.model_json_schema()
+        assert any(definition.get("additionalProperties") is False for definition in emitted["$defs"].values())
+    else:
+        assert model.model_validate(values).model_dump() == values
+        if additional == {"type": "integer"}:
+            with pytest.raises(ValidationError):
+                model.model_validate({**values, "options": {"mode": "fast", "extra": "invalid"}})
+
+
+@pytest.mark.parametrize("use_ref", [False, True])
+def test_empty_closed_nested_object(use_ref):
+    nested = {"type": "object", "additionalProperties": False}
+    schema = {
+        "$defs": {"Empty": nested},
+        "properties": {"value": {"$ref": "#/$defs/Empty"} if use_ref else nested},
+        "required": ["value"],
+    }
+    model = SchemaTransformer.create_model_from_schema(schema, "Input", "run")
+    assert model.model_validate({"tool_name": "run", "value": {}}).model_dump()["value"] == {}
+    with pytest.raises(ValidationError):
+        model.model_validate({"tool_name": "run", "value": {"extra": 1}})
+
+
+@pytest.mark.parametrize("use_ref", [False, True])
+def test_properties_do_not_override_explicit_non_object_type(use_ref):
+    value_schema = {"type": "string", "properties": {"ignored": {"type": "integer"}}}
+    schema = {
+        "$defs": {"Value": value_schema},
+        "properties": {"value": {"$ref": "#/$defs/Value"} if use_ref else value_schema},
+        "required": ["value"],
+    }
+    model = SchemaTransformer.create_model_from_schema(schema, "Input", "run")
+    values = {"tool_name": "run", "value": "hello"}
+    assert model.model_validate(values).model_dump() == values
+
+
+@pytest.mark.parametrize("use_ref", [False, True], ids=["inline", "ref"])
+@pytest.mark.parametrize("name", ["_id", "__pydantic_extra__", "model_config", "model_dump", "model_validate_json"])
+def test_nested_reserved_field_names_remain_dicts(use_ref, name):
+    nested = {"type": "object", "properties": {name: {"type": "integer"}}, "required": [name]}
+    schema = {
+        "$defs": {"Filter": nested},
+        "properties": {"filter": {"$ref": "#/$defs/Filter"} if use_ref else nested},
+        "required": ["filter"],
+    }
+    model = SchemaTransformer.create_model_from_schema(schema, "Input", "run")
+    values = {"tool_name": "run", "filter": {name: 5, "extra": "preserved"}}
+    result = model.model_validate(values)
+    assert isinstance(result.filter, dict)
+    assert result.model_dump() == values
+    assert model.model_json_schema()["properties"]["filter"]["type"] == "object"
+
+
+@pytest.mark.parametrize("use_ref", [False, True], ids=["inline", "full-pointer"])
+def test_nested_declared_properties_keep_constraints(use_ref):
+    nested = {
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer", "minimum": 1, "maximum": 5},
+            "label": {"type": "string", "minLength": 2, "maxLength": 4, "pattern": "^[a-z]+$"},
+            "items": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"type": "number", "exclusiveMinimum": 0}},
+        },
+        "required": ["count", "label", "items"],
+    }
+    schema = {
+        "$defs": {"Container": {"$defs": {"Payload": nested}}},
+        "properties": {"payload": {"$ref": "#/$defs/Container/$defs/Payload"} if use_ref else nested},
+        "required": ["payload"],
+    }
+    model = SchemaTransformer.create_model_from_schema(schema, "Input", "run")
+    payload = {"count": 2, "label": "ok", "items": [1.5]}
+    values = {"tool_name": "run", "payload": payload}
+    assert model.model_validate(values).model_dump() == values
+    for invalid in (
+        {"count": 0},
+        {"count": 6},
+        {"label": "x"},
+        {"label": "longer"},
+        {"label": "UP"},
+        {"items": []},
+        {"items": [1, 2, 3]},
+        {"items": [0]},
+    ):
+        with pytest.raises(ValidationError):
+            model.model_validate({**values, "payload": {**payload, **invalid}})
+    emitted = model.model_json_schema()
+    properties = next(definition["properties"] for definition in emitted["$defs"].values() if "properties" in definition)
+    assert properties["count"]["minimum"] == 1
+    assert properties["count"]["maximum"] == 5
+    assert properties["label"]["minLength"] == 2
+    assert properties["label"]["maxLength"] == 4
+    assert properties["label"]["pattern"] == "^[a-z]+$"
+    assert properties["items"]["minItems"] == 1
+    assert properties["items"]["maxItems"] == 2
+    assert properties["items"]["items"]["exclusiveMinimum"] == 0

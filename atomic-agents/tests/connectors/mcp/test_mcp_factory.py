@@ -3421,3 +3421,49 @@ async def test_typed_tool_rejects_model_adapter_without_output_fields(named_outp
         await tool_class().arun(tool_class.input_schema(tool_name="EchoTool", query="hello"))
     assert isinstance(failure.value.__cause__, ValueError)
     named_output_tool_session.call_tool.assert_awaited_once_with(name="EchoTool", arguments={"query": "hello"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_ref", [False, True], ids=["inline", "ref"])
+async def test_nested_extra_keys_survive_tool_round_trip(mocked_mcp_connection, use_ref):
+    session, _ = mocked_mcp_connection
+    nested = {"type": "object", "properties": {"mode": {"type": "string"}}, "required": ["mode"]}
+    schema = {
+        "type": "object",
+        "$defs": {"Payload": nested},
+        "properties": {"payload": {"$ref": "#/$defs/Payload"} if use_ref else nested},
+        "required": ["payload"],
+    }
+    definition = session.list_tools.return_value.tools[0]
+    definition.inputSchema = schema
+    definition.outputSchema = schema
+    server_result = {"payload": {"mode": "fast", "server_only": 7}}
+    session.call_tool.return_value = CallToolResult(content=[], structuredContent=server_result)
+    tool_class = (await fetch_mcp_tools_async(client_session=session))[0]
+    arguments = {"payload": {"mode": "fast", "extra": 5}}
+    result = await tool_class().arun(tool_class.input_schema(tool_name=definition.name, **arguments))
+    session.call_tool.assert_awaited_once_with(name=definition.name, arguments=arguments)
+    assert result.model_dump() == server_result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_ref", [False, True], ids=["inline", "ref"])
+async def test_nested_reserved_keys_survive_tool_round_trip(mocked_mcp_connection, use_ref):
+    session, _ = mocked_mcp_connection
+    nested = {"type": "object", "properties": {"_id": {"type": "integer"}}, "required": ["_id"]}
+    schema = {
+        "type": "object",
+        "$defs": {"Payload": nested},
+        "properties": {"payload": {"$ref": "#/$defs/Payload"} if use_ref else nested},
+        "required": ["payload"],
+    }
+    definition = session.list_tools.return_value.tools[0]
+    definition.inputSchema = schema
+    definition.outputSchema = schema
+    server_result = {"payload": {"_id": 5, "server_only": 7}}
+    session.call_tool.return_value = CallToolResult(content=[], structuredContent=server_result)
+    tool_class = (await fetch_mcp_tools_async(client_session=session))[0]
+    arguments = {"payload": {"_id": 5, "extra": 5}}
+    result = await tool_class().arun(tool_class.input_schema(tool_name=definition.name, **arguments))
+    session.call_tool.assert_awaited_once_with(name=definition.name, arguments=arguments)
+    assert result.model_dump() == server_result
