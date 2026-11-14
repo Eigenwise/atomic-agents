@@ -81,7 +81,7 @@ class WeatherCurrent(BaseIOSchema):
     """Current observed weather."""
 
     time: str = Field(..., description="Local timestamp of the observation (ISO 8601).")
-    temperature: float = Field(..., description="Temperature in the requested unit.")
+    temperature: Optional[float] = Field(None, description="Temperature in the requested unit, or None when unavailable.")
     apparent_temperature: Optional[float] = Field(None, description="'Feels like' temperature.")
     humidity: Optional[int] = Field(None, description="Relative humidity, in percent.")
     wind_speed: Optional[float] = Field(None, description="Wind speed in km/h or mph (matches `units`).")
