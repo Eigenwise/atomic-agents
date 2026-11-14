@@ -48,10 +48,36 @@ print(out.text[:1000])
 out = tool.run(PdfReaderToolInputSchema(source="./paper.pdf"))
 ```
 
+### Password-protected PDFs
+
+Set a known user or owner password in the tool configuration. The password is a
+Pydantic `SecretStr`, so configuration representations and JSON serialization
+mask its value. It is not part of the model-facing input schema or sent as an
+HTTP request header.
+
+```python
+import os
+
+from pydantic import SecretStr
+from tool.pdf_reader import PdfReaderTool, PdfReaderToolConfig, PdfReaderToolInputSchema
+
+tool = PdfReaderTool(PdfReaderToolConfig(password=SecretStr(os.environ["PDF_PASSWORD"])))
+out = tool.run(PdfReaderToolInputSchema(source="./protected-report.pdf", page_range="1-2"))
+```
+
+This works with local files and downloaded PDFs. An incorrect password returns
+the usual `error` result without extracted text or metadata. Omitting the option
+keeps pypdf's default behavior, including opening documents with an empty user
+password. A configured password is ignored for an unencrypted document.
+
+For AES-encrypted PDFs, install pypdf's optional cryptography dependencies with
+`pip install 'pypdf[crypto]>=5.1.0,<7.0.0'`. The supported encryption algorithms are
+those provided by the installed pypdf version; see its
+[encryption documentation](https://pypdf.readthedocs.io/en/stable/user/encryption-decryption.html).
+
 ## Notes
 - The tool fails gracefully and returns `error` set in the output rather than raising.
 - For URL sources, the download is hard-capped by `max_size_bytes` in the config (default 50 MB).
-- Encrypted PDFs are not currently supported.
 
 ## Contributing
 PRs welcome — see the main repo `CONTRIBUTING.md`.

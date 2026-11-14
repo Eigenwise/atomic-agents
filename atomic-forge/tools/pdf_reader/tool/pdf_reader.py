@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional, Set
 
 import requests
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pypdf import PdfReader
 
 from atomic_agents import BaseIOSchema, BaseTool, BaseToolConfig
@@ -77,6 +77,10 @@ class PdfReaderToolOutputSchema(BaseIOSchema):
 class PdfReaderToolConfig(BaseToolConfig):
     """Configuration for the PdfReaderTool."""
 
+    password: Optional[SecretStr] = Field(
+        default=None,
+        description="Optional user or owner password for encrypted PDFs. Not exposed in the tool input schema.",
+    )
     user_agent: str = Field(
         default=(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -103,6 +107,7 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
         self.user_agent = config.user_agent
         self.timeout = config.timeout
         self.max_size_bytes = config.max_size_bytes
+        self._password = config.password
 
     @staticmethod
     def _is_url(source: str) -> bool:
@@ -192,6 +197,9 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
         try:
             data = self._load_bytes(params.source)
             reader = PdfReader(io.BytesIO(data))
+            if reader.is_encrypted and self._password is not None:
+                if not reader.decrypt(self._password.get_secret_value()):
+                    raise ValueError("Incorrect password for encrypted PDF.")
             total_pages = len(reader.pages)
 
             if params.page_range:
