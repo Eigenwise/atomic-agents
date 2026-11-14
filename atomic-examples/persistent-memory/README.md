@@ -6,7 +6,7 @@ It shows:
 
 - Subclassing `ChatHistory` to add persistence, following the pluggable `BaseChatHistory` extension point
 - A `SQLiteChatHistory` backend built with **zero extra dependencies**, using only the Python standard library's `sqlite3` module
-- Persisting on every `add_message` call and rehydrating the full history on startup via the inherited `dump()`/`load()`
+- Persisting additions and turn deletions, and rehydrating the full history on startup via the inherited `dump()`/`load()`
 
 See the Memory guide's ["Writing a Custom Memory Backend"](../../docs/guides/memory.md#writing-a-custom-memory-backend) section for the full write-up of this pattern.
 
@@ -48,5 +48,6 @@ Chat with the agent, then exit with `/exit`. A `chat_history.db` file is created
 
 - `__init__` opens (or creates) a SQLite database with a single `sessions(session_id TEXT PRIMARY KEY, data TEXT)` table, and loads any existing row for the given `session_id` via the inherited `load()`.
 - `add_message` calls `super().add_message(...)` to reuse `ChatHistory`'s turn handling, then saves the entire history to SQLite via `self.dump()`.
+- `delete_turn_id` calls `super().delete_turn_id(...)`, then saves the remaining history so deleted turns do not return after a restart. An unknown turn still raises `ValueError` without changing storage.
 
 Because `dump()`/`load()` already handle serialization, the persistence layer only has to move a single JSON string in and out of storage. The same pattern works for any store (Redis, Postgres, a hosted memory service) by swapping out what `_save`/`__init__` talk to.

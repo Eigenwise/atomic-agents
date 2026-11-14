@@ -445,6 +445,10 @@ class PersistentHistory(ChatHistory):
         super().add_message(role, content)
         self.store.put(self.session_id, self.dump())
 
+    def delete_turn_id(self, turn_id):
+        super().delete_turn_id(turn_id)
+        self.store.put(self.session_id, self.dump())
+
     def copy(self):
         # AtomicAgent calls copy() for its initial_history snapshot and reset_history().
         # Without this override, copy() returns a plain ChatHistory and your backend is
@@ -455,7 +459,7 @@ class PersistentHistory(ChatHistory):
         return new_history
 ```
 
-The core of the pattern is small: load on init if there's saved state, persist on every `add_message`. `dump()`/`load()` already round-trip the full history, so there's no serialization logic to write yourself.
+The core of the pattern is small: load on init if there's saved state, and persist after both `add_message` and `delete_turn_id`. Without persisting deletions, removed turns reappear when the session is loaded again. This also matters when `AtomicAgent._trim_context` deletes older turns to fit a token budget. `dump()`/`load()` already round-trip the full history, so there's no serialization logic to write yourself.
 
 ```{important}
 Override `copy()` too. `AtomicAgent` snapshots `initial_history` with `copy()` at construction and restores it in `reset_history()`. The built-in `ChatHistory.copy()` hard-codes a plain `ChatHistory`, so a subclass that carries extra state (a store handle, a `session_id`) that forgets to override `copy()` will be **silently replaced by a non-persistent in-memory history** the first time `reset_history()` runs. Any subclass with its own state must override `copy()` to return its own type.
