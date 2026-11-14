@@ -51,6 +51,14 @@ _TOOL_MODES = frozenset(
     }
 )
 
+# Events emitted by AtomicAgent itself, not accepted by Instructor's hook registry.
+_LOCAL_HOOK_EVENTS = frozenset({"token:counted"})
+
+
+def _is_instructor_hook(event: str) -> bool:
+    return event not in _LOCAL_HOOK_EVENTS
+
+
 # Instructor multimodal objects that can be lowered to a chat-format content part.
 _InstructorMedia = Union[Image, Audio, PDF]
 
@@ -875,6 +883,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         Registers a hook handler for a specific event.
 
+        Local events use a snapshot of the registered handlers for each dispatch.
+
         Args:
             event (str): The event name (e.g., 'parse:error', 'completion:kwargs', etc.)
             handler (Callable): The callback function to handle the event
@@ -884,7 +894,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hook_handlers[event].append(handler)
 
         # Register with instructor client if it supports hooks
-        if self._hooks_enabled and hasattr(self.client, "on"):
+        if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "on"):
             self.client.on(event, handler)
 
     def unregister_hook(self, event: str, handler: Callable) -> None:
@@ -899,7 +909,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self._hook_handlers[event].remove(handler)
 
             # Remove from instructor client if it supports hooks
-            if self._hooks_enabled and hasattr(self.client, "off"):
+            if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "off"):
                 self.client.off(event, handler)
 
     def clear_hooks(self, event: Optional[str] = None) -> None:
@@ -928,7 +938,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         if not self._hooks_enabled or event not in self._hook_handlers:
             return
 
-        for handler in self._hook_handlers[event]:
+        for handler in tuple(self._hook_handlers[event]):
             try:
                 handler(*args, **kwargs)
             except Exception as e:
@@ -943,6 +953,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = True
         if hasattr(self.client, "on"):
             for event, handlers in self._hook_handlers.items():
+                if not _is_instructor_hook(event):
+                    continue
                 for handler in handlers:
                     self.client.on(event, handler)
 
@@ -953,6 +965,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = False
         if hasattr(self.client, "off"):
             for event, handlers in self._hook_handlers.items():
+                if not _is_instructor_hook(event):
+                    continue
                 for handler in handlers:
                     self.client.off(event, handler)
 
