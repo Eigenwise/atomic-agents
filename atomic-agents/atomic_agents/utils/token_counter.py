@@ -119,7 +119,7 @@ class TokenCounter:
 
     def count_text(self, model: str, text: str) -> int:
         """
-        Count the number of tokens in a text string.
+        Count the tokens in a text string without chat-message framing.
 
         Args:
             model: The model identifier.
@@ -131,8 +131,17 @@ class TokenCounter:
         Raises:
             TokenCountError: If token counting fails.
         """
-        messages = [{"role": "user", "content": text}]
-        return self.count_messages(model, messages)
+        if not model:
+            raise ValueError("model is required for token counting")
+
+        try:
+            from litellm import token_counter
+
+            return token_counter(model=model, text=text)
+        except ImportError as e:
+            raise ImportError("litellm is required for token counting. " "Install it with: pip install litellm") from e
+        except Exception as e:
+            raise TokenCountError(f"Failed to count tokens for model '{model}': {e}") from e
 
     def get_max_tokens(self, model: str) -> Optional[int]:
         """

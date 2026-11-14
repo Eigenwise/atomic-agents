@@ -127,8 +127,50 @@ class TestTokenCounter:
         result = counter.count_text("gpt-4", "Hello world")
 
         assert result == 5
-        # Should wrap text in a message
-        mock_token_counter.assert_called_once_with(model="gpt-4", messages=[{"role": "user", "content": "Hello world"}])
+        mock_token_counter.assert_called_once_with(model="gpt-4", text="Hello world")
+
+    @pytest.mark.parametrize("model", ["gpt-4", "gpt-4o-mini"])
+    @pytest.mark.parametrize(
+        "text",
+        ["", "hello", "你好，世界", "\n\t  ", "first line\nsecond line", '{"answer": 42}'],
+        ids=["empty", "ascii", "unicode", "whitespace", "multiline", "json"],
+    )
+    def test_count_text_matches_unframed_tokenizer(self, model: str, text: str) -> None:
+        assert TokenCounter().count_text(model, text) == litellm_token_counter(model=model, text=text)
+
+    @pytest.mark.parametrize("model", ["gpt-4", "gpt-4o-mini"])
+    def test_count_messages_keeps_chat_framing(self, model: str) -> None:
+        messages = [{"role": "user", "content": "hello"}]
+
+        count = TokenCounter().count_messages(model, messages)
+
+        assert count == litellm_token_counter(model=model, messages=messages)
+        assert count > litellm_token_counter(model=model, text="hello")
+
+    def test_count_text_reports_missing_litellm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setitem(sys.modules, "litellm", None)
+
+        with pytest.raises(ImportError, match="litellm is required for token counting") as error:
+            TokenCounter().count_text("gpt-4", "hello")
+
+        assert not isinstance(error.value, TokenCountError)
+        assert isinstance(error.value.__cause__, ModuleNotFoundError)
+
+    def test_count_text_requires_model_before_dependency_import(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setitem(sys.modules, "litellm", None)
+
+        with pytest.raises(ValueError, match="model is required for token counting"):
+            TokenCounter().count_text("", "hello")
+
+    @patch("litellm.token_counter")
+    def test_count_text_preserves_tokenizer_error(self, mock_token_counter: MagicMock) -> None:
+        cause = RuntimeError("tokenizer failed")
+        mock_token_counter.side_effect = cause
+
+        with pytest.raises(TokenCountError, match="Failed to count tokens for model 'gpt-4'") as error:
+            TokenCounter().count_text("gpt-4", "hello")
+
+        assert error.value.__cause__ is cause
 
     @patch("litellm.get_model_info")
     def test_get_max_tokens(self, mock_get_model_info):
