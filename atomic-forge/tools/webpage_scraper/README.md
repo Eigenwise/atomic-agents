@@ -42,6 +42,11 @@ config = WebpageScraperToolConfig(
 - `url` (HttpUrl): URL of the webpage to scrape.
 - `include_links` (bool): Whether to preserve hyperlinks in the markdown output. Defaults to True.
 
+Relative hyperlinks and image sources are resolved against the final response URL, including redirects.
+The first HTML `<base href>` supplies the base when present. With `include_links=False`, link labels
+remain plain text while image sources are still resolved. The metadata domain identifies the page
+that supplied the content after redirects.
+
 ### Output Schema
 - `content` (str): The scraped content in markdown format.
 - `metadata` (WebpageMetadata): Metadata about the scraped webpage, including:

@@ -1,7 +1,7 @@
 from typing import Optional, Dict
 import re
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 from pydantic import Field, HttpUrl
@@ -102,7 +102,7 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
         self.min_text_length = config.min_text_length
         self.use_trafilatura = config.use_trafilatura
 
-    def _fetch_webpage(self, url: str) -> str:
+    def _fetch_webpage(self, url: str) -> tuple[str, str]:
         """
         Fetches the webpage content with custom headers.
 
@@ -110,14 +110,35 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
             url (str): The URL to fetch.
 
         Returns:
-            str: The HTML content of the webpage.
+            tuple[str, str]: The HTML content and final response URL.
         """
         response = requests.get(url, headers=self.headers, timeout=self.timeout)
 
         if len(response.content) > self.config.max_content_length:
             raise ValueError(f"Content length exceeds maximum of {self.config.max_content_length} bytes")
 
-        return response.text
+        return response.text, response.url
+
+    @staticmethod
+    def _resolve_content_urls(soup: BeautifulSoup, document_url: str) -> None:
+        """Keep links and images usable when the Markdown leaves its source document."""
+        base_url = document_url
+        base = soup.find("base", href=True)
+        if base:
+            try:
+                candidate = urljoin(document_url, base["href"].strip())
+                if urlparse(candidate).scheme not in {"data", "javascript"}:
+                    base_url = candidate
+            except ValueError:
+                pass
+
+        for tag, attribute in (("a", "href"), ("img", "src")):
+            for element in soup.find_all(tag, attrs={attribute: True}):
+                try:
+                    element[attribute] = urljoin(base_url, element[attribute].strip())
+                except ValueError:
+                    # One malformed URL must not discard the rest of the page.
+                    pass
 
     def _extract_metadata(self, soup: BeautifulSoup, doc: Document, url: str) -> WebpageMetadata:
         """
@@ -216,10 +237,11 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
 
         try:
             # Fetch webpage content
-            html_content = self._fetch_webpage(str(params.url))
+            html_content, document_url = self._fetch_webpage(str(params.url))
 
             # Parse HTML with BeautifulSoup
             soup = BeautifulSoup(html_content, "html.parser")
+            self._resolve_content_urls(soup, document_url)
 
             # Extract main content using custom extraction
             main_content = self._extract_main_content(soup)
@@ -241,7 +263,7 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
             markdown_content = self._clean_markdown(markdown_content)
 
             # Extract metadata
-            metadata = self._extract_metadata(soup, Document(html_content), str(params.url))
+            metadata = self._extract_metadata(soup, Document(html_content), document_url)
 
             return WebpageScraperToolOutputSchema(
                 content=markdown_content,
