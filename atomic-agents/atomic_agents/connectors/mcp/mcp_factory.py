@@ -18,6 +18,7 @@ from atomic_agents.base.base_io_schema import BaseIOSchema
 from atomic_agents.base import BaseTool, BaseResource, BasePrompt
 from atomic_agents.connectors.mcp.schema_transformer import SchemaTransformer
 from atomic_agents.connectors.mcp.mcp_definition_service import (
+    _http_headers_kwargs,
     _transport_endpoint,
     MCPAttributeType,
     MCPDefinitionService,
@@ -236,6 +237,8 @@ class MCPFactory:
         client_session: Optional[ClientSession] = None,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
         working_directory: Optional[str] = None,
+        *,
+        http_headers: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize the factory.
@@ -247,6 +250,7 @@ class MCPFactory:
             client_session: Optional pre-initialized ClientSession for reuse
             event_loop: Optional event loop for running asynchronous operations
             working_directory: Optional working directory to use when running STDIO commands
+            http_headers: Additional headers for owned HTTP Stream/SSE connections. Borrowed sessions keep their transport.
         """
         self.mcp_endpoint = mcp_endpoint
         self.transport_type = transport_type
@@ -254,6 +258,7 @@ class MCPFactory:
         self.event_loop = event_loop
         self.schema_transformer = SchemaTransformer()
         self.working_directory = working_directory
+        self.http_headers = dict(http_headers) if http_headers is not None else None
 
         # Validate configuration
         if client_session is not None and event_loop is None:
@@ -293,6 +298,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                http_headers=self.http_headers,
             )
             return asyncio.run(service.fetch_tool_definitions())
 
@@ -352,6 +358,7 @@ class MCPFactory:
                     bound_transport_type = self.transport_type
                     persistent_session: Optional[ClientSession] = getattr(self, "_client_session", None)
                     bound_working_directory = getattr(self, "working_directory", None)
+                    bound_http_headers = getattr(self, "_http_headers", None)
 
                     # Get arguments, excluding tool_name
                     arguments = params.model_dump(exclude={"tool_name"}, exclude_none=True)
@@ -377,13 +384,17 @@ class MCPFactory:
                                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
                                 http_endpoint = _transport_endpoint(bound_mcp_endpoint, "/mcp/")
                                 logger.debug(f"Executing tool '{bound_tool_name}' via HTTP Stream: endpoint={http_endpoint}")
-                                http_transport = await stack.enter_async_context(streamablehttp_client(http_endpoint))
+                                http_transport = await stack.enter_async_context(
+                                    streamablehttp_client(http_endpoint, **_http_headers_kwargs(bound_http_headers))
+                                )
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
                                 sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Executing tool '{bound_tool_name}' via SSE: endpoint={sse_endpoint}")
-                                sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
+                                sse_transport = await stack.enter_async_context(
+                                    sse_client(sse_endpoint, **_http_headers_kwargs(bound_http_headers))
+                                )
                                 read_stream, write_stream = sse_transport
                             else:
                                 available_types = [t.value for t in MCPTransportType]
@@ -450,6 +461,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_http_headers": self.http_headers,
                     "_has_typed_output_schema": has_typed_output_schema,
                 }
 
@@ -583,6 +595,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                http_headers=self.http_headers,
             )
             return asyncio.run(service.fetch_resource_definitions())
 
@@ -629,6 +642,7 @@ class MCPFactory:
                     bound_transport_type = self.transport_type
                     persistent_session: Optional[ClientSession] = getattr(self, "_client_session", None)
                     bound_working_directory = getattr(self, "working_directory", None)
+                    bound_http_headers = getattr(self, "_http_headers", None)
 
                     arguments = params.model_dump(exclude={"resource_name"}, exclude_none=True)
 
@@ -657,13 +671,17 @@ class MCPFactory:
                                 logger.debug(
                                     f"Reading resource '{self.mcp_resource_name}' via HTTP Stream: endpoint={http_endpoint}"
                                 )
-                                http_transport = await stack.enter_async_context(streamablehttp_client(http_endpoint))
+                                http_transport = await stack.enter_async_context(
+                                    streamablehttp_client(http_endpoint, **_http_headers_kwargs(bound_http_headers))
+                                )
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
                                 sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Reading resource '{self.mcp_resource_name}' via SSE: endpoint={sse_endpoint}")
-                                sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
+                                sse_transport = await stack.enter_async_context(
+                                    sse_client(sse_endpoint, **_http_headers_kwargs(bound_http_headers))
+                                )
                                 read_stream, write_stream = sse_transport
                             else:
                                 available_types = [t.value for t in MCPTransportType]
@@ -753,6 +771,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_http_headers": self.http_headers,
                     "uri": uri,
                 }
 
@@ -807,6 +826,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                http_headers=self.http_headers,
             )
             return asyncio.run(service.fetch_prompt_definitions())
 
@@ -847,6 +867,7 @@ class MCPFactory:
                     bound_transport_type = self.transport_type
                     persistent_session: Optional[ClientSession] = getattr(self, "_client_session", None)
                     bound_working_directory = getattr(self, "working_directory", None)
+                    bound_http_headers = getattr(self, "_http_headers", None)
 
                     # Get arguments
                     arguments = params.model_dump(exclude={"prompt_name"}, exclude_none=True)
@@ -874,13 +895,17 @@ class MCPFactory:
                                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
                                 http_endpoint = _transport_endpoint(bound_mcp_endpoint, "/mcp/")
                                 logger.debug(f"Getting prompt '{bound_prompt_name}' via HTTP Stream: endpoint={http_endpoint}")
-                                http_transport = await stack.enter_async_context(streamablehttp_client(http_endpoint))
+                                http_transport = await stack.enter_async_context(
+                                    streamablehttp_client(http_endpoint, **_http_headers_kwargs(bound_http_headers))
+                                )
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
                                 sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Getting prompt '{bound_prompt_name}' via SSE: endpoint={sse_endpoint}")
-                                sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
+                                sse_transport = await stack.enter_async_context(
+                                    sse_client(sse_endpoint, **_http_headers_kwargs(bound_http_headers))
+                                )
                                 read_stream, write_stream = sse_transport
                             else:
                                 available_types = [t.value for t in MCPTransportType]
@@ -971,6 +996,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_http_headers": self.http_headers,
                 }
 
                 # Create the class using new_class() for proper generic type support
@@ -999,6 +1025,7 @@ def fetch_mcp_tools(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    http_headers: Optional[Dict[str, str]] = None,
 ) -> List[Type[BaseTool]]:
     """
     Connects to an MCP server via SSE, HTTP Stream or STDIO, discovers tool definitions, and dynamically generates
@@ -1011,8 +1038,11 @@ def fetch_mcp_tools(
         client_session: Optional pre-initialized ClientSession for reuse.
         event_loop: Optional event loop for running asynchronous operations.
         working_directory: Optional working directory for STDIO.
+        http_headers: Additional headers for owned HTTP Stream/SSE connections.
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(
+        mcp_endpoint, transport_type, client_session, event_loop, working_directory, http_headers=http_headers
+    )
     return factory.create_tools()
 
 
@@ -1022,6 +1052,7 @@ async def fetch_mcp_tools_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    http_headers: Optional[Dict[str, str]] = None,
 ) -> List[Type[BaseTool]]:
     """
     Asynchronously connects to an MCP server and dynamically generates BaseTool subclasses for each tool.
@@ -1032,14 +1063,22 @@ async def fetch_mcp_tools_async(
         transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO).
         client_session: Optional pre-initialized ClientSession for reuse.
         working_directory: Optional working directory for STDIO transport.
+        http_headers: Additional headers for owned HTTP Stream/SSE connections.
     """
     if client_session is not None:
         tool_defs = await MCPDefinitionService.fetch_tool_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
+        factory = MCPFactory(
+            mcp_endpoint,
+            transport_type,
+            client_session,
+            asyncio.get_running_loop(),
+            working_directory,
+            http_headers=http_headers,
+        )
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, http_headers=http_headers)
         tool_defs = await service.fetch_tool_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, http_headers=http_headers)
 
     return factory._create_tool_classes(tool_defs)
 
@@ -1070,6 +1109,7 @@ def fetch_mcp_attributes_with_schema(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    http_headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[Type[BaseTool]], List[Type[BaseResource]], List[Type[BasePrompt]], Optional[Type[BaseIOSchema]]]:
     """
     Fetches MCP tools and creates an orchestrator schema for them. Returns both as a tuple.
@@ -1080,6 +1120,7 @@ def fetch_mcp_attributes_with_schema(
         client_session: Optional pre-initialized ClientSession for reuse.
         event_loop: Optional event loop for running asynchronous operations.
         working_directory: Optional working directory for STDIO.
+        http_headers: Additional headers for owned HTTP Stream/SSE connections.
 
     Returns:
         A tuple containing:
@@ -1088,7 +1129,9 @@ def fetch_mcp_attributes_with_schema(
         - List of dynamically generated prompt classes
         - Orchestrator output schema with Union of tool input schemas, or None if no tools found.
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(
+        mcp_endpoint, transport_type, client_session, event_loop, working_directory, http_headers=http_headers
+    )
     tools = factory.create_tools()
     resources = factory.create_resources()
     prompts = factory.create_prompts()
@@ -1107,11 +1150,16 @@ def fetch_mcp_resources(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    http_headers: Optional[Dict[str, str]] = None,
 ) -> List[Type[BaseResource]]:
     """
     Fetch resource classes from an MCP server (sync).
+
+    ``http_headers`` applies to owned HTTP Stream/SSE discovery and resource reads.
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(
+        mcp_endpoint, transport_type, client_session, event_loop, working_directory, http_headers=http_headers
+    )
     return factory.create_resources()
 
 
@@ -1121,17 +1169,27 @@ async def fetch_mcp_resources_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    http_headers: Optional[Dict[str, str]] = None,
 ) -> List[Type[BaseResource]]:
     """
     Async version of fetch_mcp_resources. Call from within an event loop.
+
+    ``http_headers`` applies to owned HTTP Stream/SSE discovery and resource reads.
     """
     if client_session is not None:
         resource_defs = await MCPDefinitionService.fetch_resource_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
+        factory = MCPFactory(
+            mcp_endpoint,
+            transport_type,
+            client_session,
+            asyncio.get_running_loop(),
+            working_directory,
+            http_headers=http_headers,
+        )
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, http_headers=http_headers)
         resource_defs = await service.fetch_resource_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, http_headers=http_headers)
 
     return factory._create_resource_classes(resource_defs)
 
@@ -1143,11 +1201,16 @@ def fetch_mcp_prompts(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    http_headers: Optional[Dict[str, str]] = None,
 ) -> List[Type[BasePrompt]]:
     """
     Fetch prompt classes from an MCP server (sync).
+
+    ``http_headers`` applies to owned HTTP Stream/SSE discovery and prompt requests.
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(
+        mcp_endpoint, transport_type, client_session, event_loop, working_directory, http_headers=http_headers
+    )
     return factory.create_prompts()
 
 
@@ -1157,16 +1220,26 @@ async def fetch_mcp_prompts_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    http_headers: Optional[Dict[str, str]] = None,
 ) -> List[Type[BasePrompt]]:
     """
     Async version of fetch_mcp_prompts. Call from within an event loop.
+
+    ``http_headers`` applies to owned HTTP Stream/SSE discovery and prompt requests.
     """
     if client_session is not None:
         prompt_defs = await MCPDefinitionService.fetch_prompt_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
+        factory = MCPFactory(
+            mcp_endpoint,
+            transport_type,
+            client_session,
+            asyncio.get_running_loop(),
+            working_directory,
+            http_headers=http_headers,
+        )
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, http_headers=http_headers)
         prompt_defs = await service.fetch_prompt_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, http_headers=http_headers)
 
     return factory._create_prompt_classes(prompt_defs)

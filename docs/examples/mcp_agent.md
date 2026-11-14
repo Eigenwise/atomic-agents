@@ -226,6 +226,24 @@ tools = fetch_mcp_tools(
 - Microservice architectures
 - API gateway integration
 
+### HTTP headers for authenticated servers
+
+Pass `http_headers` when an HTTP Stream or SSE server requires an authorization token, API key, or tenant header:
+
+```python
+import os
+
+tools = fetch_mcp_tools(
+    mcp_endpoint="https://mcp.example.com/mcp/",
+    transport_type=MCPTransportType.HTTP_STREAM,
+    http_headers={"Authorization": f"Bearer {os.environ['MCP_ACCESS_TOKEN']}"},
+)
+```
+
+The headers are sent during discovery and on the fresh connections opened by the generated tools, resources and prompts. The same keyword is available on all synchronous and asynchronous `fetch_mcp_*` helpers, `fetch_mcp_attributes_with_schema`, `MCPFactory`, and `MCPDefinitionService`. Header dictionaries are copied on construction; omitting the option preserves the default SDK behavior.
+
+These are static HTTP headers. They do not implement token refresh or OAuth. STDIO does not use them. When supplying an existing `client_session`, configure headers or authentication on that session's transport; the factory reuses it without changing its headers or closing it.
+
 ## Interfaces
 
 ### Tool Interface
