@@ -24,6 +24,8 @@ Searches Wikipedia and returns matching articles with titles, URLs, summaries, a
 ### Output Schema
 - `results`: a list of `WikipediaArticle` items. Each item has `query`, `title`, `page_url`, `summary`, `description`, `full_text` (optional), and `thumbnail_url` (optional).
 
+`page_url` preserves the canonical URL supplied by Wikipedia. If the response omits it, the tool builds a link from the article title, replacing spaces with underscores and percent-encoding URL-sensitive and non-ASCII characters so titles such as `Who Are You?` remain part of the page path.
+
 ## Usage
 
 ```python

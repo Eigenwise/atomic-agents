@@ -171,7 +171,7 @@ class WikipediaSearchTool(BaseTool[WikipediaSearchToolInputSchema, WikipediaSear
                     logger.warning("Failed to fetch full extract for '%s': %s", title, e)
             page_url = (
                 summary_data.get("content_urls", {}).get("desktop", {}).get("page")
-                or f"{self._api_base(language)}/wiki/{title.replace(' ', '_')}"
+                or f"{self._api_base(language)}/wiki/{aiohttp.helpers.quote(title.replace(' ', '_'))}"
             )
             articles.append(
                 WikipediaArticle(
