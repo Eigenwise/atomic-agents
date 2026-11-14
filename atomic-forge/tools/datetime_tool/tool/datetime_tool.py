@@ -119,6 +119,13 @@ class DateTimeTool(BaseTool[DateTimeToolInputSchema, DateTimeToolOutputSchema]):
             raise ValueError(f"Could not parse datetime '{value}': {e}") from e
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=cls._zone(default_tz))
+            # PEP 495: a gap increases the UTC offset from fold=0 to fold=1;
+            # an overlap decreases it. Avoid UTC conversion at datetime's bounds.
+            if dt.utcoffset() < dt.replace(fold=1).utcoffset():
+                raise ValueError(
+                    f"Local datetime '{value}' does not exist in timezone '{default_tz}'. "
+                    "Choose an existing local time or include an explicit UTC offset."
+                )
         return dt
 
     @staticmethod

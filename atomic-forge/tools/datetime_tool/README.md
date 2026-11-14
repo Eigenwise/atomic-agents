@@ -37,6 +37,14 @@ It uses the standard library only (`datetime`, `zoneinfo`) plus `tzdata` so the 
 - `diff_seconds`, `diff_human`: populated for `diff`.
 - `error` (str, optional): set when something went wrong.
 
+An input without an explicit UTC offset is interpreted in `timezone`. A local
+time skipped by an offset change, such as `2026-03-08T02:30:00` in
+`America/New_York`, returns an error instead of a timestamp for a different local
+time. This check applies to both inputs of `diff` as well as `parse`, `convert`
+and `shift`. An ambiguous time during a backward clock change keeps the first
+occurrence (`fold=0`); include an explicit offset to select the other occurrence.
+An explicit offset always defines the input instant independently of `timezone`.
+
 ## Usage
 
 ```python
