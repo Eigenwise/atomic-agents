@@ -25,6 +25,7 @@ The Atomic Forge project includes the following tools:
 - [PDF Reader](/atomic-forge/tools/pdf_reader/README.md) — extract text and metadata from a local or remote PDF, with page-range filtering.
 - [SearXNG Search](/atomic-forge/tools/searxng_search/README.md)
 - [Serply Search](/atomic-forge/tools/serply_search/README.md)
+- [Sofya Search](/atomic-forge/tools/sofya_search/README.md)
 - [Tavily Search](/atomic-forge/tools/tavily_search/README.md)
 - [Webpage Scraper](/atomic-forge/tools/webpage_scraper/README.md)
 - [Weather](/atomic-forge/tools/weather/README.md) — current conditions and forecast via the free Open-Meteo API.

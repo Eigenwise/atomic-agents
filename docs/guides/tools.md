@@ -157,6 +157,7 @@ The Atomic Forge ships with several pre-built tools:
 - **PDF Reader**: Extract text and metadata from local or remote PDFs, with page-range filtering
 - **SearXNG Search**: Search the web using SearXNG
 - **Serply Search**: Google web, news, and scholar search via the Serply API
+- **Sofya Search**: Web and news search via the Sofya API, with page text for each result
 - **Tavily Search**: AI-powered web search
 - **Weather**: Current conditions and daily/hourly forecasts via Open-Meteo (no key required)
 - **Webpage Scraper**: Extract content from web pages
