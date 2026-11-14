@@ -71,7 +71,8 @@ The main utility class for counting tokens:
 
     .. py:method:: count_text(model: str, text: str) -> int
 
-        Count tokens in a text string.
+        Count tokens in a text string without role or chat-request framing.
+        Use ``count_messages`` when measuring a complete chat request.
 
         :param model: The model name
         :param text: The text to count tokens for
