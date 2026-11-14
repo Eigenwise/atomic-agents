@@ -1,9 +1,10 @@
+from email.message import Message
 from typing import Optional
 from urllib.parse import urlparse
 import re
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, UnicodeDammit
 from markdownify import markdownify
 from pydantic import Field, HttpUrl
 from readability import Document
@@ -115,7 +116,13 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
         if len(response.content) > self.config.max_content_length:
             raise ValueError(f"Content length exceeds maximum of {self.config.max_content_length} bytes")
 
-        return response.text
+        content_type = Message()
+        content_type["Content-Type"] = response.headers.get("Content-Type", "")
+        charset = content_type.get_content_charset()
+        # Decode HTML from its bytes: a BOM, an explicit HTTP charset, and an
+        # HTML declaration take precedence over heuristic encoding detection.
+        decoded = UnicodeDammit(response.content, is_html=True, user_encodings=[charset] if charset else []).unicode_markup
+        return decoded if decoded is not None else response.text
 
     def _extract_metadata(self, soup: BeautifulSoup, doc: Document, url: str) -> WebpageMetadata:
         """
