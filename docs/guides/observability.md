@@ -363,7 +363,7 @@ TracingConfig(hide_inputs=True, hide_outputs=True, max_attribute_length=2048)
 
 Use `TracingConfig(capture_messages=True)` or set `ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES=true` (also accepts `1`,
 case-insensitive). An explicit `TracingConfig` keeps precedence over environment settings. This setting was added
-after 2.15.0.
+in 2.16.0.
 
 Capture requires enabled LLM attempt spans and unsuppressed instrumentation. `hide_inputs` omits
 `gen_ai.input.messages`. `hide_outputs` omits both attributes, because request messages replay model output: earlier
