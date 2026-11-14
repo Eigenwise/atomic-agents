@@ -16,11 +16,13 @@ Searches arXiv for academic papers via the free public API and returns each pape
 ## Input & Output Structure
 
 ### Input Schema
-- `queries` (list[str]): plain keywords or arXiv field-prefixed expressions (`ti:`, `au:`, `abs:`, `cat:`, `id:`, `all:`).
+- `queries` (list[str]): plain keywords or arXiv field-prefixed expressions (`ti:`, `au:`, `abs:`, `co:`, `jr:`, `cat:`, `rn:`, `id:`, `all:`), including `submittedDate:` date ranges.
 - `max_results_per_query` (int): 1–50 (default 5).
 - `sort_by` (str): `relevance`, `lastUpdatedDate`, or `submittedDate` (default `relevance`).
 - `sort_order` (str): `ascending` or `descending` (default `descending`).
 - `category` (str, optional): arXiv category filter (e.g. `cs.AI`).
+
+For example, `jr:Nature` searches journal references and `submittedDate:[202401010000 TO 202412312359]` selects submissions in a date range. These expressions are passed through as written, with the optional category filter applied to the whole expression. See the [arXiv query construction reference](https://info.arxiv.org/help/api/user-manual.html#query_details) for the supported fields and date format.
 
 ### Output Schema
 A list of `ArxivPaper` items. Each has `arxiv_id`, `title`, `summary`, `authors`, `published`, `updated`, `categories`, `primary_category`, `pdf_url`, `abs_url`, optional `comment` and `journal_ref`.
