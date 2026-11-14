@@ -120,7 +120,12 @@ class FileExplorerScreen(Screen):
         """Refresh the file list and update the current path display."""
         logging.debug("Refreshing file list")
         self.update_current_path_display()
-        items = self._get_file_items()
+        try:
+            items = self._get_file_items()
+        except OSError as error:
+            logging.warning("Failed to list directory %s: %s", self.current_path, error)
+            self.notify(f"Cannot list {self.current_path}: {error}", severity="error", markup=False)
+            items = []
         self.file_list.update_list(items)
 
         # Set highlighted index based on stored selection for current directory
@@ -268,9 +273,9 @@ class FileExplorerScreen(Screen):
                     new_item_path.touch(exist_ok=False)
                     logging.info(f"New file created: {new_item_path}")
                 self.refresh_file_list()
-            except FileExistsError:
-                logging.warning(f"Failed to create item, already exists: {new_item_path}")
-                self.bell()
+            except OSError as error:
+                logging.warning("Failed to create item %s: %s", new_item_path, error)
+                self.notify(f"Cannot create {new_item_path}: {error}", severity="error", markup=False)
             finally:
                 self.new_item_input.value = ""
         self.exit_new_item_mode()
