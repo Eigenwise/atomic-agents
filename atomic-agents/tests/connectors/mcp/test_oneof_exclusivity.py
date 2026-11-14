@@ -76,3 +76,27 @@ def test_oneof_ref_branches_accept_model_instances():
     model = SchemaTransformer.create_model_from_schema(schema, "OneOfInput", "oneof")
     first = model(tool_name="oneof", value={"name": "a"})
     assert model(tool_name="oneof", value=first.value).value.name == "a"
+
+
+@pytest.mark.parametrize(
+    "pattern, value, accepted",
+    [("^(a+)+$", "a" * 40 + "!", False), ("^(a+)+$", "aaa", True), ("^\\p{L}+$", "abc", True), ("^(?=a)a$", "b", True)],
+)
+def test_oneof_branch_patterns_skip_python_re(pattern, value, accepted):
+    schema = {
+        "type": "object",
+        "properties": {"value": {"oneOf": [{"type": "string", "pattern": pattern}, {"type": "integer"}]}},
+        "required": ["value"],
+    }
+    model = SchemaTransformer.create_model_from_schema(schema, "OneOfInput", "oneof")
+    if accepted:
+        assert model(tool_name="oneof", value=value).value == value
+    else:
+        with pytest.raises(ValidationError):
+            model(tool_name="oneof", value=value)
+
+
+@pytest.mark.parametrize("value", [1, "text"])
+def test_duplicate_oneof_branches_match_json_schema(value):
+    check({"oneOf": [{"type": "integer"}, {"type": "integer"}]}, value)
+    check({"oneOf": [{"type": "integer"}, {"type": "string"}, {"type": "integer"}]}, value)

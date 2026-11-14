@@ -1,11 +1,12 @@
 """Module for transforming JSON schemas to Pydantic models."""
 
 import logging
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
-from jsonschema import Draft202012Validator, validators
-from pydantic import BeforeValidator, Field, TypeAdapter, WithJsonSchema, create_model
+from jsonschema import Draft202012Validator, ValidationError as JSONSchemaValidationError, validators
+from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError, WithJsonSchema, create_model
 from pydantic_core import SchemaError, to_jsonable_python
 from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
@@ -34,14 +35,39 @@ def _validate_ref(validator: Any, reference: str, value: Any, schema: Any) -> An
 _ScalarChoiceValidator = validators.extend(Draft202012Validator, {"$ref": _validate_ref})
 
 
+@lru_cache(maxsize=256)
+def _pattern_adapter(pattern: str) -> Optional[TypeAdapter]:
+    """Compile a pattern with Pydantic's regex engine, or None when the engine does not support it."""
+    try:
+        return TypeAdapter(Annotated[str, Field(pattern=pattern)])
+    except SchemaError:
+        return None
+
+
+def _validate_pattern(validator: Any, pattern: Any, value: Any, schema: Any) -> Any:
+    # Server patterns must not reach Python's backtracking re; unsupported ones are skipped.
+    adapter = _pattern_adapter(pattern) if isinstance(pattern, str) and isinstance(value, str) else None
+    if adapter is None:
+        return
+    try:
+        adapter.validate_python(value)
+    except ValidationError:
+        yield JSONSchemaValidationError(f"{value!r} does not match {pattern!r}")
+
+
+_OneOfBranchValidator = validators.extend(_ScalarChoiceValidator, {"pattern": _validate_pattern})
+
+
 class _OneOfJsonSchema:
-    """Advertise a converted union with oneOf instead of Pydantic's anyOf."""
+    """Advertise every converted branch with oneOf, where Pydantic's anyOf would merge duplicates."""
 
     def __get_pydantic_json_schema__(self, core_schema: Any, handler: Any) -> Dict[str, Any]:
-        json_schema = handler(core_schema)
-        if "anyOf" in json_schema:
-            json_schema["oneOf"] = json_schema.pop("anyOf")
-        return json_schema
+        union_schema = core_schema
+        while union_schema["type"] != "union":
+            union_schema = union_schema["schema"]
+        choices = [choice[0] if isinstance(choice, tuple) else choice for choice in union_schema["choices"]]
+        generate = handler.generate_json_schema.generate_inner
+        return {"oneOf": [generate(choice) for choice in choices]}
 
 
 # JSON type mapping
@@ -81,9 +107,7 @@ def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict
         constraints.update({target: prop_schema[source] for source, target in keywords.items() if source in prop_schema})
     if json_type == "string" and isinstance(prop_schema.get("pattern"), str):
         pattern = prop_schema["pattern"]
-        try:
-            TypeAdapter(Annotated[str, Field(pattern=pattern)])
-        except SchemaError:
+        if _pattern_adapter(pattern) is None:
             logger.warning("Unsupported JSON Schema pattern %r; skipping local pattern validation", pattern)
         else:
             constraints["pattern"] = pattern
@@ -135,7 +159,7 @@ class SchemaTransformer:
     @staticmethod
     def _one_of_type(union_type: Any, branch_schemas: List[Any], root_schema: Dict[str, Any]) -> Any:
         """Require exactly one oneOf branch to match, which a Pydantic Union cannot express."""
-        validator = _ScalarChoiceValidator(root_schema, registry=Registry())
+        validator = _OneOfBranchValidator(root_schema, registry=Registry())
         branch_validators = [validator.evolve(schema=branch_schema) for branch_schema in branch_schemas]
 
         def validate_one_of(value: Any) -> Any:
@@ -242,6 +266,12 @@ class SchemaTransformer:
                     member_type, _ = SchemaTransformer.json_to_pydantic_field(union_schema, True, root_schema, model_cache)
                     union_types.append(member_type)
 
+                if "oneOf" in prop_schema:
+                    # Keep repeated branches apart, which Union would merge, so they still count twice.
+                    union_types = [
+                        Annotated[member_type, object()] if member_type in union_types[:index] else member_type
+                        for index, member_type in enumerate(union_types)
+                    ]
                 if len(union_types) == 1:
                     python_type = union_types[0]
                 else:
