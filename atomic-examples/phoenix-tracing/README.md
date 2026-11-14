@@ -54,7 +54,7 @@ pip install "atomic-agents[phoenix]" arize-phoenix-otel openinference-instrument
 | Variable | Purpose |
 |----------|---------|
 | `OPENAI_API_KEY` | Required. |
-| `OPENAI_MODEL` | Optional, defaults to `gpt-5-mini`. |
+| `OPENAI_MODEL` | Optional, defaults to `gpt-5.6-terra`. |
 | `PHOENIX_COLLECTOR_ENDPOINT` | Where spans go. Unset, `register()` uses gRPC to `localhost:4317`; `http://localhost:6006` sends HTTP to the UI port. |
 | `PHOENIX_API_KEY` | Only for Phoenix Cloud or an authenticated server. |
 | `OPENINFERENCE_HIDE_INPUTS` / `OPENINFERENCE_HIDE_OUTPUTS` | Set to `true` to redact agent and tool payloads. |

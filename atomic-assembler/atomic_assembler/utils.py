@@ -6,11 +6,12 @@ import tempfile
 import git
 import yaml
 from pathlib import Path
-from atomic_assembler.constants import GITHUB_BRANCH, TOOLS_SUBFOLDER
+from atomic_assembler.constants import TOOLS_SUBFOLDER
 
 
 class GithubRepoCloner:
     def __init__(self, base_url: str, branch: str = "main"):
+        self.branch = branch
         self.repo_url = base_url
         self.temp_dir = tempfile.mkdtemp()
         self.repo_path = os.path.join(self.temp_dir, os.path.basename(base_url).replace(".git", ""))
@@ -18,9 +19,10 @@ class GithubRepoCloner:
 
     def clone(self):
         try:
-            _ = git.Repo.clone_from(self.repo_url, self.repo_path, branch=GITHUB_BRANCH)
-            logging.info(f"Repository cloned to {self.repo_path} on branch {GITHUB_BRANCH}")
+            git.Repo.clone_from(self.repo_url, self.repo_path, branch=self.branch)
+            logging.info(f"Repository cloned to {self.repo_path} on branch {self.branch}")
         except git.GitCommandError as e:
+            self.cleanup()
             logging.error(f"Failed to clone repository: {e}")
             raise
 
@@ -52,7 +54,11 @@ class AtomicToolManager:
             list[dict]: A list of dictionaries containing tool information.
         """
         tools = []
-        for item in os.listdir(tools_path):
+        try:
+            entries = os.listdir(tools_path)
+        except FileNotFoundError:
+            return tools
+        for item in entries:
             item_path = os.path.join(tools_path, item)
             if os.path.isdir(item_path):
                 # Convert snake_case to Title Case
@@ -81,11 +87,18 @@ class AtomicToolManager:
                 logging.error(f"Destination path does not exist: {destination}")
                 raise FileNotFoundError(f"Destination path does not exist: {destination}")
 
-            shutil.copytree(
-                tool_path,
-                local_tool_path,
-                ignore=shutil.ignore_patterns("requirements.txt", "pyproject.toml", ".coveragerc", "uv.lock"),
-            )
+            # Reserve the destination so a failed copy can remove just the files it created.
+            os.mkdir(local_tool_path)
+            try:
+                shutil.copytree(
+                    tool_path,
+                    local_tool_path,
+                    dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("requirements.txt", "pyproject.toml", ".coveragerc", "uv.lock"),
+                )
+            except Exception:
+                shutil.rmtree(local_tool_path)
+                raise
             logging.info(f"Tool successfully copied to {local_tool_path}")
             return local_tool_path
         except Exception as e:

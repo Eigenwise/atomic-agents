@@ -56,44 +56,56 @@ We follow these coding standards:
 
 When creating new tools:
 
-1. Use the tool template:
-   ```bash
-   atomic-assembler create-tool my-tool
+1. Follow the [tool folder layout](https://github.com/Eigenwise/atomic-agents/blob/main/atomic-forge/guides/tool_structure.md)
+   and [Tools Guide](guides/tools.md) when adding a tool. The `atomic` command
+   opens the tool browser and downloader; it does not scaffold new tools.
+
+2. Define input and output schemas with `BaseIOSchema` and pass them as type
+   parameters to `BaseTool`. Give each schema a non-empty docstring and describe
+   its fields. Use the `title` and `description` fields of `BaseToolConfig` to
+   override tool metadata; otherwise they come from the input schema's title
+   and docstring.
+
+   ```python
+   from pydantic import Field
+
+   from atomic_agents import BaseIOSchema, BaseTool
+
+
+   class MyToolInputSchema(BaseIOSchema):
+       """An integer to double."""
+
+       value: int = Field(..., description="Integer to double.")
+
+
+   class MyToolOutputSchema(BaseIOSchema):
+       """The doubled integer."""
+
+       doubled: int = Field(..., description="Twice the input value.")
+
+
+   class MyTool(BaseTool[MyToolInputSchema, MyToolOutputSchema]):
+       def run(self, params: MyToolInputSchema) -> MyToolOutputSchema:
+           return MyToolOutputSchema(doubled=params.value * 2)
    ```
 
-2. Implement the required interfaces:
+3. Add tests for your tool's behavior in its `tests/` directory, following the
+   linked folder layout. For example, in `tests/test_my_tool.py`:
+
    ```python
-   from pydantic import BaseModel
-   from atomic_agents import BaseTool
+   from tool.my_tool import MyTool, MyToolInputSchema
 
-   class MyToolInputs(BaseModel):
-       # Define input schema
-       pass
 
-   class MyToolOutputs(BaseModel):
-       # Define output schema
-       pass
-
-   class MyTool(BaseTool[MyToolInputs, MyToolOutputs]):
-       name = "my_tool"
-       description = "Tool description"
-       inputs_schema = MyToolInputs
-       outputs_schema = MyToolOutputs
-
-       def run(self, inputs: MyToolInputs) -> MyToolOutputs:
-           # Implement tool logic
-           pass
-   ```
-
-3. Add comprehensive tests:
-   ```python
    def test_my_tool():
        tool = MyTool()
-       inputs = MyToolInputs(...)
-       result = tool.run(inputs)
-       assert isinstance(result, MyToolOutputs)
-       # Add more assertions
+       result = tool.run(MyToolInputSchema(value=3))
+
+       assert result.doubled == 6
    ```
+
+   Run the example test from the tool's folder with
+   `uv run pytest tests/test_my_tool.py` and add cases for your tool's edge cases
+   and errors.
 
 4. Document your tool:
    - Add a README.md with usage examples

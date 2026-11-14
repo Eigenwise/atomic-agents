@@ -405,7 +405,7 @@ The client uses a configuration class:
 @dataclass
 class MCPConfig:
     mcp_server_url: str = "http://localhost:6969"
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-5.6-terra"
     openai_api_key: str = os.getenv("OPENAI_API_KEY")
 ```
 
@@ -413,7 +413,7 @@ For STDIO transport, additional options are available:
 ```python
 @dataclass
 class MCPConfig:
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-5.6-terra"
     openai_api_key: str = os.getenv("OPENAI_API_KEY")
     mcp_stdio_server_command: str = "uv run example-mcp-server --mode stdio"
 ```

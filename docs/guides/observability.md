@@ -245,7 +245,7 @@ Attributes, GenAI keys first. All of them are written whether or not the OpenInf
 | `gen_ai.usage.output_tokens` | AGENT, LLM | Output tokens |
 | `gen_ai.usage.cache_read.input_tokens` | AGENT, LLM | Cached input tokens, when the provider reports them |
 | `gen_ai.usage.reasoning.output_tokens` | AGENT, LLM | Reasoning tokens, when the provider reports them |
-| `gen_ai.input.messages`, `gen_ai.output.messages` | LLM | Opt-in canonical message JSON, omitted when hidden or over the size cap |
+| `gen_ai.input.messages`, `gen_ai.output.messages` | LLM | Opt-in canonical message JSON, omitted when hidden or over the size cap (then `<key>.original_length` carries the size) |
 | `gen_ai.conversation.id` | all | Set by `using_conversation` |
 | `error.type` | failed spans | Exception class name |
 
@@ -318,7 +318,7 @@ Give each agent a stable name, so spans group the same way across deployments an
 
 ```python
 agent = AtomicAgent[InputSchema, OutputSchema](
-    config=AgentConfig(client=client, model="gpt-5-mini", name="orchestrator_planning")
+    config=AgentConfig(client=client, model="gpt-5.6-terra", name="orchestrator_planning")
 )
 ```
 
@@ -363,7 +363,7 @@ TracingConfig(hide_inputs=True, hide_outputs=True, max_attribute_length=2048)
 
 Use `TracingConfig(capture_messages=True)` or set `ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES=true` (also accepts `1`,
 case-insensitive). An explicit `TracingConfig` keeps precedence over environment settings. This setting was added
-after 2.15.0.
+in 2.16.0.
 
 Capture requires enabled LLM attempt spans and unsuppressed instrumentation. `hide_inputs` omits
 `gen_ai.input.messages`. `hide_outputs` omits both attributes, because request messages replay model output: earlier
@@ -383,7 +383,10 @@ Native Responses calls record request text and no response. Anthropic-format req
 `tool_use`/`tool_result` blocks and the separate `system` prompt are left out, and so is the response.
 
 Message attributes are compact JSON using the GenAI `role`/`parts` schema. A complete serialized attribute exceeding
-`max_attribute_length` is omitted, including at tiny caps; it is never sliced or given a truncation marker. Empty or
+`max_attribute_length` is omitted, including at tiny caps; it is never sliced. Its size is recorded instead as
+`gen_ai.input.messages.original_length` or `gen_ai.output.messages.original_length`, so a missing attribute on a large
+request points at the size cap (`ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH`). Tool-call arguments that are not valid
+JSON, such as a truncated answer or one containing `NaN`, are kept as their raw string. Empty or
 malformed content can also be omitted. The instrumentor therefore never emits cut-off JSON itself, but an SDK
 `SpanLimits(max_attribute_length=...)` below this cap still truncates the value afterwards. Live backend display is
 unverified.
@@ -450,10 +453,10 @@ is this flow. On the Phoenix path the provider's tracers are OpenInference `OITr
 
 ## Re-instrumentation
 
-`instrument()` with the same provider and config as the active installation does nothing. With a different provider or
-config it replaces them in place and logs a WARNING that says so. Spans already in flight finish on the provider they
-started with; new spans use the new one. `uninstrument()` followed by `instrument()` is the clean way to change
-settings, and `uninstrument()` restores the original methods on `AtomicAgent` and on every tool class.
+`instrument()` is a no-op for the same provider and config; otherwise it replaces them with a warning, with new spans
+using the new settings and in-flight spans retaining their original provider, payload visibility, and size limits.
+`uninstrument()` restores original agent and tool methods without interrupting active calls or streams; saved methods
+and deferred calls or streams that first execute afterwards run without tracing unless instrumentation is enabled again.
 
 In a test suite, call `instrument(tracer_provider=provider)` with a fresh in-memory provider in each test. The replace
 behavior means you do not need to uninstrument between tests, and the warning is expected there:

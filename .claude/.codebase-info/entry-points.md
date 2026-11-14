@@ -10,7 +10,7 @@ import instructor
 from openai import OpenAI
 
 agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
-    AgentConfig(client=instructor.from_openai(OpenAI()), model="gpt-5-mini")
+    AgentConfig(client=instructor.from_openai(OpenAI()), model="gpt-5.6-terra")
 )
 result = agent.run(BasicChatInputSchema(chat_message="Hello"))
 ```

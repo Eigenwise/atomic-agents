@@ -5,10 +5,11 @@ from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annot
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
-from pydantic import BeforeValidator, Field, WithJsonSchema, create_model
-from pydantic_core import to_jsonable_python
-from referencing import Registry
+from pydantic import BeforeValidator, Field, TypeAdapter, WithJsonSchema, create_model
+from pydantic_core import SchemaError, to_jsonable_python
+from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
+from referencing.jsonschema import DRAFT202012
 
 from atomic_agents.base.base_io_schema import BaseIOSchema
 
@@ -53,6 +54,43 @@ JSON_TYPE_MAP = {
     "object": dict,
     "null": type(None),
 }
+
+
+_NUMERIC_CONSTRAINTS = {
+    "minimum": "ge",
+    "maximum": "le",
+    "exclusiveMinimum": "gt",
+    "exclusiveMaximum": "lt",
+    "multipleOf": "multiple_of",
+}
+_STRING_CONSTRAINTS = {"minLength": "min_length", "maxLength": "max_length"}
+_ARRAY_CONSTRAINTS = {"minItems": "min_length", "maxItems": "max_length"}
+
+
+def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict[str, Any]) -> Type:
+    """Attach supported constraints without changing the regex engine or accepting boolean bounds."""
+    constraints = {}
+    if json_type in {"integer", "number"}:
+        for source, target in _NUMERIC_CONSTRAINTS.items():
+            value = prop_schema.get(source)
+            # Draft-04 boolean exclusive bounds are not numeric bounds.
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                constraints[target] = value
+    else:
+        keywords = _STRING_CONSTRAINTS if json_type == "string" else _ARRAY_CONSTRAINTS if json_type == "array" else {}
+        constraints.update({target: prop_schema[source] for source, target in keywords.items() if source in prop_schema})
+    if json_type == "string" and isinstance(prop_schema.get("pattern"), str):
+        pattern = prop_schema["pattern"]
+        try:
+            TypeAdapter(Annotated[str, Field(pattern=pattern)])
+        except SchemaError:
+            logger.warning("Unsupported JSON Schema pattern %r; skipping local pattern validation", pattern)
+        else:
+            constraints["pattern"] = pattern
+    if constraints:
+        # Recursive callers retain the value type but discard returned Field metadata.
+        return Annotated[python_type, Field(**constraints)]
+    return python_type
 
 
 class SchemaTransformer:
@@ -112,32 +150,31 @@ class SchemaTransformer:
     @staticmethod
     def _resolve_ref(ref_path: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]) -> Type:
         """Resolve a $ref to its Pydantic-compatible value type."""
-        # Extract ref name from path like "#/$defs/MyObject" or "#/definitions/ANode"
-        # JSON Pointer decodes ~1 before ~0 so a literal ~1 is not decoded twice.
-        ref_name = ref_path.split("/")[-1].replace("~1", "/").replace("~0", "~")
+        if ref_path in model_cache:
+            return model_cache[ref_path]
 
-        if ref_name in model_cache:
-            return model_cache[ref_name]
+        # Resolve the complete local pointer, including escaped tokens and array
+        # indices. An empty registry never retrieves remote schemas.
+        resource = Resource.from_contents(root_schema, default_specification=DRAFT202012)
+        try:
+            ref_schema = Registry().resolver_with_root(resource).lookup(ref_path).contents
+        except Unresolvable:
+            logger.warning(f"Could not resolve $ref: {ref_path}")
+            return Any
 
-        # Look for the referenced schema in $defs or definitions
-        defs = root_schema.get("$defs", root_schema.get("definitions", {}))
-        if ref_name in defs:
-            ref_schema = defs[ref_name]
-            # Avoid infinite recursion by adding placeholder first
-            model_cache[ref_name] = Any
-            if isinstance(ref_schema, dict) and (
-                ref_schema.get("properties")
-                or (ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False)
-            ):
-                model_name = ref_schema.get("title", ref_name)
-                model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
-            else:
-                model, _ = SchemaTransformer.json_to_pydantic_field(ref_schema, True, root_schema, model_cache)
-            model_cache[ref_name] = model
-            return model
-
-        logger.warning(f"Could not resolve $ref: {ref_path}")
-        return Any
+        # Avoid infinite recursion by adding a placeholder before conversion.
+        model_cache[ref_path] = Any
+        if isinstance(ref_schema, dict) and (
+            ref_schema.get("properties")
+            or (ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False)
+        ):
+            ref_name = ref_path.split("/")[-1].replace("~1", "/").replace("~0", "~")
+            model_name = ref_schema.get("title", ref_name)
+            model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
+        else:
+            model, _ = SchemaTransformer.json_to_pydantic_field(ref_schema, True, root_schema, model_cache)
+        model_cache[ref_path] = model
+        return model
 
     @staticmethod
     def _create_nested_model(
@@ -235,6 +272,8 @@ class SchemaTransformer:
                     if isinstance(value_schema, dict):
                         value_type, _ = SchemaTransformer.json_to_pydantic_field(value_schema, True, root_schema, model_cache)
                         python_type = Dict[str, value_type]
+
+                python_type = _constrained_value_type(python_type, json_type, prop_schema)
 
         field_kwargs = {"description": description}
         if required:

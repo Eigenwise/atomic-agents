@@ -87,7 +87,7 @@ def test_qa_agent_calls_llm_with_query():
     # Instructor clients route through .chat.completions.create(...)
     client.chat.completions.create.return_value = Answer(text="42")
 
-    agent = create_qa_agent(client=client, model="gpt-5-mini")
+    agent = create_qa_agent(client=client, model="gpt-5.6-terra")
     out = agent.run(UserQuery(question="meaning of life"))
     assert out.text == "42"
 ```
@@ -110,7 +110,7 @@ def test_agent_answers_real_question():
     ...
 ```
 
-Add `RUN_PROVIDER_TESTS=1` to a nightly or on-demand CI job. Pin a cheap model (`gpt-5-mini`, `claude-haiku-4-5`) and a tight `max_tokens`.
+Add `RUN_PROVIDER_TESTS=1` to a nightly or on-demand CI job. Pin a cheap model (`gpt-5.6-terra`, `claude-haiku-4-5`) and a tight `max_tokens`.
 
 ## Async and streaming
 

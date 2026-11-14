@@ -73,7 +73,7 @@ youtube_knowledge_extraction_agent = AtomicAgent[
 ](
     config=AgentConfig(
         client=instructor.from_openai(openai.OpenAI()),
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         model_api_parameters={"reasoning_effort": "low"},
         system_prompt_generator=SystemPromptGenerator(
             background=[

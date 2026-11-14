@@ -25,7 +25,7 @@ class ChatConfig:
     """Model and connectivity settings. Not meant to be instantiated."""
 
     api_key: str = get_api_key()
-    model: str = "gpt-5-mini"
+    model: str = "gpt-5.6-terra"
     reasoning_effort: str = "low"
     searxng_base_url: str = get_searxng_base_url()
     searxng_api_key: Optional[str] = get_searxng_api_key()

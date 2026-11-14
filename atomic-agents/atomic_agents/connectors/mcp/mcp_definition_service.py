@@ -4,7 +4,7 @@ import logging
 import re
 import shlex
 from contextlib import AsyncExitStack
-from typing import List, NamedTuple, Optional, Dict, Any, Callable, Awaitable, TypeVar
+from typing import List, NamedTuple, Optional, Dict, Any, Callable, Awaitable, TypeVar, Union
 from enum import Enum
 
 from mcp import ClientSession, StdioServerParameters
@@ -13,8 +13,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 import mcp.types as types
-from pydantic import AnyUrl
-from urllib.parse import unquote as decode_uri, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -292,10 +291,12 @@ class MCPDefinitionService:
 
         try:
             await session.initialize()
-            resources_iterable = await _fetch_all_pages(
-                await session.list_resources(),
-                lambda cursor: session.list_resources(cursor=cursor),
-                lambda response: response.resources,
+            resources_iterable: List[Union[types.Resource, types.ResourceTemplate]] = list(
+                await _fetch_all_pages(
+                    await session.list_resources(),
+                    lambda cursor: session.list_resources(cursor=cursor),
+                    lambda response: response.resources,
+                )
             )
 
             try:
@@ -309,33 +310,30 @@ class MCPDefinitionService:
                     lambda cursor: session.list_resource_templates(cursor=cursor),
                     lambda response: response.resourceTemplates,
                 )
-                for template in res_templates:
-                    # Resource templates have no "input_schema" value and use URI templates with parameters.
-                    resources_iterable.append(
-                        types.Resource(
-                            name=template.name,
-                            description=template.description,
-                            uri=AnyUrl(template.uriTemplate),
-                        )
-                    )
+                resources_iterable.extend(res_templates)
 
             for mcp_resource in resources_iterable:
                 # Support both attribute-style objects and dict-like responses
                 if hasattr(mcp_resource, "name"):
                     name = mcp_resource.name
                     description = mcp_resource.description
-                    uri = mcp_resource.uri
+                    if isinstance(mcp_resource, types.ResourceTemplate):
+                        uri = str(mcp_resource.uriTemplate)
+                        parse_placeholders = True
+                    else:
+                        uri = str(mcp_resource.uri)
+                        parse_placeholders = not isinstance(mcp_resource, types.Resource)
                 elif isinstance(mcp_resource, dict):
                     # assume mapping
                     name = mcp_resource["name"]
                     description = mcp_resource.get("description")
-                    uri = mcp_resource.get("uri", "")
+                    uri = str(mcp_resource.get("uri", ""))
+                    parse_placeholders = True
                 else:
                     raise ValueError(f"Unexpected resource format: {mcp_resource}")
 
-                # Extract placeholders from the chosen source
-                uri = decode_uri(str(uri))
-                placeholders = re.findall(r"\{([^}]+)\}", uri) if uri else []
+                # Preserve encoded URI identity; only explicit template braces define parameters.
+                placeholders = re.findall(r"\{([^}]+)\}", uri) if parse_placeholders else []
                 properties: Dict[str, Any] = {}
                 for param_name in placeholders:
                     properties[param_name] = {"type": "string", "description": f"URI parameter {param_name}"}

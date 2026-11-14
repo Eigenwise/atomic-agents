@@ -126,7 +126,7 @@ client = instructor.from_openai(OpenAI())
 agent = AtomicAgent[BasicChatInputSchema, CustomOutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         system_prompt_generator=system_prompt_generator,
         history=ChatHistory(),
     )
@@ -233,7 +233,7 @@ class QueryAgentInputSchema(BaseIOSchema):
 query_agent = AtomicAgent[QueryAgentInputSchema, SearXNGSearchTool.input_schema](
     config=AgentConfig(
         client=instructor.from_openai(openai.OpenAI()),
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         system_prompt_generator=SystemPromptGenerator(
             background=[
                 "You are an intelligent query generation expert.",
@@ -357,13 +357,16 @@ Atomic Forge is a collection of tools that can be used with Atomic Agents to ext
 - BoCha Search
 - Calculator
 - DateTime
+- deed.page Publisher
 - Fía Signals
 - Firecrawl Search
 - FXMacroData
 - Hacker News Search
+- Outcrawl Search
 - PDF Reader
 - SearXNG Search
 - Serply Search
+- Sofya Search
 - Tavily Search
 - Webpage Scraper
 - Weather
