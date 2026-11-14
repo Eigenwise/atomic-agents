@@ -480,6 +480,13 @@ There's a full runnable example of this pattern (a dependency-free SQLite-backed
 ChatHistory supports images, PDFs, and audio through Instructor's multimodal types, plus
 video through the framework's own `VideoURL` type.
 
+Media returned by a Pydantic `@computed_field` wrapping `functools.cached_property`
+is also sent as a media content part, including media nested in a cached model, list,
+tuple, or dictionary. Other values remain in the JSON text. Extraction and serialization
+reuse the cached value, keeping mixed-container positions consistent. Ordinary computed
+properties retain their normal serialization behavior. An excluded parent field is not
+visited, so its cached computed attachments remain private.
+
 ### Adding Multimodal Messages
 
 ```python

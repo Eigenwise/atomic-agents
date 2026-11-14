@@ -2,6 +2,7 @@ import json
 import uuid
 from copy import deepcopy
 from enum import Enum
+from functools import cached_property
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
 
@@ -153,8 +154,13 @@ class ChatHistory(BaseChatHistory):
         if hasattr(obj, "__class__") and hasattr(obj.__class__, "model_fields"):
             all_objects = []
             exclude = {}
-            for field_name, field_info in obj.__class__.model_fields.items():
-                if field_info.exclude:
+            computed_fields = getattr(obj.__class__, "model_computed_fields", {})
+            fields = {
+                **obj.__class__.model_fields,
+                **{name: info for name, info in computed_fields.items() if isinstance(info.wrapped_property, cached_property)},
+            }
+            for field_name, field_info in fields.items():
+                if getattr(field_info, "exclude", False):
                     continue
                 if hasattr(obj, field_name):
                     field_value = getattr(obj, field_name)
