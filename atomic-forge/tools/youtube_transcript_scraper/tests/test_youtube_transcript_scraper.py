@@ -63,7 +63,7 @@ def test_youtube_transcript_tool():
             "id": mock_video_id,
             "title": mock_metadata["title"],
             "channel": mock_metadata["channelTitle"],
-            "published_at": datetime.fromisoformat(mock_metadata["publishedAt"].replace("Z", "")),
+            "published_at": datetime.fromisoformat(mock_metadata["publishedAt"]),
         }
 
 

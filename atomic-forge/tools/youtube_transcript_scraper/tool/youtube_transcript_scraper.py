@@ -158,7 +158,7 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
             id=video_id,
             title=video_info["title"],
             channel=video_info["channelTitle"],
-            published_at=datetime.fromisoformat(video_info["publishedAt"].rstrip("Z")),
+            published_at=datetime.fromisoformat(video_info["publishedAt"]),
         )
 
 
