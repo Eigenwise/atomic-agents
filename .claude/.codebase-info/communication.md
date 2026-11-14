@@ -1,6 +1,6 @@
 # Communication & Integrations
 
-*Last Updated: 2026-11-13*
+*Last Updated: 2026-11-14*
 
 The framework exposes no HTTP API of its own; "communication" here means how it talks to LLM
 providers and external tools.
@@ -36,8 +36,17 @@ providers and external tools.
 - HTTP and SSE endpoints go through `_transport_endpoint` (`mcp_definition_service.py`): the transport path
   (`/mcp/` or `/sse`) is appended to the URL path, the query string is kept, and a URL whose path already ends
   in that segment is used as given.
-- Schema references decode escaped definition names and support non-object definitions. Boolean schemas are
-  accepted: `true` maps to `Any`, `false` to a field that rejects every value and is emitted as `{"not": {}}`.
+- Schema references resolve by their complete JSON Pointer through `referencing` (cached per full reference), so
+  same-named definitions under `$defs` and `definitions` stay distinct. Escaped names and non-object targets are
+  supported. Boolean schemas are accepted: `true` maps to `Any`, `false` to a field that rejects every value and is
+  emitted as `{"not": {}}`.
+- Field constraints are carried onto the generated models: numeric `minimum` / `maximum` / `exclusiveMinimum` /
+  `exclusiveMaximum` / `multipleOf`, string `minLength` / `maxLength` / `pattern`, array `minItems` / `maxItems`.
+  Draft-04 boolean exclusive flags are ignored. A pattern Pydantic's regex engine rejects is logged at WARNING and
+  skipped; the field keeps its other constraints.
+- Resource URIs are kept exactly as the server sent them (no decoding). Braces in a plain SDK `Resource` URI are
+  literal; only resource templates and dict-shaped entries get URI parameters from them. Each generated tool,
+  resource and prompt class reports errors and builds results with its own name and output schema.
 - Scalar `enum`/`const` choices are intersected with the advertised JSON Schema (compositions and local `$defs`
   included, checked with `jsonschema` at model construction) so the generated `Literal` and emitted schema only
   admit values the server accepts. An empty intersection fails that one tool definition; the factory logs and skips
@@ -51,6 +60,8 @@ providers and external tools.
   `token:counted`. See the `hooks-example` example and `docs/guides/hooks.md`.
 - `disable_hooks()` detaches this agent's registered Instructor callbacks. Registrations made while disabled stay
   paused; `enable_hooks()` restores the remaining callbacks. Direct client callbacks and tracing hooks remain independent.
+- `token:counted` handlers are kept on the agent, not on the Instructor client, so agents sharing one client don't
+  fire each other's token handlers. Every other event goes to Instructor and is client-wide.
 - OpenTelemetry tracing (`atomic_agents.observability`, `observability` extra = `opentelemetry-api` only): an AGENT
   span per `AtomicAgent` run, a TOOL span per `BaseTool` run and one CLIENT `chat` span per Instructor attempt
   (driven by Instructor hooks registered once per client), all with OpenTelemetry GenAI attributes; OpenInference
@@ -78,3 +89,6 @@ providers and external tools.
   `atomic-forge/tools/`, and copies the chosen tool into the user's project (skipping build files).
   Source URL and paths are in `atomic-assembler/atomic_assembler/constants.py` and `utils.py`
   (`GithubRepoCloner`, `AtomicToolManager`).
+- `GithubRepoCloner(base_url, branch="main")` removes its temp directory when the clone fails. A missing tools
+  folder lists as empty. `copy_atomic_tool` refuses an existing destination and, when a copy fails partway, removes
+  only the folder it created, so the copy can be retried.
