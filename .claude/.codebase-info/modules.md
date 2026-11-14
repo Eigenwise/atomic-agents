@@ -87,7 +87,8 @@
   omits the request attribute; `hide_outputs` omits both, because request messages replay model output (history,
   and the rejected answer on an Instructor re-ask). Disabled LLM spans and suppression also prevent content access.
   Compact JSON preserves message/choice order; an attribute exceeding `max_attribute_length` is omitted whole,
-  rather than truncated. Streams and non-text media/reasoning are omitted. Native Responses and Anthropic calls
+  rather than truncated, and its size is recorded as `gen_ai.<direction>.messages.original_length`. Tool-call
+  arguments that are not valid JSON (truncated, `NaN`) are kept as their raw string. Streams and non-text media/reasoning are omitted. Native Responses and Anthropic calls
   record only the request text that matches the chat shape, and no response. Existing usage and legacy payload
   behavior stay unchanged. Live backend ingestion is unverified.
 - **Tests:** `atomic-agents/tests/observability/` (in-memory exporter; `instructor_transport.py` builds real Instructor
