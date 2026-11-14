@@ -78,6 +78,13 @@ class _GeneratedMCPTool(Protocol):
     output_schema: type[BaseIOSchema]
 
 
+def _mcp_arguments(params: BaseIOSchema, identifier_name: str) -> dict[str, Any]:
+    """Remove routing metadata and restore any conflicting server argument names."""
+    arguments = params.model_dump(exclude={identifier_name}, exclude_none=True)
+    argument_names = getattr(type(params), "__mcp_argument_names__", {})
+    return {argument_names.get(name, name): value for name, value in arguments.items()}
+
+
 def _validated_tool_envelope(tool_result: _ToolResult) -> mcp.types.CallToolResult | None:
     if isinstance(tool_result, mcp.types.CallToolResult):
         return tool_result
@@ -354,7 +361,7 @@ class MCPFactory:
                     bound_working_directory = getattr(self, "working_directory", None)
 
                     # Get arguments, excluding tool_name
-                    arguments = params.model_dump(exclude={"tool_name"}, exclude_none=True)
+                    arguments = _mcp_arguments(params, "tool_name")
 
                     async def _connect_and_call():
                         stack = AsyncExitStack()
@@ -630,7 +637,7 @@ class MCPFactory:
                     persistent_session: Optional[ClientSession] = getattr(self, "_client_session", None)
                     bound_working_directory = getattr(self, "working_directory", None)
 
-                    arguments = params.model_dump(exclude={"resource_name"}, exclude_none=True)
+                    arguments = _mcp_arguments(params, "resource_name")
 
                     async def _connect_and_read():
                         stack = AsyncExitStack()
@@ -849,7 +856,7 @@ class MCPFactory:
                     bound_working_directory = getattr(self, "working_directory", None)
 
                     # Get arguments
-                    arguments = params.model_dump(exclude={"prompt_name"}, exclude_none=True)
+                    arguments = _mcp_arguments(params, "prompt_name")
 
                     async def _connect_and_generate():
                         stack = AsyncExitStack()
