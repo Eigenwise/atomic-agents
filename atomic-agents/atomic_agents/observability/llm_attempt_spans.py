@@ -205,7 +205,7 @@ def _completion_kwargs(*args: object, **kwargs: object) -> None:
         f"chat {model}" if model else "chat", kind=SpanKind.CLIENT, attributes=_without_none(attributes)
     )
     _attach_attempt(run)
-    write_messages(run.open_attempt, kwargs.get("messages"), "input", run.config)
+    write_messages(run.open_attempt, kwargs.get("messages"), "input", run.config, system=kwargs.get("system"))
 
 
 def _request_model(kwargs: dict[str, object]) -> str | None:

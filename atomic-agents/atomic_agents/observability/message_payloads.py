@@ -21,7 +21,7 @@ def _text_part(content: object) -> dict[str, object] | None:
 
 
 def _text_block(block: object) -> dict[str, object] | None:
-    if _field(block, "type") != "text":
+    if _field(block, "type") not in ("text", "input_text", "output_text"):
         return None
     return _text_part(_field(block, "text"))
 
@@ -61,12 +61,30 @@ def _tool_calls(message: object) -> list[dict[str, object]]:
     return [part for call in calls if (part := _tool_call(call)) is not None]
 
 
+def _content_part(block: object) -> dict[str, object] | None:
+    kind = _field(block, "type")
+    if kind == "tool_use":
+        name, arguments = _field(block, "name"), _field(block, "input")
+        if isinstance(name, str) and name and isinstance(arguments, dict):
+            return _call_id({"type": "tool_call", "name": name, "arguments": arguments}, block, "id")
+        return None
+    if kind == "tool_result":
+        content = _field(block, "content")
+        response = content if isinstance(content, str) else _text_parts(content)
+        if isinstance(response, str) or response:
+            return _call_id({"type": "tool_call_response", "response": response}, block, "tool_use_id")
+        return None
+    return _text_block(block)
+
+
 def _message_parts(message: object, role: str) -> list[dict[str, object]]:
     content = _field(message, "content")
     if role == "tool":
         if not isinstance(content, str):
             return []
         return [_call_id({"type": "tool_call_response", "response": content}, message, "tool_call_id")]
+    if isinstance(content, list):
+        return [part for block in content if (part := _content_part(block)) is not None] + _tool_calls(message)
     return _text_parts(content) + _tool_calls(message)
 
 
@@ -86,9 +104,26 @@ def _messages(values: object) -> list[dict[str, object]]:
 
 def _output_messages(response: object) -> list[dict[str, object]]:
     choices = _field(response, "choices")
-    if not isinstance(choices, list):
-        return []
-    return [message for choice in choices if (message := _message(_field(choice, "message"))) is not None]
+    if isinstance(choices, list):
+        return [message for choice in choices if (message := _message(_field(choice, "message"))) is not None]
+    if _field(response, "type") == "message" and _field(response, "role") == "assistant":
+        message = _message(response)
+        return [message] if message else []
+    if _field(response, "object") == "response":
+        items = _field(response, "output")
+        if isinstance(items, list):
+            parts = []
+            for item in items:
+                kind = _field(item, "type")
+                if kind == "message" and _field(item, "role") == "assistant":
+                    parts.extend(_text_parts(_field(item, "content")))
+                elif kind == "function_call":
+                    part = _tool_call({"type": "function", "id": _field(item, "call_id"), "function": item})
+                    if part is not None:
+                        parts.append(part)
+            # Responses output items belong to a single generated choice.
+            return [{"role": "assistant", "parts": parts}] if parts else []
+    return []
 
 
 def _messages_hidden(direction: str, config: TracingConfig) -> bool:
@@ -99,16 +134,20 @@ def _messages_hidden(direction: str, config: TracingConfig) -> bool:
     return config.hide_inputs or config.hide_outputs
 
 
-def write_messages(span: Span, value: object, direction: str, config: TracingConfig) -> None:
+def write_messages(span: Span, value: object, direction: str, config: TracingConfig, *, system: object = None) -> None:
     if not config.capture_messages or not config.llm_spans or context_api.get_value("suppress_instrumentation"):
         return
     if not _messages_hidden(direction, config):
-        _write_visible_messages(span, value, direction, config)
+        _write_visible_messages(span, value, direction, config, system=system)
 
 
-def _write_visible_messages(span: Span, value: object, direction: str, config: TracingConfig) -> None:
+def _write_visible_messages(
+    span: Span, value: object, direction: str, config: TracingConfig, *, system: object = None
+) -> None:
     try:
         messages = _messages(value) if direction == "input" else _output_messages(value)
+        if direction == "input" and (system_parts := _text_parts(system)):
+            messages.insert(0, {"role": "system", "parts": system_parts})
         if not messages:
             return
         serialized = json.dumps(messages, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
