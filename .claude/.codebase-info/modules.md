@@ -104,7 +104,8 @@
   copied into user projects by the assembler (build files such as `pyproject.toml` / `requirements.txt`
   / `uv.lock` are skipped on copy).
 - **Recent additions:** `firecrawl_search` and `sofya_search` provide web/news search (`sofya_search` follows the
-  `firecrawl_search` structure and returns page text per result); `fxmacrodata` provides economic releases, FX and COT
+  `firecrawl_search` structure and returns page text per result); `outcrawl_search` follows the `serply_search`
+  structure and can also fetch each result page as Markdown; `fxmacrodata` provides economic releases, FX and COT
   data; `deed_page` publishes static files to a public deed.page URL and is the only forge tool that writes outward
   (it keeps its owner token on `tool.token`, never in the output). Each keeps its own dependencies and setup.
 - **YouTube compatibility:** `youtube_transcript_scraper` uses the instance-based transcript API and converts SDK transcript objects to raw entries.
