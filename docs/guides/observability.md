@@ -402,9 +402,11 @@ Hiding wins over truncation, and a hidden payload is never serialized in the fir
 
 Covered by hiding and truncation: `atomic_agents.input`, `atomic_agents.output`, `input.value`, `output.value`,
 `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result` and `atomic_agents.llm.last_validation_error`. `tool.parameters`
-is truncated but never hidden. Status descriptions and recorded exception messages are truncated too, and under
-`hide_outputs` a Pydantic validation error message is replaced by `__REDACTED__` plus the error count, because the raw
-model output is quoted inside it.
+is truncated but never hidden. Status descriptions and recorded exception messages are truncated too. If either
+`hide_inputs` or `hide_outputs` is enabled, failure messages and exception stack traces use redacted text while
+retaining the exception type and available error or attempt counts. Exceptions can repeat private tool arguments
+as well as model output, so they follow both visibility settings. Successful output payloads remain governed by
+`hide_outputs`.
 
 Instructor's own logging is separate from Atomic Agents' tracing: in the installed Instructor 1.17.0 source,
 `instructor.v2.retry` (re-exported through `instructor.core.retry`) logs per-attempt validation failures at DEBUG

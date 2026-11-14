@@ -112,16 +112,17 @@ def _failure_count(error: BaseException) -> str | None:
 
 
 def _failure_message(error: BaseException, config: TracingConfig) -> str:
-    if not config.hide_outputs:
+    if not (config.hide_inputs or config.hide_outputs):
         return str(error)
     count = next((count for cause in _exception_chain(error) if (count := _failure_count(cause)) is not None), "1 errors")
     return f"{type(error).__qualname__}: {count} (__REDACTED__)"
 
 
 def _failure_stacktrace(error: BaseException, config: TracingConfig) -> str:
-    lines = traceback.format_exception(error, chain=not config.hide_outputs)
-    if config.hide_outputs:
+    if config.hide_inputs or config.hide_outputs:
         lines = _redacted_traceback(error, config)
+    else:
+        lines = traceback.format_exception(error)
     return _bounded_text("".join(lines), config)
 
 
