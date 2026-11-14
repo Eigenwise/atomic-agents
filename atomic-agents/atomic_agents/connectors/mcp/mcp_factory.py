@@ -933,7 +933,7 @@ class MCPFactory:
                                 texts.append(content)
                             elif isinstance(content, dict):
                                 texts.append(content.get("text", ""))
-                            elif getattr(content, "text", None):
+                            elif isinstance(getattr(content, "text", None), str):
                                 texts.append(content.text)  # type: ignore
                             else:
                                 texts.append(str(content))
