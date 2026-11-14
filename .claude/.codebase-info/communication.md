@@ -78,7 +78,7 @@ providers and external tools.
   `gen_ai.input.messages` / `gen_ai.output.messages` JSON on chat attempt spans for supported ChatCompletion text
   and tool parts. Capture is off by default. Hiding wins before content access: `hide_inputs` drops the request
   attribute, `hide_outputs` drops both (requests replay earlier model output). Oversized complete JSON attributes
-  are omitted, and native formats/streams/media are not converted, so non-chat providers yield partial request text
+  are omitted with their size left in `<key>.original_length`, unparseable tool-call arguments stay as raw text, and native formats/streams/media are not converted, so non-chat providers yield partial request text
   only. Exporter setup remains app-owned; backend presentation is unverified.
 - Forge tools that run their async body through a `ThreadPoolExecutor` submit via
   `contextvars.copy_context().run` so the caller's OpenTelemetry context (and the tracing re-entrancy guard)

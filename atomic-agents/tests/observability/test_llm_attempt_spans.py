@@ -113,6 +113,35 @@ def test_opt_in_real_transport_messages_follow_attempts(exporter, mode):
     assert second_messages[0]["parts"][0]["type"] == expected_part
 
 
+@pytest.mark.parametrize("arguments", ['{"answer": "4', '{"answer": NaN}'])
+def test_unparseable_tool_call_arguments_stay_visible_across_the_retry(exporter, arguments):
+    installation.install(config=TracingConfig(capture_messages=True, max_attribute_length=20000))
+    client = instructor_client(instructor.Mode.TOOLS, [ScriptedResponse(arguments=arguments), ScriptedResponse()])
+
+    assert run_agent(client).answer == "42"
+
+    first, second, _ = finished_spans(exporter, 3)
+    rejected_call = json.loads(first.attributes["gen_ai.output.messages"])[0]["parts"][0]
+    replayed_calls = [
+        part
+        for message in json.loads(second.attributes["gen_ai.input.messages"])
+        for part in message["parts"]
+        if part["type"] == "tool_call"
+    ]
+    assert rejected_call["arguments"] == arguments
+    assert [call["arguments"] for call in replayed_calls] == [arguments]
+
+
+def test_oversized_request_messages_leave_their_length_on_the_attempt_span(exporter):
+    installation.install(config=TracingConfig(capture_messages=True, max_attribute_length=40))
+
+    run_agent(instructor_client(instructor.Mode.TOOLS, [ScriptedResponse()]))
+
+    child, _ = finished_spans(exporter, 2)
+    assert "gen_ai.input.messages" not in child.attributes
+    assert child.attributes["gen_ai.input.messages.original_length"] > 40
+
+
 @pytest.mark.parametrize("hide_inputs, hide_outputs", [(False, False), (True, False), (False, True), (True, True)])
 def test_message_visibility_directions(exporter, hide_inputs, hide_outputs):
     installation.install(config=TracingConfig(capture_messages=True, hide_inputs=hide_inputs, hide_outputs=hide_outputs))
