@@ -152,12 +152,17 @@ def test_capture_with_attempt_spans_disabled_keeps_totals(exporter):
     assert "gen_ai.output.messages" not in parent.attributes
 
 
-def test_native_responses_capture_keeps_request_text_and_omits_response(exporter):
+def test_native_responses_capture_keeps_request_text_and_function_result(exporter):
     installation.install(config=TracingConfig(capture_messages=True))
     run_agent(instructor_client(instructor.Mode.RESPONSES_TOOLS, [ScriptedResponse()]))
     child, parent = finished_spans(exporter, 2)
     assert json.loads(child.attributes["gen_ai.input.messages"])[-1]["role"] == "user"
-    assert "gen_ai.output.messages" not in child.attributes
+    assert json.loads(child.attributes["gen_ai.output.messages"]) == [
+        {
+            "role": "assistant",
+            "parts": [{"type": "tool_call", "name": "Answer", "id": "call_test", "arguments": {"answer": "42"}}],
+        }
+    ]
     assert parent.attributes["gen_ai.usage.input_tokens"] == 3
 
 

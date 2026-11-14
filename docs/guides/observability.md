@@ -373,14 +373,20 @@ user text and tool arguments/results. Review their sensitivity before enabling c
 defaults stay unchanged.
 
 Supported shapes are OpenAI-compatible chat messages with string content or text blocks, ordinary ChatCompletion
-choices, function tool calls, and tool-role replies. Each represented output choice stays a separate message, in order.
-Tools-mode responses contain real `tool_call` parts, never text fabricated from the parsed agent result. Images,
-audio, files, reasoning and unknown blocks are excluded; recognized text in mixed content remains. Streams and
-generators are never consumed.
+choices, function tool calls, and tool-role replies. Anthropic messages also retain `tool_use` and `tool_result` parts,
+their original message roles and block order, and the separate `system` text supplied to Instructor. A string tool
+result remains a string; a list result retains only its text blocks as canonical text parts. Native Anthropic message
+responses are captured too.
 
-Other provider shapes are captured only where they happen to match the chat shape, so their transcripts are partial.
-Native Responses calls record request text and no response. Anthropic-format requests record plain text turns; their
-`tool_use`/`tool_result` blocks and the separate `system` prompt are left out, and so is the response.
+OpenAI Responses output text and function calls are captured as one assistant message for the generated choice,
+preserving item order and using `call_id` to identify each function call. Ordinary ChatCompletion choices remain
+separate messages. Tools-mode responses contain actual `tool_call` parts, never text fabricated from the parsed agent
+result. Request capture follows the messages in Instructor's attempt hook, including supported text block spellings
+`text`, `input_text`, and `output_text`.
+
+Images, audio, files, thinking/reasoning, server-tool blocks and unknown blocks are excluded; recognized text in mixed
+content remains. Streams and generators are never consumed. Other provider shapes are captured only where they match
+these supported shapes, so their transcripts can still be partial.
 
 Message attributes are compact JSON using the GenAI `role`/`parts` schema. A complete serialized attribute exceeding
 `max_attribute_length` is omitted, including at tiny caps; it is never sliced or given a truncation marker. Empty or
@@ -495,5 +501,5 @@ assert [span.name for span in exporter.get_finished_spans()][-1] == "invoke_agen
 - The AGENT span records the final (or last partial) response of a stream, not every chunk.
 - System prompt text is absent by default. Opt-in message capture can include it on chat attempt spans; the AGENT
   span carries its SHA-256.
-- Message capture supports the chat shapes listed above. Native Responses and Anthropic calls yield partial request
-  text and no response, and streamed chunks are omitted; live backend message rendering is unverified.
+- Message capture supports the provider shapes listed above. Media, reasoning, server-tool blocks and streamed chunks
+  are omitted; live backend message rendering is unverified.
