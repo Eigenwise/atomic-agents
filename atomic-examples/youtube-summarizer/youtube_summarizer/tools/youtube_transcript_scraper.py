@@ -103,14 +103,16 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
             Exception: If fetching the transcript fails.
         """
         video_id = self.extract_video_id(params.video_url)
+        transcript_api = YouTubeTranscriptApi()
         try:
             if params.language:
-                transcripts = YouTubeTranscriptApi.get_transcript(video_id, languages=[params.language])
+                fetched_transcript = transcript_api.fetch(video_id, languages=[params.language])
             else:
-                transcripts = YouTubeTranscriptApi.get_transcript(video_id)
+                fetched_transcript = transcript_api.fetch(video_id)
         except (NoTranscriptFound, TranscriptsDisabled) as e:
             raise Exception(f"Failed to fetch transcript for video '{video_id}': {str(e)}")
 
+        transcripts = fetched_transcript.to_raw_data()
         transcript_text = " ".join([transcript["text"] for transcript in transcripts])
         total_duration = sum([transcript["duration"] for transcript in transcripts])
 
