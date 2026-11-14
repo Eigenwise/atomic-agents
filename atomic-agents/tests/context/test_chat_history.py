@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, IntEnum
 from unittest.mock import Mock, call
 
 import pytest
@@ -410,6 +410,13 @@ def test_load_invalid_json_preserves_existing_history(saved_history) -> None:
         pytest.param(("max_messages",), MISSING, ValueError, "'max_messages'", id="missing_max_messages"),
         pytest.param(("current_turn_id",), MISSING, ValueError, "'current_turn_id'", id="missing_current_turn_id"),
         pytest.param(("history",), MISSING, ValueError, "'history'", id="missing_history"),
+        pytest.param(("max_messages",), -1, ValueError, "^Invalid serialized data: max_messages", id="negative_capacity"),
+        pytest.param(("max_messages",), True, ValueError, "^Invalid serialized data: max_messages", id="boolean_capacity"),
+        pytest.param(("max_messages",), "4", ValueError, "^Invalid serialized data: max_messages", id="string_capacity"),
+        pytest.param(("max_messages",), 2.5, ValueError, "^Invalid serialized data: max_messages", id="fractional_capacity"),
+        pytest.param(("current_turn_id",), {}, ValueError, "current_turn_id", id="invalid_current_turn"),
+        pytest.param(("history",), {}, ValueError, "history must be a list", id="empty_mapping"),
+        pytest.param(("history", 0, "content", "class_name"), "builtins.str", ValueError, "BaseIOSchema", id="non_schema"),
         pytest.param(("history",), None, ValueError, "^Invalid serialized data: ", id="invalid_history"),
         pytest.param(("history", 0, "content"), MISSING, ValueError, "'content'", id="missing_content"),
         pytest.param(
@@ -534,6 +541,43 @@ def test_history_with_no_max_messages():
     for i in range(100):
         unlimited_history.add_message("user", InputSchema(test_field=f"Message {i}"))
     assert len(unlimited_history.history) == 100
+
+
+@pytest.mark.parametrize("capacity", [-1, True, "4", 2.5])
+def test_history_rejects_invalid_capacity(capacity):
+    with pytest.raises(ValueError, match="max_messages"):
+        ChatHistory(max_messages=capacity)
+
+
+def test_history_accepts_int_subclass_capacity():
+    class Capacity(IntEnum):
+        ONE = 1
+
+    history = ChatHistory(max_messages=Capacity.ONE)
+    history.add_message("user", InputSchema(test_field="old"))
+    history.add_message("user", InputSchema(test_field="new"))
+    assert [message.content.test_field for message in history.history] == ["new"]
+
+    restored = ChatHistory()
+    restored.load(history.dump())
+    assert restored.max_messages == Capacity.ONE
+    assert [message.content.test_field for message in restored.history] == ["new"]
+
+
+@pytest.mark.parametrize(
+    "capacity, expected", [(None, ["first", "second", "third"]), (0, []), (1, ["third"]), (2, ["second", "third"])]
+)
+def test_load_trims_history_after_capacity_is_lowered(capacity, expected):
+    original = ChatHistory()
+    for text in ["first", "second", "third"]:
+        original.add_message("user", InputSchema(test_field=text))
+    original.max_messages = capacity
+
+    restored = ChatHistory()
+    restored.load(original.dump())
+
+    assert restored.max_messages == capacity
+    assert [message.content.test_field for message in restored.history] == expected
 
 
 def test_history_with_zero_max_messages():
