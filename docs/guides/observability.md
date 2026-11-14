@@ -312,6 +312,16 @@ AtomicAgentsInstrumentor().instrument(tracer_provider=tracer_provider, config=Tr
 With `llm_spans=False` the usage totals and attempt count still land on the AGENT span, and the `validation_error` event
 still fires.
 
+Completed Gemini `GenerateContent` responses report their `model_version` and
+`usage_metadata` on the attempt span and contribute to the agent's totals across
+retries. Input usage includes prompt and tool-use prompt tokens; cached tokens
+are a subset of the prompt and are not added twice. Output usage includes
+candidate and thought tokens, with thought tokens also exposed as
+`gen_ai.usage.reasoning.output_tokens`. Missing counts are omitted. These mappings
+follow the [GenerateContent usage fields](https://ai.google.dev/api/generate-content#UsageMetadata).
+They do not infer token counts from response text or add streaming usage where
+the SDK/Instructor response hook does not report it.
+
 ## Naming and conversations
 
 Give each agent a stable name, so spans group the same way across deployments and class renames:
