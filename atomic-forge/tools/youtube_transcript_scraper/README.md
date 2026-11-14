@@ -55,7 +55,13 @@ To use this tool, you'll need a YouTube API key. Follow these steps to obtain on
 ## Input & Output Structure
 
 ### Input Schema
-- `video_url` (str): URL of the YouTube video to fetch the transcript for.
+- `video_url` (str): An HTTP(S) YouTube video URL or an 11-character video ID. Supported URL formats:
+  - `https://www.youtube.com/watch?v=dQw4w9WgXcQ` (also `youtube.com` and `m.youtube.com`)
+  - `https://youtu.be/dQw4w9WgXcQ`
+  - `https://www.youtube.com/shorts/dQw4w9WgXcQ`
+  - `https://www.youtube.com/embed/dQw4w9WgXcQ`
+  - Extra query parameters such as `si` and `t`, and URL fragments, are ignored.
+  - Invalid IDs, unsupported URL formats, and non-YouTube domains raise `ValueError` before any API requests.
 - `language` (Optional[str]): Language code for the transcript (e.g., `'en'` for English).
 
 ### Output Schema
