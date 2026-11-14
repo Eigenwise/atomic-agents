@@ -149,6 +149,7 @@ The Atomic Forge ships with several pre-built tools:
 - **BoCha Search**: Web search
 - **Calculator**: Perform mathematical calculations
 - **DateTime**: Timezone-aware now / parse / convert / shift / diff (no key required)
+- **deed.page Publisher**: Publish HTML pages to a public URL via the deed.page API (no key required)
 - **Fía Signals**: Crypto market intelligence — market regime, trading signals, DeFi yields, gas prices, Solana trending tokens, and wallet risk scoring
 - **Firecrawl Search**: Web and news search via the Firecrawl API, with optional page content as Markdown
 - **FXMacroData**: Macroeconomic releases with official announcement times, release calendars, FX rates, and COT positioning (USD data needs no key)
