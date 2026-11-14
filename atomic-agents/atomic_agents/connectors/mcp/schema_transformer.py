@@ -138,17 +138,31 @@ class SchemaTransformer:
 
         # Avoid infinite recursion by adding a placeholder before conversion.
         model_cache[ref_path] = Any
-        if isinstance(ref_schema, dict) and (
-            ref_schema.get("properties")
-            or (ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False)
-        ):
+        if isinstance(ref_schema, dict) and SchemaTransformer._is_object_schema(ref_schema):
             ref_name = ref_path.split("/")[-1].replace("~1", "/").replace("~0", "~")
-            model_name = ref_schema.get("title", ref_name)
-            model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
+            model = SchemaTransformer._object_type(ref_schema, ref_name, root_schema, model_cache)
         else:
             model, _ = SchemaTransformer.json_to_pydantic_field(ref_schema, True, root_schema, model_cache)
         model_cache[ref_path] = model
         return model
+
+    @staticmethod
+    def _is_object_schema(schema: Dict[str, Any]) -> bool:
+        return schema.get("type") == "object" or (schema.get("type") is None and bool(schema.get("properties")))
+
+    @staticmethod
+    def _object_type(
+        schema: Dict[str, Any], model_name: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]
+    ) -> Type:
+        properties = schema.get("properties", {})
+        # Keep server keys that Pydantic treats as private or reserved out of create_model.
+        if any(name.startswith(("_", "model_validate", "model_dump")) or name == "model_config" for name in properties):
+            return Dict[str, Any]
+        additional = schema.get("additionalProperties", True)
+        if properties or additional is False:
+            return SchemaTransformer._create_nested_model(schema, schema.get("title", model_name), root_schema, model_cache)
+        value_type, _ = SchemaTransformer.json_to_pydantic_field(additional, True, root_schema, model_cache)
+        return Dict[str, value_type]
 
     @staticmethod
     def _create_nested_model(
@@ -163,7 +177,12 @@ class SchemaTransformer:
             is_required = prop_name in required_fields
             fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, root_schema, model_cache)
 
-        return create_model(model_name, **fields)
+        additional = schema.get("additionalProperties", True)
+        config = {"extra": "forbid" if additional is False else "allow"}
+        if isinstance(additional, dict) and additional:
+            value_type, _ = SchemaTransformer.json_to_pydantic_field(additional, True, root_schema, model_cache)
+            fields["__pydantic_extra__"] = (Dict[str, value_type], Field(init=False))
+        return create_model(model_name, __config__=config, **fields)
 
     @staticmethod
     def json_to_pydantic_field(
@@ -227,6 +246,8 @@ class SchemaTransformer:
                 for json_type in prop_schema["type"]
             ]
             python_type = Union[tuple(union_types)]
+        elif SchemaTransformer._is_object_schema(prop_schema):
+            python_type = SchemaTransformer._object_type(prop_schema, "NestedObject", root_schema, model_cache)
         # Handle regular types
         else:
             json_type = prop_schema.get("type")
@@ -237,13 +258,6 @@ class SchemaTransformer:
                     items_schema = prop_schema.get("items", {})
                     item_type, _ = SchemaTransformer.json_to_pydantic_field(items_schema, True, root_schema, model_cache)
                     python_type = List[item_type]
-
-                elif json_type == "object":
-                    python_type = Dict[str, Any]
-                    value_schema = prop_schema.get("additionalProperties", {})
-                    if isinstance(value_schema, dict):
-                        value_type, _ = SchemaTransformer.json_to_pydantic_field(value_schema, True, root_schema, model_cache)
-                        python_type = Dict[str, value_type]
 
                 python_type = _constrained_value_type(python_type, json_type, prop_schema)
 
