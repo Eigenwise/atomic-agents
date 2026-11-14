@@ -1,6 +1,6 @@
 # Key Modules
 
-*Last Updated: 2026-11-12*
+*Last Updated: 2026-11-14*
 
 ## Core framework — `atomic-agents/atomic_agents/`
 
@@ -103,7 +103,10 @@
 - **Purpose:** Standalone tools, each an independent mini-project following the `BaseTool` pattern,
   copied into user projects by the assembler (build files such as `pyproject.toml` / `requirements.txt`
   / `uv.lock` are skipped on copy).
-- **Recent additions:** `firecrawl_search` provides web/news search; `fxmacrodata` provides economic releases, FX and COT data. Both keep their own dependencies and setup.
+- **Recent additions:** `firecrawl_search` and `sofya_search` provide web/news search (`sofya_search` follows the
+  `firecrawl_search` structure and returns page text per result); `fxmacrodata` provides economic releases, FX and COT
+  data; `deed_page` publishes static files to a public deed.page URL and is the only forge tool that writes outward
+  (it keeps its owner token on `tool.token`, never in the output). Each keeps its own dependencies and setup.
 - **YouTube compatibility:** `youtube_transcript_scraper` uses the instance-based transcript API and converts SDK transcript objects to raw entries.
 - **Authoring guide:** `atomic-forge/guides/tool_structure.md`.
 
