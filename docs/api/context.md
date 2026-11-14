@@ -63,6 +63,11 @@ class Message(BaseModel):
 
 The history system automatically handles multimodal content:
 
+Fields excluded with `Field(exclude=True)` are not collected as media attachments.
+On Pydantic 2.12 and later, `Field(exclude_if=...)` also hides attachments when its
+predicate returns true for the current field value. Both rules apply to nested
+models and whole attachment containers.
+
 ```python
 # For content with images
 history = history.get_history()
