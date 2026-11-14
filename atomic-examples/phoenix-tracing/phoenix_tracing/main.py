@@ -44,7 +44,7 @@ def build_planner(client: instructor.Instructor) -> AtomicAgent[BasicChatInputSc
     return AtomicAgent[BasicChatInputSchema, CalculationPlanSchema](
         AgentConfig(
             client=client,
-            model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+            model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
             system_prompt_generator=SystemPromptGenerator(
                 background=["You turn word problems into one arithmetic expression a calculator can evaluate."],
                 output_instructions=["Use only numbers and the operators + - * / ** ( )."],
@@ -57,7 +57,7 @@ def build_answerer(client: instructor.Instructor) -> AtomicAgent[CalculationResu
     return AtomicAgent[CalculationResultSchema, BasicChatOutputSchema](
         AgentConfig(
             client=client,
-            model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+            model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
             system_prompt_generator=SystemPromptGenerator(
                 background=["You explain a computed result to the user in one friendly sentence."],
             ),

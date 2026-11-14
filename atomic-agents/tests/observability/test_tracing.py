@@ -1360,12 +1360,13 @@ def test_error_status_and_recorded_message_are_bounded(configured_tracing):
 
 def test_hidden_validation_errors_do_not_export_model_output(configured_tracing):
     provider, exporter = configured_tracing
-    AtomicAgentsInstrumentor().instrument(tracer_provider=provider, config=tracing.TracingConfig(hide_outputs=True))
+    config = tracing.TracingConfig(hide_outputs=True)
+    AtomicAgentsInstrumentor().instrument(tracer_provider=provider, config=config)
     try:
         QuestionSchema.model_validate({"question": ["secret model output"]})
     except ValidationError as error:
         with provider.get_tracer("test").start_as_current_span("failure") as span:
-            span_payloads._record_failure(span, error)
+            span_payloads._record_failure(span, error, config)
     (span,) = spans_of(exporter)
     assert span.status.description == "ValidationError: 1 errors (__REDACTED__)"
     assert span.events[0].attributes["exception.message"] == span.status.description
@@ -1504,3 +1505,293 @@ def test_agent_name_falls_back_without_initialized_base(exporter, broken_name):
     (span,) = spans_of(exporter)
     assert span.name == "invoke_agent UninitializedAgent"
     assert span.attributes["gen_ai.agent.name"] == "UninitializedAgent"
+
+
+@pytest.mark.parametrize("method", ["run", "run_async", "arun"])
+@pytest.mark.parametrize("fail", [False, True])
+@pytest.mark.asyncio
+async def test_uninstrument_in_flight_tool_preserves_result_or_error(exporter, method, fail):
+    error = ValueError("original tool error")
+
+    class LifecycleTool(BaseTool[CalculationInputSchema, CalculationOutputSchema]):
+        def run(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            AtomicAgentsInstrumentor().uninstrument()
+            if fail:
+                raise error
+            return CalculationOutputSchema(result=params.expression)
+
+        async def run_async(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            return self.run(params)
+
+        async def arun(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            return self.run(params)
+
+    operation = getattr(LifecycleTool(), method)
+    params = CalculationInputSchema(expression="42")
+    if fail:
+        with pytest.raises(ValueError) as raised:
+            if method == "run":
+                operation(params)
+            else:
+                await operation(params)
+        assert raised.value is error
+    else:
+        result = operation(params) if method == "run" else await operation(params)
+        assert result.result == "42"
+    (span,) = spans_of(exporter)
+    assert span.status.status_code == (StatusCode.ERROR if fail else StatusCode.OK)
+
+
+@pytest.mark.parametrize("method", ["run", "run_async"])
+@pytest.mark.parametrize("fail", [False, True])
+@pytest.mark.asyncio
+async def test_uninstrument_in_flight_agent_preserves_result_or_error(exporter, method, fail):
+    error = ValueError("original agent error")
+
+    def complete(**kwargs):
+        AtomicAgentsInstrumentor().uninstrument()
+        if fail:
+            raise error
+        return AnswerSchema(answer="42")
+
+    async def complete_async(**kwargs):
+        return complete(**kwargs)
+
+    client = sync_client() if method == "run" else async_client()
+    client.chat.completions.create = complete if method == "run" else complete_async
+    operation = getattr(make_agent(client), method)
+    question = QuestionSchema(question="?")
+    if fail:
+        with pytest.raises(ValueError) as raised:
+            if method == "run":
+                operation(question)
+            else:
+                await operation(question)
+        assert raised.value is error
+    else:
+        result = operation(question) if method == "run" else await operation(question)
+        assert result.answer == "42"
+    (span,) = spans_of(exporter)
+    assert span.status.status_code == (StatusCode.ERROR if fail else StatusCode.OK)
+
+
+@pytest.mark.parametrize("ending", ["complete", "close", "error", "cancel"])
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.asyncio
+async def test_uninstrument_in_flight_stream_preserves_lifecycle(exporter, ending, asynchronous):
+    error = asyncio.CancelledError() if ending == "cancel" else ValueError("original stream error")
+
+    def partials(**kwargs):
+        yield AnswerSchema(answer="4")
+        if ending in ("error", "cancel"):
+            raise error
+        yield AnswerSchema(answer="42")
+
+    async def async_partials(**kwargs):
+        for partial in partials():
+            yield partial
+
+    client = async_client() if asynchronous else sync_client()
+    client.chat.completions.create_partial = async_partials if asynchronous else partials
+    agent = make_agent(client)
+    question = QuestionSchema(question="?")
+    stream = agent.run_async_stream(question) if asynchronous else agent.run_stream(question)
+    first = await anext(stream) if asynchronous else next(stream)
+    assert first.answer == "4"
+    AtomicAgentsInstrumentor().uninstrument()
+    if ending == "close":
+        if asynchronous:
+            await stream.aclose()
+        else:
+            stream.close()
+    elif ending in ("error", "cancel"):
+        with pytest.raises(type(error)) as raised:
+            if asynchronous:
+                await anext(stream)
+            else:
+                next(stream)
+        assert raised.value is error
+    else:
+        remaining = [item async for item in stream] if asynchronous else list(stream)
+        assert remaining[-1].answer == "42"
+    (span,) = spans_of(exporter)
+    expected_status = {"error": StatusCode.ERROR, "cancel": StatusCode.UNSET}.get(ending, StatusCode.OK)
+    assert span.status.status_code == expected_status
+    assert span.attributes.get("atomic_agents.stream.closed_early", False) == (ending in ("close", "cancel"))
+
+
+@pytest.mark.parametrize("component", ["agent", "tool"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_in_flight_span_retains_output_privacy_config(exporter, component, fail):
+    initial = tracing.TracingConfig(hide_outputs=True, openinference_attributes=False)
+    AtomicAgentsInstrumentor().instrument(tracer_provider=exporter.provider, config=initial)
+    error = ValueError("private failure")
+
+    def reconfigure():
+        AtomicAgentsInstrumentor().instrument(
+            tracer_provider=exporter.provider,
+            config=tracing.TracingConfig(hide_outputs=False, openinference_attributes=True),
+        )
+        if fail:
+            raise error
+
+    class ReconfiguringTool(BaseTool[CalculationInputSchema, CalculationOutputSchema]):
+        def run(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            reconfigure()
+            return CalculationOutputSchema(result="private result")
+
+    def complete(**kwargs):
+        reconfigure()
+        return AnswerSchema(answer="private result")
+
+    client = sync_client()
+    client.chat.completions.create = complete
+
+    def operation():
+        if component == "agent":
+            return make_agent(client).run(QuestionSchema(question="?"))
+        return ReconfiguringTool().run(CalculationInputSchema(expression="?"))
+
+    if fail:
+        with pytest.raises(ValueError) as raised:
+            operation()
+        assert raised.value is error
+    else:
+        operation()
+    (span,) = spans_of(exporter)
+    assert "private" not in str(span.attributes)
+    assert "output.value" not in span.attributes
+    if fail:
+        assert span.events[0].attributes["exception.message"] == "ValueError: 1 errors (__REDACTED__)"
+    else:
+        output_key = "atomic_agents.output" if component == "agent" else "gen_ai.tool.call.result"
+        assert span.attributes[output_key] == "__REDACTED__"
+
+
+@pytest.mark.parametrize(
+    "component,method", [("agent", "run"), ("agent", "run_async"), ("tool", "run"), ("tool", "run_async"), ("tool", "arun")]
+)
+@pytest.mark.parametrize("fail", [False, True])
+@pytest.mark.asyncio
+async def test_deferred_call_after_uninstrument_preserves_result_or_error(exporter, component, method, fail):
+    error = ValueError("deferred operation failed")
+
+    def complete(**kwargs):
+        if fail:
+            raise error
+        return AnswerSchema(answer="42")
+
+    async def complete_async(**kwargs):
+        return complete(**kwargs)
+
+    class DeferredTool(BaseTool[CalculationInputSchema, CalculationOutputSchema]):
+        def run(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            complete()
+            return CalculationOutputSchema(result=params.expression)
+
+        async def run_async(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            return self.run(params)
+
+        async def arun(self, params: CalculationInputSchema) -> CalculationOutputSchema:
+            return self.run(params)
+
+    if component == "agent":
+        client = sync_client() if method == "run" else async_client()
+        client.chat.completions.create = complete if method == "run" else complete_async
+        operation = getattr(make_agent(client), method)
+        params = QuestionSchema(question="?")
+    else:
+        operation = getattr(DeferredTool(), method)
+        params = CalculationInputSchema(expression="42")
+    pending = operation(params) if method != "run" else None
+    AtomicAgentsInstrumentor().uninstrument()
+    if fail:
+        with pytest.raises(ValueError) as raised:
+            if pending is None:
+                operation(params)
+            else:
+                await pending
+        assert raised.value is error
+    else:
+        result = operation(params) if pending is None else await pending
+        assert (result.answer if component == "agent" else result.result) == "42"
+    assert spans_of(exporter) == []
+
+
+@pytest.mark.parametrize("ending", ["complete", "error", "cancel"])
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.asyncio
+async def test_deferred_stream_after_uninstrument_preserves_lifecycle(exporter, ending, asynchronous):
+    error = asyncio.CancelledError() if ending == "cancel" else ValueError("deferred stream failed")
+
+    def partials(**kwargs):
+        yield AnswerSchema(answer="4")
+        if ending != "complete":
+            raise error
+        yield AnswerSchema(answer="42")
+
+    async def async_partials(**kwargs):
+        for partial in partials():
+            yield partial
+
+    client = async_client() if asynchronous else sync_client()
+    client.chat.completions.create_partial = async_partials if asynchronous else partials
+    agent = make_agent(client)
+    question = QuestionSchema(question="?")
+    stream = agent.run_async_stream(question) if asynchronous else agent.run_stream(question)
+    AtomicAgentsInstrumentor().uninstrument()
+    first = await anext(stream) if asynchronous else next(stream)
+    assert first.answer == "4"
+    if ending != "complete":
+        with pytest.raises(type(error)) as raised:
+            if asynchronous:
+                await anext(stream)
+            else:
+                next(stream)
+        assert raised.value is error
+    elif asynchronous:
+        assert [item.answer async for item in stream] == ["42"]
+    else:
+        assert next(stream).answer == "42"
+        with pytest.raises(StopIteration) as stopped:
+            next(stream)
+        assert stopped.value.value.answer == "42"
+    assert spans_of(exporter) == []
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.asyncio
+async def test_deferred_public_stream_after_uninstrument_closes_agent_stream(exporter, monkeypatch, asynchronous):
+    instrumentor = AtomicAgentsInstrumentor()
+    instrumentor.uninstrument()
+    method = "run_async_stream" if asynchronous else "run_stream"
+    original = getattr(AtomicAgent, method)
+    inner_streams = []
+
+    def capture_stream(*args, **kwargs):
+        stream = original(*args, **kwargs)
+        inner_streams.append(stream)
+        return stream
+
+    monkeypatch.setattr(AtomicAgent, method, capture_stream)
+    instrumentor.instrument(tracer_provider=exporter.provider)
+    agent = make_agent(async_client() if asynchronous else sync_client())
+    stream = getattr(agent, method)(QuestionSchema(question="?"))
+    instrumentor.uninstrument()
+    first = await anext(stream) if asynchronous else next(stream)
+    assert first.answer == "4"
+    (inner,) = inner_streams
+    frame = "ag_frame" if asynchronous else "gi_frame"
+    assert getattr(inner, frame) is not None
+    try:
+        if asynchronous:
+            await stream.aclose()
+        else:
+            stream.close()
+        assert getattr(inner, frame) is None
+        assert spans_of(exporter) == []
+    finally:
+        if asynchronous:
+            await inner.aclose()
+        else:
+            inner.close()

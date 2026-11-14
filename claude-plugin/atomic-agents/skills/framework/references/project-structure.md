@@ -125,7 +125,7 @@ load_dotenv()
 @dataclass(frozen=True)
 class Config:
     openai_api_key: str
-    model: str = "gpt-5-mini"
+    model: str = "gpt-5.6-terra"
     max_tokens: int = 2048
     temperature: float = 0.2
 
@@ -153,7 +153,7 @@ OPENAI_API_KEY=sk-...
 # ANTHROPIC_API_KEY=...
 # GEMINI_API_KEY=...
 # GROQ_API_KEY=...
-MY_APP_MODEL=gpt-5-mini
+MY_APP_MODEL=gpt-5.6-terra
 ```
 
 `.gitignore` (add these):

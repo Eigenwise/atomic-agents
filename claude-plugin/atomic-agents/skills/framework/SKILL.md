@@ -53,7 +53,7 @@ client = instructor.from_openai(openai.OpenAI(api_key=os.environ["OPENAI_API_KEY
 agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=ChatHistory(),
     )
 )

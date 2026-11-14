@@ -111,18 +111,18 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
     def _load_bytes(self, source: str) -> bytes:
         if self._is_url(source):
             headers = {"User-Agent": self.user_agent, "Accept": "application/pdf"}
-            response = requests.get(source, headers=headers, timeout=self.timeout, stream=True)
-            response.raise_for_status()
-            content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > self.max_size_bytes:
-                raise ValueError(f"PDF too large: declared {content_length} bytes (limit {self.max_size_bytes}).")
-            data = bytearray()
-            for chunk in response.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    data.extend(chunk)
-                    if len(data) > self.max_size_bytes:
-                        raise ValueError(f"PDF too large: exceeded {self.max_size_bytes} bytes during download.")
-            return bytes(data)
+            with requests.get(source, headers=headers, timeout=self.timeout, stream=True) as response:
+                response.raise_for_status()
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > self.max_size_bytes:
+                    raise ValueError(f"PDF too large: declared {content_length} bytes (limit {self.max_size_bytes}).")
+                data = bytearray()
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        data.extend(chunk)
+                        if len(data) > self.max_size_bytes:
+                            raise ValueError(f"PDF too large: exceeded {self.max_size_bytes} bytes during download.")
+                return bytes(data)
 
         path = Path(source).expanduser()
         if not path.exists():
@@ -154,9 +154,8 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
                     raise ValueError(f"Invalid page range segment '{chunk}'.") from e
                 if start < 1 or end < 1 or end < start:
                     raise ValueError(f"Invalid page range segment '{chunk}'.")
-                for page in range(start, end + 1):
-                    if page <= total_pages:
-                        result.add(page)
+                for page in range(start, min(end, total_pages) + 1):
+                    result.add(page)
             else:
                 try:
                     page = int(chunk)

@@ -434,7 +434,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.arun(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to execute MCP tool '{tool_name}': {e}") from e
+                            raise RuntimeError(f"Failed to execute MCP tool '{self.mcp_tool_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.arun(params))
@@ -711,17 +711,17 @@ class MCPFactory:
                             if actual_content and len(actual_content) > 0:
                                 # Get mimeType from the first content item
                                 first_content = actual_content[0]
-                                actual_mime = getattr(first_content, "mimeType", mime_type)
+                                actual_mime = getattr(first_content, "mimeType", self._mime_type)
                             else:
-                                actual_mime = mime_type
+                                actual_mime = self._mime_type
                         elif isinstance(resource_result, dict) and "contents" in resource_result:
                             actual_content = resource_result["contents"]
-                            actual_mime = resource_result.get("mime_type", mime_type)
+                            actual_mime = resource_result.get("mime_type", self._mime_type)
                         else:
                             actual_content = resource_result
-                            actual_mime = mime_type
+                            actual_mime = self._mime_type
 
-                        return OutputSchema(content=actual_content, mime_type=actual_mime)
+                        return self.output_schema(content=actual_content, mime_type=actual_mime)
 
                     except Exception as e:
                         logger.error(f"Error reading MCP resource '{self.mcp_resource_name}': {e}", exc_info=True)
@@ -737,7 +737,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.aread(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to read MCP resource '{resource_name}': {e}") from e
+                            raise RuntimeError(f"Failed to read MCP resource '{self.mcp_resource_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.aread(params))
@@ -754,6 +754,7 @@ class MCPFactory:
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
                     "uri": uri,
+                    "_mime_type": mime_type,
                 }
 
                 # Create the class using new_class() for proper generic type support
@@ -939,7 +940,7 @@ class MCPFactory:
                                 texts.append(str(content))
                         final_content = "\n\n".join(texts)
 
-                        return OutputSchema(content=final_content)
+                        return self.output_schema(content=final_content)
 
                     except Exception as e:
                         logger.error(f"Error getting MCP prompt '{bound_prompt_name}': {e}", exc_info=True)
@@ -955,7 +956,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.agenerate(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to get MCP prompt '{prompt_name}': {e}") from e
+                            raise RuntimeError(f"Failed to get MCP prompt '{self.mcp_prompt_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.agenerate(params))

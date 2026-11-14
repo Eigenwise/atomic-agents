@@ -140,7 +140,7 @@ def main() -> None:
         return
 
     # Display configuration
-    console.print("\n[dim]Using model: gpt-5-mini[/dim]")
+    console.print("\n[dim]Using model: gpt-5.6-terra[/dim]")
     console.print(f"[dim]Training set: {len(TRAINING_DATASET)} examples (balanced across 6 genres)[/dim]")
     console.print(f"[dim]Test set: {len(TEST_DATASET)} challenging examples " "(sarcasm, multi-genre, etc.)[/dim]\n")
 

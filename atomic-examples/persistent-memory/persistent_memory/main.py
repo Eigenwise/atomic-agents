@@ -102,7 +102,7 @@ def main() -> None:
     agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             model_api_parameters={"reasoning_effort": "low"},
             history=history,
         )
