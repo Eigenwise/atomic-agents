@@ -378,6 +378,11 @@ Tools-mode responses contain real `tool_call` parts, never text fabricated from 
 audio, files, reasoning and unknown blocks are excluded; recognized text in mixed content remains. Streams and
 generators are never consumed.
 
+Tool arguments are decoded as JSON when possible. If a model returns malformed JSON or numbers that cannot be
+represented as finite JSON values, the original argument string is retained. This keeps rejected tool calls visible
+in the failed attempt and in a retry's request history without discarding neighboring messages. The same visibility
+settings and complete-attribute size limit apply to these strings.
+
 Other provider shapes are captured only where they happen to match the chat shape, so their transcripts are partial.
 Native Responses calls record request text and no response. Anthropic-format requests record plain text turns; their
 `tool_use`/`tool_result` blocks and the separate `system` prompt are left out, and so is the response.

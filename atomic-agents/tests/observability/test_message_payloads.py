@@ -145,7 +145,6 @@ def test_hidden_outputs_omit_request_messages_replaying_model_output():
         [{"role": "tool", "content": None}],
         [{"role": "assistant", "tool_calls": [{"type": "other"}]}],
         [{"role": "assistant", "tool_calls": [{"type": "function", "function": {"arguments": "{}"}}]}],
-        [{"role": "assistant", "tool_calls": [{"type": "function", "function": {"name": "call", "arguments": "broken"}}]}],
     ],
 )
 def test_unrepresentable_input_is_omitted(value):
