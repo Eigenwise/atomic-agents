@@ -249,11 +249,21 @@ class SchemaTransformer:
         required_fields = set(schema.get("required", []))
         properties = schema.get("properties")
         model_cache: Dict[str, Type] = {}
+        identifier_name = f"{attribute_type}_name"
+        argument_names = {}
 
         if properties:
             for prop_name, prop_schema in properties.items():
                 is_required = prop_name in required_fields
-                fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, schema, model_cache)
+                field_name = prop_name
+                if not is_output_schema and prop_name == identifier_name:
+                    field_name = f"mcp_{prop_name}"
+                    suffix = 0
+                    while field_name in properties:
+                        suffix += 1
+                        field_name = f"mcp_{prop_name}_{suffix}"
+                    argument_names[field_name] = prop_name
+                fields[field_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, schema, model_cache)
         elif schema.get("type") == "object" and not properties:
             pass
         elif schema:
@@ -264,7 +274,7 @@ class SchemaTransformer:
         # Only add the attribute identifier field for input schemas
         if not is_output_schema:
             tool_name_type = cast(Type[str], Literal[tool_name_literal])
-            fields[f"{attribute_type}_name"] = (
+            fields[identifier_name] = (
                 tool_name_type,
                 Field(..., description=f"Required identifier for the {tool_name_literal} {attribute_type}."),
             )
@@ -278,4 +288,7 @@ class SchemaTransformer:
             **fields,
         )
 
+        # Keep model serialization aligned with its schema. Only the MCP call
+        # boundary translates escaped argument names back to the server's keys.
+        model.__mcp_argument_names__ = argument_names
         return model
