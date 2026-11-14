@@ -86,9 +86,8 @@ class ChatHistory(BaseChatHistory):
         """
         Manages the chat history overflow based on max_messages constraint.
         """
-        if self.max_messages is not None:
-            while len(self.history) > self.max_messages:
-                self.history.pop(0)
+        if self.max_messages is not None and len(self.history) > self.max_messages:
+            del self.history[: len(self.history) - self.max_messages]
 
     def get_history(self) -> List[Dict]:
         """
