@@ -30,6 +30,9 @@
   `chat_history.py` (`ChatHistory`, `Message` — the built-in in-memory implementation of
   `BaseChatHistory`: multimodal Image/Audio/PDF plus `VideoURL`, turn grouping, `dump()`/`load()`
   serialization).
+- **Validation:** `max_messages` must be a non-negative `int` or `None` (`bool` is rejected) in the constructor and
+  in a loaded snapshot. `load()` checks the snapshot's structure, replaces state only after every message
+  deserialized, then trims to capacity. Local media paths are restored inside lists and tuples.
 - **Note:** `AgentConfig.history` is typed to `BaseChatHistory`, so any conforming backend drops in.
 
 ### connectors/mcp
@@ -61,7 +64,9 @@
 - **Contract:** `instrument(tracer_provider=, config=TracingConfig | PayloadVisibility | None, **options)` /
   `uninstrument()` / `is_instrumented_by_opentelemetry`. Same arguments: no-op; different provider or config:
   replaced in place with a WARNING, `None` keeps the installed value; in-flight spans finish on their original
-  provider. Hooks are registered once per Instructor client under a lock and removed on uninstall;
+  provider, and agent runs and tool calls already under way keep the config captured at their start. Wrappers
+  entered after an uninstall delegate straight to the original method. Hooks are registered once per Instructor
+  client under a lock and removed on uninstall;
   `suppress_instrumentation` is honored; hooks never raise into user code.
 - **Spans:** `invoke_agent {AgentConfig.name or class}` (`gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name`,
   `gen_ai.request.model`, `gen_ai.provider.name`, `gen_ai.conversation.id`, `atomic_agents.agent.class`, `.input`,
@@ -108,7 +113,9 @@
   structure and can also fetch each result page as Markdown; `fxmacrodata` provides economic releases, FX and COT
   data; `deed_page` publishes static files to a public deed.page URL and is the only forge tool that writes outward
   (it keeps its owner token on `tool.token`, never in the output). Each keeps its own dependencies and setup.
-- **YouTube compatibility:** `youtube_transcript_scraper` uses the instance-based transcript API and converts SDK transcript objects to raw entries.
+- **YouTube compatibility:** `youtube_transcript_scraper` uses the instance-based transcript API and converts SDK transcript objects to raw entries. `run()` reads the video duration from the Data API `contentDetails`; `fetch_video_metadata()` returns metadata only. The `youtube-summarizer` and `youtube-to-recipe` examples carry their own copy of the tool.
+- **Calculator:** `CalculatorToolConfig(safe_mode=True, allowed_functions={})`. Safe mode parses the expression and only evaluates allowlisted operators, math functions and the configured callables; `safe_mode=False` hands the string to `sympy.sympify`.
+- **PDF reader:** page ranges are bounded by the document length before iteration, and streamed downloads are closed on every exit path.
 - **Authoring guide:** `atomic-forge/guides/tool_structure.md`.
 
 ### atomic-examples
