@@ -78,9 +78,7 @@ def _validate_additional_properties(validator: Any, additional: Any, value: Any,
     patterns = schema.get("patternProperties", {})
     # A key an unsupported pattern might cover is not counted as additional.
     extras = [
-        key
-        for key in value
-        if key not in properties and all(_pattern_matches(pattern, key) is False for pattern in patterns)
+        key for key in value if key not in properties and all(_pattern_matches(pattern, key) is False for pattern in patterns)
     ]
     if validator.is_type(additional, "object"):
         for extra in extras:
