@@ -44,18 +44,59 @@ def _pattern_adapter(pattern: str) -> Optional[TypeAdapter]:
         return None
 
 
-def _validate_pattern(validator: Any, pattern: Any, value: Any, schema: Any) -> Any:
-    # Server patterns must not reach Python's backtracking re; unsupported ones are skipped.
+def _pattern_matches(pattern: Any, value: Any) -> Optional[bool]:
+    """Search value with Pydantic's regex engine, or None when the pattern cannot be checked."""
     adapter = _pattern_adapter(pattern) if isinstance(pattern, str) and isinstance(value, str) else None
     if adapter is None:
-        return
+        return None
     try:
         adapter.validate_python(value)
     except ValidationError:
+        return False
+    return True
+
+
+# Server patterns must not reach Python's backtracking re; unsupported ones are skipped.
+def _validate_pattern(validator: Any, pattern: Any, value: Any, schema: Any) -> Any:
+    if _pattern_matches(pattern, value) is False:
         yield JSONSchemaValidationError(f"{value!r} does not match {pattern!r}")
 
 
-_OneOfBranchValidator = validators.extend(_ScalarChoiceValidator, {"pattern": _validate_pattern})
+def _validate_pattern_properties(validator: Any, pattern_properties: Any, value: Any, schema: Any) -> Any:
+    if not validator.is_type(value, "object"):
+        return
+    for pattern, subschema in pattern_properties.items():
+        for key, item in value.items():
+            if _pattern_matches(pattern, key):
+                yield from validator.descend(item, subschema, path=key, schema_path=pattern)
+
+
+def _validate_additional_properties(validator: Any, additional: Any, value: Any, schema: Any) -> Any:
+    if not validator.is_type(value, "object"):
+        return
+    properties = schema.get("properties", {})
+    patterns = schema.get("patternProperties", {})
+    # A key an unsupported pattern might cover is not counted as additional.
+    extras = [
+        key
+        for key in value
+        if key not in properties and all(_pattern_matches(pattern, key) is False for pattern in patterns)
+    ]
+    if validator.is_type(additional, "object"):
+        for extra in extras:
+            yield from validator.descend(value[extra], additional, path=extra)
+    elif not additional and extras:
+        yield JSONSchemaValidationError(f"Additional properties are not allowed ({', '.join(map(repr, extras))})")
+
+
+_OneOfBranchValidator = validators.extend(
+    _ScalarChoiceValidator,
+    {
+        "pattern": _validate_pattern,
+        "patternProperties": _validate_pattern_properties,
+        "additionalProperties": _validate_additional_properties,
+    },
+)
 
 
 class _OneOfJsonSchema:
@@ -63,11 +104,17 @@ class _OneOfJsonSchema:
 
     def __get_pydantic_json_schema__(self, core_schema: Any, handler: Any) -> Dict[str, Any]:
         union_schema = core_schema
-        while union_schema["type"] != "union":
+        while union_schema["type"] not in ("union", "nullable"):
             union_schema = union_schema["schema"]
-        choices = [choice[0] if isinstance(choice, tuple) else choice for choice in union_schema["choices"]]
+        branches: List[Dict[str, Any]] = []
+        # Pydantic folds a None branch into a nullable wrapper around the rest.
+        if union_schema["type"] == "nullable":
+            branches.append({"type": "null"})
+            union_schema = union_schema["schema"]
+        choices = union_schema["choices"] if union_schema["type"] == "union" else [union_schema]
+        choices = [choice[0] if isinstance(choice, tuple) else choice for choice in choices]
         generate = handler.generate_json_schema.generate_inner
-        return {"oneOf": [generate(choice) for choice in choices]}
+        return {"oneOf": branches + [generate(choice) for choice in choices]}
 
 
 # JSON type mapping

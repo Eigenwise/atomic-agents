@@ -100,3 +100,41 @@ def test_oneof_branch_patterns_skip_python_re(pattern, value, accepted):
 def test_duplicate_oneof_branches_match_json_schema(value):
     check({"oneOf": [{"type": "integer"}, {"type": "integer"}]}, value)
     check({"oneOf": [{"type": "integer"}, {"type": "string"}, {"type": "integer"}]}, value)
+
+
+@pytest.mark.parametrize(
+    "branches",
+    [
+        [{"type": "null"}, {"type": "string"}],
+        [{"type": "integer"}, {"type": "null"}],
+        [{"type": "null"}, {"type": "integer"}, {"type": "string"}],
+    ],
+)
+@pytest.mark.parametrize("value", [None, 1, "text", 1.5])
+def test_nullable_oneof_matches_json_schema(branches, value):
+    check({"oneOf": branches}, value)
+
+
+@pytest.mark.parametrize(
+    "branch, value, accepted",
+    [
+        ({"type": "object", "patternProperties": {"^(a+)+$": {"type": "integer"}}}, {"a" * 40 + "!": "x"}, True),
+        ({"type": "object", "patternProperties": {"^a": {"type": "integer"}}}, {"ab": "x"}, False),
+        ({"type": "object", "patternProperties": {"^\\p{L}+$": {"type": "integer"}}}, {"abc": 1}, True),
+        ({"type": "object", "patternProperties": {"^(a+)+$": {}}, "additionalProperties": False}, {"a" * 40 + "!": 1}, False),
+        ({"type": "object", "patternProperties": {"^a": {}}, "additionalProperties": False}, {"ab": 1}, True),
+        ({"type": "object", "patternProperties": {"^\\p{L}+$": {}}, "additionalProperties": False}, {"abc": 1}, True),
+    ],
+)
+def test_oneof_branch_property_patterns_skip_python_re(branch, value, accepted):
+    schema = {
+        "type": "object",
+        "properties": {"value": {"oneOf": [branch, {"type": "string"}]}},
+        "required": ["value"],
+    }
+    model = SchemaTransformer.create_model_from_schema(schema, "OneOfInput", "oneof")
+    if accepted:
+        assert model(tool_name="oneof", value=value).value == value
+    else:
+        with pytest.raises(ValidationError):
+            model(tool_name="oneof", value=value)
