@@ -1,6 +1,8 @@
 """Module for transforming JSON schemas to Pydantic models."""
 
 import logging
+import math
+from fractions import Fraction
 from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
@@ -59,11 +61,25 @@ _ARRAY_CONSTRAINTS = {"minItems": "min_length", "maxItems": "max_length"}
 def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict[str, Any]) -> Type:
     """Attach supported constraints without changing the regex engine or accepting boolean bounds."""
     constraints = {}
+    original_bounds = {}
     if json_type in {"integer", "number"}:
         for source, target in _NUMERIC_CONSTRAINTS.items():
             value = prop_schema.get(source)
             # Draft-04 boolean exclusive bounds are not numeric bounds.
             if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if json_type == "integer" and isinstance(value, float) and math.isfinite(value) and not value.is_integer():
+                    # JSON Schema permits fractional bounds on integers, but
+                    # Pydantic's integer validator requires integral bounds.
+                    original_bounds[source] = value
+                    if source == "multipleOf":
+                        # For reduced p/q, an integer is a multiple of p/q
+                        # exactly when it is a multiple of p. Avoid float
+                        # conversion so large integer values stay exact.
+                        value = Fraction(str(value)).numerator
+                    elif source in {"minimum", "exclusiveMaximum"}:
+                        value = math.ceil(value)
+                    else:
+                        value = math.floor(value)
                 constraints[target] = value
     else:
         keywords = _STRING_CONSTRAINTS if json_type == "string" else _ARRAY_CONSTRAINTS if json_type == "array" else {}
@@ -78,7 +94,7 @@ def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict
             constraints["pattern"] = pattern
     if constraints:
         # Recursive callers retain the value type but discard returned Field metadata.
-        return Annotated[python_type, Field(**constraints)]
+        return Annotated[python_type, Field(**constraints, json_schema_extra=original_bounds or None)]
     return python_type
 
 
