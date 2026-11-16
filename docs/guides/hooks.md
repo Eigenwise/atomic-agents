@@ -274,6 +274,11 @@ if agent.hooks_enabled():
 
 ### Unregister Hooks
 
+Rejected registrations are not retained while hooks are enabled. If Instructor
+rejects a deferred registration during `enable_hooks()`, the agent stays disabled
+and detaches callbacks added during that attempt. Remove the rejected registration
+while disabled, then call `enable_hooks()` again.
+
 Remove specific hooks or clear all:
 
 ```python

@@ -889,13 +889,13 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             event (str): The event name (e.g., 'parse:error', 'completion:kwargs', etc.)
             handler (Callable): The callback function to handle the event
         """
+        # Only retain a registration after the Instructor client accepts it.
+        if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "on"):
+            self.client.on(event, handler)
+
         if event not in self._hook_handlers:
             self._hook_handlers[event] = []
         self._hook_handlers[event].append(handler)
-
-        # Register with instructor client if it supports hooks
-        if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "on"):
-            self.client.on(event, handler)
 
     def unregister_hook(self, event: str, handler: Callable) -> None:
         """
@@ -950,13 +950,21 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """Enable hook processing."""
         if self._hooks_enabled:
             return
+        registered = []
+        try:
+            if hasattr(self.client, "on"):
+                for event, handlers in self._hook_handlers.items():
+                    if not _is_instructor_hook(event):
+                        continue
+                    for handler in handlers:
+                        self.client.on(event, handler)
+                        registered.append((event, handler))
+        except Exception:
+            # A rejected deferred registration must not partially resume hooks.
+            for event, handler in reversed(registered):
+                self.client.off(event, handler)
+            raise
         self._hooks_enabled = True
-        if hasattr(self.client, "on"):
-            for event, handlers in self._hook_handlers.items():
-                if not _is_instructor_hook(event):
-                    continue
-                for handler in handlers:
-                    self.client.on(event, handler)
 
     def disable_hooks(self) -> None:
         """Disable hook processing."""
