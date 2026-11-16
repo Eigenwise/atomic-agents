@@ -96,7 +96,11 @@ class QdrantDBService(BaseVectorDBService):
         if where:
             conditions = []
             for key, value in where.items():
-                conditions.append(FieldCondition(key=f"metadata.{key}", match=MatchValue(value=value)))
+                # Metadata names are literal keys, not nested JSON-path expressions.
+                # Qdrant's quoted-key grammar does not support escaping these characters.
+                if '"' in key or "\\" in key:
+                    raise ValueError("Metadata filter keys cannot contain double quotes or backslashes")
+                conditions.append(FieldCondition(key=f'metadata."{key}"', match=MatchValue(value=value)))
             if conditions:
                 filter_condition = Filter(must=conditions)
 
