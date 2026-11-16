@@ -14,6 +14,7 @@ Run this script twice: the second run rehydrates the conversation from the first
 import contextlib
 import os
 import sqlite3
+import threading
 from typing import Optional
 
 import instructor
@@ -55,6 +56,7 @@ class SQLiteChatHistory(ChatHistory):
         super().__init__(max_messages=max_messages)
         self.session_id = session_id
         self.db_path = db_path
+        self._write_lock = threading.Lock()
 
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, data TEXT)")
@@ -65,8 +67,18 @@ class SQLiteChatHistory(ChatHistory):
             self.load(row[0])
 
     def add_message(self, role: str, content: BaseIOSchema) -> None:
-        super().add_message(role, content)
-        self._save()
+        # Rollback and another append must not interleave on the same instance.
+        with self._write_lock:
+            previous_messages = self.history.copy()
+            previous_turn_id = self.current_turn_id
+            try:
+                super().add_message(role, content)
+                self._save()
+            except Exception:
+                # Restore evicted messages too, without replacing existing objects.
+                self.history[:] = previous_messages
+                self.current_turn_id = previous_turn_id
+                raise
 
     def _save(self) -> None:
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:

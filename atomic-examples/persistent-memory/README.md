@@ -47,6 +47,7 @@ Chat with the agent, then exit with `/exit`. A `chat_history.db` file is created
 `SQLiteChatHistory` (in `persistent_memory/main.py`) subclasses `ChatHistory` instead of reimplementing the memory contract from scratch:
 
 - `__init__` opens (or creates) a SQLite database with a single `sessions(session_id TEXT PRIMARY KEY, data TEXT)` table, and loads any existing row for the given `session_id` via the inherited `load()`.
-- `add_message` calls `super().add_message(...)` to reuse `ChatHistory`'s turn handling, then saves the entire history to SQLite via `self.dump()`.
+- `add_message` calls `super().add_message(...)` to reuse `ChatHistory`'s turn handling, then saves the entire history to SQLite via `self.dump()`. If a write or commit fails, it restores the prior messages and turn ID, including any messages evicted by the capacity limit. The exception reaches the caller, who can retry after resolving the database error.
+- Writes on one history instance are serialized so a failed write cannot roll back another concurrent append.
 
 Because `dump()`/`load()` already handle serialization, the persistence layer only has to move a single JSON string in and out of storage. The same pattern works for any store (Redis, Postgres, a hosted memory service) by swapping out what `_save`/`__init__` talk to.
