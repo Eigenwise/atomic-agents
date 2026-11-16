@@ -269,6 +269,8 @@ class DSPyAtomicPipeline(dspy.Module):
         self.step_names = []
 
         for name, module in steps:
+            if hasattr(self, name):
+                raise ValueError(f"Step name '{name}' is already used by the pipeline")
             self.step_names.append(name)
             setattr(self, name, module)
 

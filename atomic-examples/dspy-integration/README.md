@@ -486,6 +486,11 @@ class DSPyAtomicModule(dspy.Module):
 
 ## The Bridge: DSPyAtomicModule
 
+Pipeline step names must be unique and must not replace pipeline or DSPy attributes
+such as `forward`, `step_names` or `predictors`. Conflicting names raise `ValueError`
+during construction, before any stage runs. Reusing a module under distinct names
+is supported.
+
 ### Core Functions
 
 #### `create_dspy_signature_from_schemas`
