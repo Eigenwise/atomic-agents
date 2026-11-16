@@ -111,10 +111,11 @@ def test_output_gate_precedes_content_access():
 
 
 @pytest.mark.parametrize("direction", ["input", "output"])
-def test_suppression_precedes_content_access(direction):
+@pytest.mark.parametrize("suppression_key", ["suppress_instrumentation", context_api._SUPPRESS_INSTRUMENTATION_KEY])
+def test_suppression_precedes_content_access(direction, suppression_key):
     content = UnreadableContent()
     value = [content] if direction == "input" else content
-    token = context_api.attach(context_api.set_value("suppress_instrumentation", True))
+    token = context_api.attach(context_api.set_value(suppression_key, True))
     try:
         assert captured(value, direction) == {}
     finally:

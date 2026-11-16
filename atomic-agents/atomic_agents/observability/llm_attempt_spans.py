@@ -19,7 +19,7 @@ from atomic_agents.agents.atomic_agent import AtomicAgent
 
 from . import installation
 from .message_payloads import write_messages
-from .span_attributes import _best_effort_attributes, _optional_attributes, _provider_attributes, _without_none
+from .span_attributes import _best_effort_attributes, _optional_attributes, _provider_attributes, _suppressed, _without_none
 from .span_payloads import _bounded_text, _failure_message, _record_failure, _write_payload
 from .tracing_config import TracingConfig
 
@@ -187,7 +187,7 @@ def _completion_kwargs(*args: object, **kwargs: object) -> None:
         return
     finish_attempt(run)
     # Suppressed kwargs must also swallow later response events outside that context.
-    run.suppressed_attempt = bool(context_api.get_value("suppress_instrumentation"))
+    run.suppressed_attempt = _suppressed()
     if run.suppressed_attempt:
         return
     run.attempt_count += 1

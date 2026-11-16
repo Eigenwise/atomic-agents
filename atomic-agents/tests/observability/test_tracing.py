@@ -15,6 +15,7 @@ import pytest
 from openinference.instrumentation import OITracer, TraceConfig, using_metadata, using_session
 from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 from opentelemetry import trace as trace_api
+from opentelemetry.context import _SUPPRESS_INSTRUMENTATION_KEY
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -1003,13 +1004,14 @@ def test_large_tool_result_is_truncated_unless_hidden(configured_tracing, hide_o
 
 
 @pytest.mark.parametrize("agent_method", ["run", "run_async", "run_stream", "run_async_stream"])
+@pytest.mark.parametrize("suppression_key", ["suppress_instrumentation", _SUPPRESS_INSTRUMENTATION_KEY])
 @pytest.mark.asyncio
-async def test_suppression_skips_agent_and_tool_spans(exporter, agent_method):
+async def test_suppression_skips_agent_and_tool_spans(exporter, agent_method, suppression_key):
     from opentelemetry import context
 
     client = async_client() if "async" in agent_method else sync_client()
     agent = make_agent(client)
-    token = context.attach(context.set_value("suppress_instrumentation", True))
+    token = context.attach(context.set_value(suppression_key, True))
     try:
         result = getattr(agent, agent_method)(QuestionSchema(question="suppressed"))
         assert await final_agent_answer(agent_method, result) == "42"
@@ -1018,6 +1020,27 @@ async def test_suppression_skips_agent_and_tool_spans(exporter, agent_method):
     finally:
         context.detach(token)
     assert spans_of(exporter) == []
+    CalculatorTool().run(CalculationInputSchema(expression="1+1"))
+    assert len(spans_of(exporter)) == 1
+
+
+def test_sdk_exporter_suppression_prevents_recursive_tool_spans(exporter):
+    from opentelemetry import context
+
+    calls = []
+
+    class ToolUsingExporter(InMemorySpanExporter):
+        def export(self, spans):
+            if any(span.name == "export-trigger" for span in spans):
+                assert context.get_value(_SUPPRESS_INSTRUMENTATION_KEY) is True
+                calls.append(CalculatorTool().run(CalculationInputSchema(expression="1+1")).result)
+            return super().export(spans)
+
+    exporter.provider.add_span_processor(SimpleSpanProcessor(ToolUsingExporter()))
+    exporter.provider.get_tracer(__name__).start_span("export-trigger").end()
+
+    assert calls == ["3.00"]
+    assert [span.name for span in spans_of(exporter)] == ["export-trigger"]
 
 
 def test_failures_record_qualified_error_type(exporter):

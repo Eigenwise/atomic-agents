@@ -529,10 +529,11 @@ def test_partial_registration_is_rolled_back(exporter):
 
 
 @pytest.mark.parametrize("completion", ["response", "error"])
-def test_suppressed_attempt_events_are_ignored_then_normal_attempt_works(exporter, completion):
+@pytest.mark.parametrize("suppression_key", ["suppress_instrumentation", context_api._SUPPRESS_INSTRUMENTATION_KEY])
+def test_suppressed_attempt_events_are_ignored_then_normal_attempt_works(exporter, completion, suppression_key):
     def script(hooks, kwargs):
         run = llm_attempt_spans._active_run.get()
-        token = context_api.attach(context_api.set_value("suppress_instrumentation", True))
+        token = context_api.attach(context_api.set_value(suppression_key, True))
         try:
             hooks.emit_completion_arguments(**kwargs)
         finally:

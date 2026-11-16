@@ -112,7 +112,12 @@ def _messages_hidden(direction: str, config: TracingConfig) -> bool:
 
 
 def write_messages(span: Span, value: object, direction: str, config: TracingConfig) -> None:
-    if not config.capture_messages or not config.llm_spans or context_api.get_value("suppress_instrumentation"):
+    if (
+        not config.capture_messages
+        or not config.llm_spans
+        or context_api.get_value(context_api._SUPPRESS_INSTRUMENTATION_KEY)
+        or context_api.get_value("suppress_instrumentation")
+    ):
         return
     if not _messages_hidden(direction, config):
         _write_visible_messages(span, value, direction, config)

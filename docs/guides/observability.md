@@ -476,6 +476,10 @@ assert [span.name for span in exporter.get_finished_spans()][-1] == "invoke_agen
 
 ## Services and async
 
+Agent, tool, and LLM tracing honor both the OpenTelemetry SDK suppression context and the legacy plain-string
+suppression flag. Suppressed work still executes, but adds no spans, usage totals, or captured messages; this also
+prevents instrumented tools used inside an SDK exporter from recursively producing more spans.
+
 - Call `instrument(...)` (or `register(...)`) at import or in the startup hook so every worker process is instrumented.
 - Use a `BatchSpanProcessor` (or `register(batch=True)`) in services so span export does not block request handling.
 - Concurrent `run_async` calls, including `asyncio.gather` over several agents sharing one client, get independent

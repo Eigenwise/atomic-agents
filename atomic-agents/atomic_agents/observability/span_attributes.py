@@ -82,7 +82,9 @@ def _context_attributes() -> dict[str, AttributeValue]:
 
 
 def _suppressed() -> bool:
-    return bool(context_api.get_value("suppress_instrumentation"))
+    return bool(
+        context_api.get_value(context_api._SUPPRESS_INSTRUMENTATION_KEY) or context_api.get_value("suppress_instrumentation")
+    )
 
 
 _conversation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("atomic_agents_conversation_id", default=None)
