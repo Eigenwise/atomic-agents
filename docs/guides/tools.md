@@ -159,6 +159,7 @@ The Atomic Forge ships with several pre-built tools:
 - **SearXNG Search**: Search the web using SearXNG
 - **Serply Search**: Google web, news, and scholar search via the Serply API
 - **Sofya Search**: Web and news search via the Sofya API, with page text for each result
+- **SpecStream Search**: Web and news search via the SpecStream Search API, with sourced answers and optional page passages
 - **Tavily Search**: AI-powered web search
 - **Weather**: Current conditions and daily/hourly forecasts via Open-Meteo (no key required)
 - **Webpage Scraper**: Extract content from web pages

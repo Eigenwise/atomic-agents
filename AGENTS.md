@@ -109,6 +109,7 @@ Each example is self-contained and demonstrates specific patterns and capabiliti
 - `searxng_search/` - Privacy-focused search integration
 - `serply_search/` - Google web, news, and scholar search via the Serply API
 - `sofya_search/` - Web and news search via the Sofya API, with page text for each result
+- `specstream_search/` - Web and news search via the SpecStream Search API, with sourced answers and optional page passages
 - `tavily_search/` - Tavily API search tool
 - `weather/` - Current conditions and daily/hourly forecast via Open-Meteo (no key)
 - `webpage_scraper/` - Web scraping capabilities

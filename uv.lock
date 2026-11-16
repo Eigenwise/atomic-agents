@@ -38,6 +38,7 @@ members = [
     "searxng-search",
     "serply-search",
     "sofya-search",
+    "specstream-search",
     "tavily-search",
     "weather-tool",
     "web-search-agent",
@@ -4380,6 +4381,44 @@ sdist = { url = "https://files.pythonhosted.org/packages/6d/e6/21ccce3262dd4889a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/a0/bb38d3b76b8cae341dad93a2dd83ab7462e6dbcdd84d43f54ee60a8dc167/soupsieve-2.8-py3-none-any.whl", hash = "sha256:0cc76456a30e20f5d7f2e14a98a4ae2ee4e5abdc7c5ea0aafe795f344bc7984c", size = 36679, upload-time = "2025-08-27T15:39:50.179Z" },
 ]
+
+[[package]]
+name = "specstream-search"
+version = "1.0.0"
+source = { editable = "atomic-forge/tools/specstream_search" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "atomic-agents" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "coverage" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "python-dotenv" },
+    { name = "rich" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9.0,<4.0.0" },
+    { name = "atomic-agents", editable = "." },
+    { name = "pydantic", specifier = ">=2.10.3,<3.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "coverage", specifier = ">=7.6.1,<8.0.0" },
+    { name = "pytest", specifier = ">=8.3.3,<9.0.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23.5,<1.0.0" },
+    { name = "pytest-cov", specifier = ">=5.0.0,<6.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0,<2.0.0" },
+    { name = "rich", specifier = ">=13.7.0,<14.0.0" },
+]
+
 
 [[package]]
 name = "sphinx"

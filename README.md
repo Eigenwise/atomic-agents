@@ -367,6 +367,7 @@ Atomic Forge is a collection of tools that can be used with Atomic Agents to ext
 - SearXNG Search
 - Serply Search
 - Sofya Search
+- SpecStream Search
 - Tavily Search
 - Webpage Scraper
 - Weather
