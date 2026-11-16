@@ -20,11 +20,14 @@ def format_tool_message(tool_call: Type[BaseModel], tool_id: Optional[str] = Non
 
     # Use the same schema title that Instructor advertises as the function name.
     tool_name = tool_call.__class__.model_json_schema().get("title", tool_call.__class__.__name__)
+    # JSON-mode Python values still contain floats; only the JSON encoder applies
+    # ser_json_inf_nan, including policies on nested models. Retain existing spacing.
+    arguments = json.loads(tool_call.model_dump_json())
     return {
         "id": tool_id,
         "type": "function",
         "function": {
             "name": tool_name,
-            "arguments": json.dumps(tool_call.model_dump(mode="json"), separators=(", ", ": ")),
+            "arguments": json.dumps(arguments, separators=(", ", ": ")),
         },
     }

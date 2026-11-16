@@ -154,7 +154,9 @@ serialized request.
 
 Tool arguments use Pydantic's JSON representations for values such as dates,
 UUIDs, decimals, paths, and enums. JSON-only field serializers are honored when
-formatting the arguments.
+formatting the arguments. Pydantic's `ser_json_inf_nan` policy also applies:
+non-finite floats become `null` by default, or strings when configured as
+`"strings"`. An explicit `"constants"` policy retains nonstandard JSON constants.
 
 ```{eval-rst}
 .. automodule:: atomic_agents.utils.format_tool_message
