@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Type, Optional, Union, Tuple, cast, Protocol
 from contextlib import AsyncExitStack
 import shlex
 import types
+from string import Formatter
 
 from pydantic import create_model, Field, BaseModel, JsonValue, ValidationError
 
@@ -28,6 +29,16 @@ from atomic_agents.connectors.mcp.mcp_definition_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _ResourceURIFormatter(Formatter):
+    """Look up URI variable names literally instead of as Python field expressions."""
+
+    def get_field(self, field_name: str, args: tuple, kwargs: dict) -> tuple[Any, str]:
+        return kwargs[field_name], field_name
+
+
+_resource_uri_formatter = _ResourceURIFormatter()
 
 
 class MCPToolOutputSchema(BaseIOSchema):
@@ -678,7 +689,9 @@ class MCPFactory:
                             call_args = arguments if isinstance(arguments, dict) else {}
                             # If params contain keys, format the URI template.
                             try:
-                                concrete_uri = bound_uri.format(**call_args) if call_args else bound_uri
+                                concrete_uri = (
+                                    _resource_uri_formatter.vformat(bound_uri, (), call_args) if call_args else bound_uri
+                                )
                             except Exception:
                                 concrete_uri = bound_uri
                             resource_result: mcp.types.ReadResourceResult = await session.read_resource(uri=concrete_uri)
@@ -690,7 +703,9 @@ class MCPFactory:
                         call_args = arguments if isinstance(arguments, dict) else {}
 
                         try:
-                            concrete_uri_p = bound_uri.format(**call_args) if call_args else bound_uri
+                            concrete_uri_p = (
+                                _resource_uri_formatter.vformat(bound_uri, (), call_args) if call_args else bound_uri
+                            )
                         except Exception:
                             concrete_uri_p = bound_uri
 

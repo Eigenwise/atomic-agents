@@ -3389,13 +3389,21 @@ def test_orchestrator_without_attribute_groups_warns(caplog: pytest.LogCaptureFi
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("borrowed", [False, True], ids=["fresh", "persistent"])
-async def test_generated_resource_preserves_dotted_sdk_template_when_python_formatting_fails(
-    mocked_mcp_connection: tuple[AsyncMock, dict[str, MagicMock]], borrowed: bool
+@pytest.mark.parametrize(
+    "template,expected_uri",
+    [
+        ("resource://items/{item.name}", "resource://items/entry"),
+        ("resource://items/{item.name}/{", "resource://items/{item.name}/{"),
+    ],
+    ids=["literal-variable", "malformed-template-fallback"],
+)
+async def test_generated_resource_uses_literal_names_and_keeps_malformed_template_fallback(
+    mocked_mcp_connection: tuple[AsyncMock, dict[str, MagicMock]], borrowed: bool, template: str, expected_uri: str
 ) -> None:
     session, clients = mocked_mcp_connection
     session.list_resources.return_value = ListResourcesResult(resources=[])
     session.list_resource_templates.return_value = ListResourceTemplatesResult(
-        resourceTemplates=[ResourceTemplate(name="DottedItem", uriTemplate="resource://items/{item.name}")]
+        resourceTemplates=[ResourceTemplate(name="DottedItem", uriTemplate=template)]
     )
     definitions = await MCPDefinitionService.fetch_resource_definitions_from_session(session)
     session.initialize.reset_mock()
@@ -3406,7 +3414,7 @@ async def test_generated_resource_preserves_dotted_sdk_template_when_python_form
     session.read_resource.return_value = ReadResourceResult(contents=[])
     result = await resource.aread(resource.input_schema(resource_name="DottedItem", **{"item.name": "entry"}))
     assert result.content == []
-    session.read_resource.assert_awaited_once_with(uri="resource://items/{item.name}")
+    session.read_resource.assert_awaited_once_with(uri=expected_uri)
     assert (session.initialize.await_count, clients["sse_client"].return_value.__aexit__.await_count) == (
         int(not borrowed),
         int(not borrowed),
