@@ -27,12 +27,21 @@ class ResearchStateProvider(BaseDynamicContextProvider):
         self.state = state
 
     def get_info(self) -> str:
-        if not self.state.sources and not self.state.learnings:
+        if not self.state.plan and not self.state.sources and not self.state.learnings:
             return "No research has been done yet."
 
         lines: list[str] = []
 
+        if self.state.plan:
+            lines.append("### Research plan")
+            for sub_topic in self.state.plan:
+                status = "sufficient" if sub_topic.sufficient else "needs research"
+                lines.append(f"- {sub_topic.name} ({status})")
+                lines.extend(f"  - {query}" for query in sub_topic.initial_queries)
+
         if self.state.sources:
+            if lines:
+                lines.append("")
             lines.append("### Sources")
             for s in self.state.sources:
                 lines.append(f"[{s.id}] {s.title}")
