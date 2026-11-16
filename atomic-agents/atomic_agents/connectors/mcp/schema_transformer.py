@@ -197,16 +197,15 @@ class SchemaTransformer:
         default = prop_schema.get("default")
         python_type: Any = Any
 
-        # Handle $ref
-        if "$ref" in prop_schema:
-            python_type = SchemaTransformer._resolve_ref(prop_schema["$ref"], root_schema, model_cache)
-        # Scalar value constraints must also appear in the model-facing schema.
-        elif "const" in prop_schema and isinstance(prop_schema["const"], (str, int, float, bool, type(None))):
+        # Intersect finite choices with sibling references before resolving a reference alone.
+        if "const" in prop_schema and isinstance(prop_schema["const"], (str, int, float, bool, type(None))):
             python_type = SchemaTransformer._scalar_choice_type(prop_schema, [prop_schema["const"]], root_schema)
         elif prop_schema.get("enum") and all(
             isinstance(value, (str, int, float, bool, type(None))) for value in prop_schema["enum"]
         ):
             python_type = SchemaTransformer._scalar_choice_type(prop_schema, prop_schema["enum"], root_schema)
+        elif "$ref" in prop_schema:
+            python_type = SchemaTransformer._resolve_ref(prop_schema["$ref"], root_schema, model_cache)
         # Handle oneOf/anyOf (unions)
         elif "oneOf" in prop_schema or "anyOf" in prop_schema:
             union_schemas = prop_schema.get("oneOf", prop_schema.get("anyOf", []))
