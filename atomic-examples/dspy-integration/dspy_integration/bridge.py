@@ -291,11 +291,7 @@ class DSPyAtomicPipeline(dspy.Module):
             results[name] = prediction
 
             # Prepare input for next step (using all prediction fields)
-            current_input = {
-                k: getattr(prediction, k)
-                for k in dir(prediction)
-                if not k.startswith("_") and not callable(getattr(prediction, k))
-            }
+            current_input = dict(prediction.items())
 
         return results
 
