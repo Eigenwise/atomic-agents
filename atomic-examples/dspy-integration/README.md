@@ -486,6 +486,11 @@ class DSPyAtomicModule(dspy.Module):
 
 ## The Bridge: DSPyAtomicModule
 
+DSPy signatures and training examples use Pydantic field names. The bridge accepts
+those names as inputs alongside configured validation aliases, and keeps canonical
+field names when models enable serialization aliases. Returned predictions are
+validated by field name; normal Pydantic validators and constraints still apply.
+
 ### Core Functions
 
 #### `create_dspy_signature_from_schemas`

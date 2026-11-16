@@ -201,9 +201,9 @@ class DSPyAtomicModule(dspy.Module):
         """
         # Validate inputs using Pydantic schema
         try:
-            validated_input = self.input_schema(**kwargs)
-            # Convert back to dict for DSPy
-            input_dict = validated_input.model_dump()
+            validated_input = self.input_schema.model_validate(kwargs, by_name=True)
+            # DSPy signatures use field names, regardless of serialization aliases.
+            input_dict = validated_input.model_dump(by_alias=False)
         except Exception as e:
             raise ValueError(f"Input validation failed: {e}")
 
@@ -235,7 +235,7 @@ class DSPyAtomicModule(dspy.Module):
                 output_dict[field_name] = getattr(prediction, field_name)
 
         # Validate and return as Pydantic model
-        return self.output_schema(**output_dict)
+        return self.output_schema.model_validate(output_dict, by_alias=False, by_name=True)
 
 
 class DSPyAtomicPipeline(dspy.Module):
@@ -326,8 +326,8 @@ def create_dspy_example(
 
     # Combine into single dict
     example_data = {
-        **validated_input.model_dump(),
-        **validated_output.model_dump(),
+        **validated_input.model_dump(by_alias=False),
+        **validated_output.model_dump(by_alias=False),
     }
 
     # Create DSPy example with input fields marked
