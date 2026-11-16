@@ -185,8 +185,16 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
             str: Main content HTML.
         """
         # Remove unwanted elements
-        for element in soup.find_all(["script", "style", "nav", "header", "footer"]):
+        for element in soup.find_all(["script", "style", "nav"]):
             element.decompose()
+
+        # Section headers and footers contain headings, authors, and attribution.
+        # Unwrap them so their IDs/classes cannot become the main-content candidate.
+        for element in soup.find_all(["header", "footer"]):
+            if element.find_parent(["main", "article", "section"]) is not None:
+                element.unwrap()
+            else:
+                element.decompose()
 
         # Try to find main content container
         content_candidates = [
