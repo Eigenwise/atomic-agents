@@ -301,6 +301,11 @@ print(result.confidence)  # Guaranteed 0.0-1.0 float
 - Clear, representative examples for learning
 - Some nuanced examples to teach edge cases
 
+The training catalog interleaves genres deterministically. Stage 1's 30-example
+training prefix contains five examples per genre; Stage 3's 40-example prefix
+contains six or seven per genre. Both optimizer candidate pools include all six
+categories, and the full 60-example catalog remains available.
+
 **Test Set: 30 challenging examples** intentionally designed to be difficult:
 
 | Category | Count | Description |
