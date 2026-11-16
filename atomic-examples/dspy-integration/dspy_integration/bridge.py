@@ -89,6 +89,15 @@ def pydantic_to_dspy_fields(schema: Type[BaseModel], field_type: str = "input") 
     return fields
 
 
+def _validate_distinct_schema_fields(input_schema: Type[BaseIOSchema], output_schema: Type[BaseIOSchema]) -> None:
+    """Keep input and target fields separate in DSPy's shared field namespace."""
+    overlap = input_schema.model_fields.keys() & output_schema.model_fields.keys()
+    if overlap:
+        raise ValueError(
+            "DSPy input and output schemas must use distinct field names; overlapping fields: " + ", ".join(sorted(overlap))
+        )
+
+
 def create_dspy_signature_from_schemas(
     input_schema: Type[BaseIOSchema],
     output_schema: Type[BaseIOSchema],
@@ -107,7 +116,12 @@ def create_dspy_signature_from_schemas(
 
     Returns:
         A DSPy Signature class that can be used with DSPy modules
+
+    Raises:
+        ValueError: If input and output schemas share a Python field name
     """
+    _validate_distinct_schema_fields(input_schema, output_schema)
+
     # Build field definitions
     field_definitions = {}
 
@@ -319,7 +333,12 @@ def create_dspy_example(
 
     Returns:
         A DSPy Example that can be used for training
+
+    Raises:
+        ValueError: If input and output schemas share a Python field name
     """
+    _validate_distinct_schema_fields(input_schema, output_schema)
+
     # Validate data
     validated_input = input_schema(**input_data)
     validated_output = output_schema(**output_data)

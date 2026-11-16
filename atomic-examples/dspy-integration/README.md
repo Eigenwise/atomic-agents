@@ -530,6 +530,11 @@ example = create_dspy_example(
 
 The main bridge class:
 
+Input and output schemas must have distinct Python field names. For example, use
+`text` for the input and `rewritten_text` for the output. Signature construction
+and training-example creation raise `ValueError` for overlapping names, because
+DSPy stores both roles in one namespace and an output would overwrite its input.
+
 ```python
 from dspy_integration.bridge import DSPyAtomicModule
 
