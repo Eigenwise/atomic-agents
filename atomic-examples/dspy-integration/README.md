@@ -295,6 +295,12 @@ print(result.confidence)  # Guaranteed 0.0-1.0 float
 
 ## Benchmark Results
 
+Stage 2 restores the agent's configured initial history before each review. Earlier
+test reviews and predictions are excluded, including after failed calls, so the
+request context remains independent across the test set. The accuracy figures in
+this guide describe earlier runs; rerun all three stages when comparing a changed
+model or evaluation setup.
+
 ### Dataset Composition
 
 **Training Set: 60 examples** (10 per genre)
