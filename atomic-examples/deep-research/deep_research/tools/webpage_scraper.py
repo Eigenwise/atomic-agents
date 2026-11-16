@@ -190,13 +190,23 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
 
         # Try to find main content container
         content_candidates = [
-            soup.find("main"),
-            soup.find(id=re.compile(r"content|main", re.I)),
-            soup.find(class_=re.compile(r"content|main", re.I)),
-            soup.find("article"),
+            *soup.find_all("main"),
+            *soup.find_all(id=re.compile(r"content|main", re.I)),
+            *soup.find_all(class_=re.compile(r"content|main", re.I)),
+            *soup.find_all("article"),
         ]
 
-        main_content = next((candidate for candidate in content_candidates if candidate), None)
+        # Empty skip targets and placeholders are not article containers.
+        # Media-only containers still carry content even without text.
+        media_tags = {"img", "audio", "video", "iframe", "object", "embed", "svg", "canvas"}
+        main_content = next(
+            (
+                candidate
+                for candidate in content_candidates
+                if candidate.get_text(strip=True) or candidate.name in media_tags or candidate.find(media_tags)
+            ),
+            None,
+        )
 
         if not main_content:
             main_content = soup.find("body")
