@@ -1,6 +1,6 @@
 # Key Modules
 
-*Last Updated: 2026-11-14*
+*Last Updated: 2026-11-17*
 
 ## Core framework — `atomic-agents/atomic_agents/`
 
@@ -80,8 +80,8 @@
   llm_spans=True, capture_messages=False)`; env `ATOMIC_AGENTS_TRACE_HIDE_INPUTS/_OUTPUTS` (fallback `OPENINFERENCE_HIDE_*`),
   `ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH` (tolerant, 4096 fallback), `ATOMIC_AGENTS_TRACE_LLM_SPANS`,
   `ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES` (opt-in for `true` or `1`, case-insensitive). Under
-  `hide_outputs` every exception becomes `<Type>: <N> attempts (__REDACTED__)`. Nothing in `atomic_agents/__init__.py`
-  imports the package.
+  `hide_inputs` or `hide_outputs` every exception message becomes `<Type>: <N> attempts (__REDACTED__)` and its stack
+  trace is redacted too. Nothing in `atomic_agents/__init__.py` imports the package.
 - **Message capture:** `capture_messages=True` adds `gen_ai.input.messages` / `gen_ai.output.messages` to chat
   attempt spans for supported OpenAI-compatible ChatCompletion text, tool calls and tool replies. `hide_inputs`
   omits the request attribute; `hide_outputs` omits both, because request messages replay model output (history,
