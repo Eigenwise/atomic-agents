@@ -111,6 +111,8 @@ class MCPDefinitionService:
         endpoint: Optional[str] = None,
         transport_type: MCPTransportType = MCPTransportType.HTTP_STREAM,
         working_directory: Optional[str] = None,
+        *,
+        stdio_env: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize the service.
@@ -120,10 +122,12 @@ class MCPDefinitionService:
                 or command string (for STDIO). Query parameters are preserved.
             transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO)
             working_directory: Optional working directory to use when running STDIO commands
+            stdio_env: Optional environment overrides for the STDIO child process.
         """
         self.endpoint = endpoint
         self.transport_type = transport_type
         self.working_directory = working_directory
+        self.stdio_env = dict(stdio_env) if stdio_env is not None else None
 
     async def fetch_tool_definitions(self) -> List[MCPToolDefinition]:
         """
@@ -151,7 +155,9 @@ class MCPDefinitionService:
                 command = command_parts[0]
                 args = command_parts[1:]
                 logger.info(f"Attempting STDIO connection with command='{command}', args={args}")
-                server_params = StdioServerParameters(command=command, args=args, env=None, cwd=self.working_directory)
+                server_params = StdioServerParameters(
+                    command=command, args=args, env=self.stdio_env, cwd=self.working_directory
+                )
                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                 read_stream, write_stream = stdio_transport
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
@@ -247,7 +253,9 @@ class MCPDefinitionService:
                     raise ValueError("STDIO command string cannot be empty.")
                 command = command_parts[0]
                 args = command_parts[1:]
-                server_params = StdioServerParameters(command=command, args=args, env=None, cwd=self.working_directory)
+                server_params = StdioServerParameters(
+                    command=command, args=args, env=self.stdio_env, cwd=self.working_directory
+                )
                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                 read_stream, write_stream = stdio_transport
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
@@ -376,7 +384,9 @@ class MCPDefinitionService:
                     raise ValueError("STDIO command string cannot be empty.")
                 command = command_parts[0]
                 args = command_parts[1:]
-                server_params = StdioServerParameters(command=command, args=args, env=None, cwd=self.working_directory)
+                server_params = StdioServerParameters(
+                    command=command, args=args, env=self.stdio_env, cwd=self.working_directory
+                )
                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                 read_stream, write_stream = stdio_transport
             elif self.transport_type == MCPTransportType.HTTP_STREAM:
