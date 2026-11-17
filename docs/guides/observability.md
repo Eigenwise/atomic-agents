@@ -374,6 +374,8 @@ defaults stay unchanged.
 
 Supported shapes are OpenAI-compatible chat messages with string content or text blocks, ordinary ChatCompletion
 choices, function tool calls, and tool-role replies. Each represented output choice stays a separate message, in order.
+Nonempty chat `refusal` fields and refusal content blocks are captured as text parts with a `refusal: true` marker,
+so rejected requests retain the provider's explanation. The same capture, visibility and size limits apply.
 Tools-mode responses contain real `tool_call` parts, never text fabricated from the parsed agent result. Images,
 audio, files, reasoning and unknown blocks are excluded; recognized text in mixed content remains. Streams and
 generators are never consumed.

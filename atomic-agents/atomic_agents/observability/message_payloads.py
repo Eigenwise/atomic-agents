@@ -21,9 +21,18 @@ def _text_part(content: object) -> dict[str, object] | None:
 
 
 def _text_block(block: object) -> dict[str, object] | None:
+    if _field(block, "type") == "refusal":
+        return _refusal_part(_field(block, "refusal"))
     if _field(block, "type") != "text":
         return None
     return _text_part(_field(block, "text"))
+
+
+def _refusal_part(value: object) -> dict[str, object] | None:
+    part = _text_part(value)
+    if part is not None:
+        part["refusal"] = True
+    return part
 
 
 def _text_parts(content: object) -> list[dict[str, object]]:
@@ -79,7 +88,11 @@ def _message_parts(message: object, role: str) -> list[dict[str, object]]:
         if not isinstance(content, str):
             return []
         return [_call_id({"type": "tool_call_response", "response": content}, message, "tool_call_id")]
-    return _text_parts(content) + _tool_calls(message)
+    parts = _text_parts(content)
+    refusal = _refusal_part(_field(message, "refusal"))
+    if refusal is not None:
+        parts.append(refusal)
+    return parts + _tool_calls(message)
 
 
 def _message(message: object) -> dict[str, object] | None:
