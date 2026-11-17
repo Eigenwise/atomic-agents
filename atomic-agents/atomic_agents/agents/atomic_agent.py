@@ -154,8 +154,9 @@ class AgentConfig(BaseModel):
     model_api_parameters: Optional[dict] = Field(default=None, description="Additional parameters passed to the API provider.")
     max_context_tokens: Optional[int] = Field(
         default=None,
+        gt=0,
         description=(
-            "Maximum tokens for the full context (system prompt + history + tools). "
+            "Positive maximum tokens for the full context (system prompt + history + tools), or None to disable trimming. "
             "When exceeded, oldest conversation turns are automatically trimmed to stay within limit. "
             "Uses LiteLLM's provider-agnostic token counter — works with any supported model."
         ),
