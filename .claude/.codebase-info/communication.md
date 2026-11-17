@@ -50,6 +50,11 @@ providers and external tools.
   `Tuple` with a type per position.
   Draft-04 boolean exclusive flags are ignored. A pattern Pydantic's regex engine rejects is logged at WARNING and
   skipped; the field keeps its other constraints.
+- Recursive `$ref` models are converted at every level, so nested children are validated like the root. An object
+  that declares properties and `additionalProperties: true` keeps the extra keys; `additionalProperties: false`
+  is not enforced (unknown keys are ignored). A property name Pydantic rejects as a field, such as `_id`, is
+  accepted and sent to the server under its own name; a name that only shadows a model attribute, such as
+  `schema`, keeps its name.
 - Resource URIs are kept exactly as the server sent them (no decoding). Braces in a plain SDK `Resource` URI are
   literal; only resource templates and dict-shaped entries get URI parameters from them. Each generated tool,
   resource and prompt class reports errors and builds results with its own name and output schema.

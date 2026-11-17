@@ -65,7 +65,10 @@ class WebpageScraperToolConfig(BaseToolConfig):
 
     timeout: int = 30
     headers: Dict[str, str] = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+        ),
         "Accept": "text/html,application/xhtml+xml,application/xml",
         "Accept-Language": "en-US,en;q=0.9",
     }
@@ -113,18 +116,25 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
         Returns:
             tuple[str, str]: The HTML content and final response URL.
         """
-        response = requests.get(url, headers=self.headers, timeout=self.timeout)
+        response = requests.get(url, headers=self.headers, timeout=self.timeout, stream=True)
+        try:
+            response.raise_for_status()
+            body = bytearray()
+            for chunk in response.iter_content(chunk_size=8192):
+                if len(body) + len(chunk) > self.config.max_content_length:
+                    raise ValueError(f"Content length exceeds maximum of {self.config.max_content_length} bytes")
+                body.extend(chunk)
 
-        if len(response.content) > self.config.max_content_length:
-            raise ValueError(f"Content length exceeds maximum of {self.config.max_content_length} bytes")
-
-        content_type = Message()
-        content_type["Content-Type"] = response.headers.get("Content-Type", "")
-        charset = content_type.get_content_charset()
-        # Decode HTML from its bytes: a BOM, an explicit HTTP charset, and an
-        # HTML declaration take precedence over heuristic encoding detection.
-        decoded = UnicodeDammit(response.content, is_html=True, user_encodings=[charset] if charset else []).unicode_markup
-        return (decoded if decoded is not None else response.text), response.url
+            content_type = Message()
+            content_type["Content-Type"] = response.headers.get("Content-Type", "")
+            charset = content_type.get_content_charset()
+            # Decode the bounded body using the same BOM, HTTP charset, HTML
+            # declaration, and heuristic precedence as a complete response.
+            content = bytes(body)
+            decoded = UnicodeDammit(content, is_html=True, user_encodings=[charset] if charset else []).unicode_markup
+            return (decoded if decoded is not None else content.decode("utf-8", errors="replace")), response.url
+        finally:
+            response.close()
 
     @staticmethod
     def _resolve_content_urls(soup: BeautifulSoup, document_url: str) -> None:
