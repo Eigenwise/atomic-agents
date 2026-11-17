@@ -46,10 +46,20 @@ class OutcrawlSearchResultItem(BaseIOSchema):
     content: Optional[str] = Field(None, description="Main page content as Markdown (only when scrape_content is set).")
 
 
+class OutcrawlSearchFailure(BaseIOSchema):
+    """A query that failed while other queries returned results."""
+
+    query: str = Field(..., description="The query that failed.")
+    error: str = Field(..., description="Why the query failed, including the HTTP status when available.")
+
+
 class OutcrawlSearchToolOutputSchema(BaseIOSchema):
     """Output of the Outcrawl search tool."""
 
     results: List[OutcrawlSearchResultItem] = Field(..., description="Matching results across all queries.")
+    failures: List[OutcrawlSearchFailure] = Field(
+        default_factory=list, description="Queries that failed while others returned results, with the reason."
+    )
 
 
 #################
@@ -142,12 +152,20 @@ class OutcrawlSearchTool(BaseTool[OutcrawlSearchToolInputSchema, OutcrawlSearchT
             grouped = await asyncio.gather(*tasks, return_exceptions=True)
 
         results: List[OutcrawlSearchResultItem] = []
+        failures: List[OutcrawlSearchFailure] = []
         for query, group in zip(params.queries, grouped):
             if isinstance(group, Exception):
-                logger.warning("Outcrawl query '%s' failed: %s", query, group)
+                detail = f"Outcrawl query '{query}' failed: {group}"
+                # Provider errors may echo a rejected credential.
+                detail = detail.replace(self.api_key, "[redacted]")
+                failures.append(OutcrawlSearchFailure(query=query, error=detail))
+                logger.warning("%s", detail)
                 continue
             results.extend(group)
-        return OutcrawlSearchToolOutputSchema(results=results)
+
+        if failures and not results:
+            raise RuntimeError(failures[0].error)
+        return OutcrawlSearchToolOutputSchema(results=results, failures=failures)
 
     def run(self, params: OutcrawlSearchToolInputSchema) -> OutcrawlSearchToolOutputSchema:
         with ThreadPoolExecutor() as executor:
