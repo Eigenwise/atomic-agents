@@ -68,7 +68,7 @@ def model_from_chunks_patched(cls, json_chunks, **kwargs):
     potential_object = ""
     partial_model = cls.get_partial_model()
     for chunk in json_chunks:
-        potential_object += chunk
+        potential_object = (potential_object + chunk).lstrip(" \t\r\n")
         obj = from_json((potential_object or "{}").encode(), partial_mode="trailing-strings")
         obj = partial_model.model_validate(obj, **kwargs)
         yield obj
@@ -79,7 +79,7 @@ async def model_from_chunks_async_patched(cls, json_chunks, **kwargs):
     potential_object = ""
     partial_model = cls.get_partial_model()
     async for chunk in json_chunks:
-        potential_object += chunk
+        potential_object = (potential_object + chunk).lstrip(" \t\r\n")
         obj = from_json((potential_object or "{}").encode(), partial_mode="trailing-strings")
         obj = partial_model.model_validate(obj, **kwargs)
         yield obj
