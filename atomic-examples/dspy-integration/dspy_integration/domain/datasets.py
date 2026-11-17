@@ -17,6 +17,7 @@ The test set is intentionally difficult, including:
 - Cultural references
 """
 
+from itertools import zip_longest
 from typing import List, TypedDict
 
 
@@ -290,10 +291,15 @@ _ROMANCE_EXAMPLES: List[MovieExample] = [
 ]
 
 
-# Combine all training examples
-TRAINING_DATASET: List[MovieExample] = (
-    _ACTION_EXAMPLES + _COMEDY_EXAMPLES + _DRAMA_EXAMPLES + _HORROR_EXAMPLES + _SCIFI_EXAMPLES + _ROMANCE_EXAMPLES
-)
+# Interleave genres so the stages' 30/40-example prefixes retain all categories.
+TRAINING_DATASET: List[MovieExample] = [
+    example
+    for row in zip_longest(
+        _ACTION_EXAMPLES, _COMEDY_EXAMPLES, _DRAMA_EXAMPLES, _HORROR_EXAMPLES, _SCIFI_EXAMPLES, _ROMANCE_EXAMPLES
+    )
+    for example in row
+    if example is not None
+]
 
 
 # =============================================================================

@@ -1,6 +1,6 @@
 # Key Modules
 
-*Last Updated: 2026-10-21*
+*Last Updated: 2026-11-17*
 
 ## Core framework — `atomic-agents/atomic_agents/`
 
@@ -10,6 +10,8 @@
   run lifecycle (sync / stream / async), context-provider registration, hook registration, and
   context-window trimming.
 - **Exposes:** `AtomicAgent`, `AgentConfig`, `BasicChatInputSchema`, `BasicChatOutputSchema`.
+- **Validation:** `AgentConfig.max_context_tokens` is `None` or a positive `int`. Streamed JSON may start with
+  whitespace before the first token.
 - **Depends on:** `base/`, `context/`, `utils/`, `instructor`.
 
 ### base
@@ -20,6 +22,8 @@
   `base_resource.py` (`BaseResource`), `base_prompt.py` (`BasePrompt`), and `multimodal.py`
   (`VideoURL` — OpenAI-compatible `video_url` content-part model for video inputs).
 - **Exposes via package root:** `BaseIOSchema`, `BaseTool`, `BaseToolConfig`, `VideoURL`.
+- **Generic schemas:** a specialization of a generic `BaseIOSchema` (`Envelope[int]`) inherits the docstring of
+  its origin; an explicitly declared subclass still needs its own.
 
 ### context
 - **Location:** `atomic-agents/atomic_agents/context/`
@@ -30,6 +34,11 @@
   `chat_history.py` (`ChatHistory`, `Message` — the built-in in-memory implementation of
   `BaseChatHistory`: multimodal Image/Audio/PDF plus `VideoURL`, turn grouping, `dump()`/`load()`
   serialization).
+- **Validation:** `max_messages` must be a non-negative `int` or `None` (`bool` is rejected) in the constructor and
+  in a loaded snapshot. `load()` checks the snapshot's structure, replaces state only after every message
+  deserialized, then trims to capacity. Local media paths are restored inside lists and tuples. `dump()` writes
+  field names with `round_trip=True` and `load()` validates by field name, so aliased and `Json[T]` fields
+  reload. Media on a field whose `exclude_if` predicate matches is not attached.
 - **Note:** `AgentConfig.history` is typed to `BaseChatHistory`, so any conforming backend drops in.
 
 ### connectors/mcp
@@ -41,7 +50,8 @@
 
 ### utils
 - **Location:** `atomic-agents/atomic_agents/utils/`
-- **Key files:** `token_counter.py` (`TokenCounter` via LiteLLM; `get_context_token_count`),
+- **Key files:** `token_counter.py` (`TokenCounter` via LiteLLM; `get_context_token_count`; `count_text`
+  counts the text alone, without chat framing),
   `format_tool_message.py`.
 
 ### observability (opt-in)
@@ -56,25 +66,41 @@
   Instructor-to-semconv provider map, None filtering, best-effort attribute collection, OpenInference context seam,
   `using_conversation`), `agent_spans.py` (four `AtomicAgent.run*` wrappers, stream cursors, run state),
   `tool_spans.py` (`BaseTool` wrappers via `__subclasses__` walk + wrapped `__init_subclass__`, re-entrancy guard),
-  `installation.py` (install / uninstall / replace-in-place), `llm_attempt_spans.py` (Instructor hook handlers).
+  `installation.py` (install / uninstall / replace-in-place), `llm_attempt_spans.py` (Instructor hook handlers),
+  `message_payloads.py` (opt-in canonical chat text/tool parts, privacy gates, bounded complete JSON).
 - **Contract:** `instrument(tracer_provider=, config=TracingConfig | PayloadVisibility | None, **options)` /
   `uninstrument()` / `is_instrumented_by_opentelemetry`. Same arguments: no-op; different provider or config:
   replaced in place with a WARNING, `None` keeps the installed value; in-flight spans finish on their original
-  provider. Hooks are registered once per Instructor client under a lock and removed on uninstall;
+  provider, and agent runs and tool calls already under way keep the config captured at their start. Wrappers
+  entered after an uninstall delegate straight to the original method. Hooks are registered once per Instructor
+  client under a lock and removed on uninstall;
   `suppress_instrumentation` is honored; hooks never raise into user code.
 - **Spans:** `invoke_agent {AgentConfig.name or class}` (`gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name`,
   `gen_ai.request.model`, `gen_ai.provider.name`, `gen_ai.conversation.id`, `atomic_agents.agent.class`, `.input`,
   `.output`, model/mode/schema/history/provider/prompt-hash keys, usage totals and `atomic_agents.llm.attempts` at end);
   `execute_tool {tool.tool_name}` (`gen_ai.tool.*`, `atomic_agents.tool.class`); one `chat {model}` CLIENT span per
   Instructor attempt from `completion:kwargs`/`completion:response`/`completion:error` with per-attempt usage
-  (cached/reasoning tokens for both chat-completion and Responses shapes), `parse:error` as a `validation_error`
+  (cached/reasoning tokens for both chat-completion and Responses shapes; Anthropic cache read/write tokens are
+  added to the input total and reported separately; native Gemini `usage_metadata` and `model_version` are
+  read), `parse:error` as a `validation_error`
   event; `error.type` on failures; cancellation = `atomic_agents.cancelled`, never ERROR. Spans always attach to the
-  current context. `llm_spans=False` keeps totals and drops chat spans.
+  current context. `llm_spans=False` keeps totals and drops chat spans. Payloads and captured messages are not
+  serialized for a span that is not recording.
 - **Config:** `TracingConfig(hide_inputs, hide_outputs, max_attribute_length=4096, openinference_attributes=None,
-  llm_spans=True)`; env `ATOMIC_AGENTS_TRACE_HIDE_INPUTS/_OUTPUTS` (fallback `OPENINFERENCE_HIDE_*`),
-  `ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH` (tolerant, 4096 fallback), `ATOMIC_AGENTS_TRACE_LLM_SPANS`. Under
-  `hide_outputs` every exception becomes `<Type>: <N> attempts (__REDACTED__)`. Nothing in `atomic_agents/__init__.py`
-  imports the package.
+  llm_spans=True, capture_messages=False)`; env `ATOMIC_AGENTS_TRACE_HIDE_INPUTS/_OUTPUTS` (fallback `OPENINFERENCE_HIDE_*`),
+  `ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH` (tolerant, 4096 fallback), `ATOMIC_AGENTS_TRACE_LLM_SPANS`,
+  `ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES` (opt-in for `true` or `1`, case-insensitive). Under
+  `hide_inputs` or `hide_outputs` every exception message becomes `<Type>: <N> attempts (__REDACTED__)` and its stack
+  trace is redacted too. Nothing in `atomic_agents/__init__.py` imports the package.
+- **Message capture:** `capture_messages=True` adds `gen_ai.input.messages` / `gen_ai.output.messages` to chat
+  attempt spans for supported OpenAI-compatible ChatCompletion text, tool calls and tool replies. `hide_inputs`
+  omits the request attribute; `hide_outputs` omits both, because request messages replay model output (history,
+  and the rejected answer on an Instructor re-ask). Disabled LLM spans and suppression also prevent content access.
+  Compact JSON preserves message/choice order; an attribute exceeding `max_attribute_length` is omitted whole,
+  rather than truncated, and its size is recorded as `gen_ai.<direction>.messages.original_length`. Tool-call
+  arguments that are not valid JSON (truncated, `NaN`) are kept as their raw string. Streams and non-text media/reasoning are omitted. Native Responses and Anthropic calls
+  record only the request text that matches the chat shape, and no response. Existing usage and legacy payload
+  behavior stay unchanged. Live backend ingestion is unverified.
 - **Tests:** `atomic-agents/tests/observability/` (in-memory exporter; `instructor_transport.py` builds real Instructor
   clients over `httpx.MockTransport`; `test_instructor_modes.py` covers TOOLS/JSON/JSON_SCHEMA/RESPONSES_TOOLS).
 
@@ -93,8 +119,20 @@
 - **Purpose:** Standalone tools, each an independent mini-project following the `BaseTool` pattern,
   copied into user projects by the assembler (build files such as `pyproject.toml` / `requirements.txt`
   / `uv.lock` are skipped on copy).
-- **Recent additions:** `firecrawl_search` provides web/news search; `fxmacrodata` provides economic releases, FX and COT data. Both keep their own dependencies and setup.
-- **YouTube compatibility:** `youtube_transcript_scraper` uses the instance-based transcript API and converts SDK transcript objects to raw entries.
+- **Recent additions:** `firecrawl_search` and `sofya_search` provide web/news search (`sofya_search` follows the
+  `firecrawl_search` structure and returns page text per result); `outcrawl_search` follows the `serply_search`
+  structure and can also fetch each result page as Markdown; `fxmacrodata` provides economic releases, FX and COT
+  data; `deed_page` publishes static files to a public deed.page URL and is the only forge tool that writes outward
+  (it keeps its owner token on `tool.token`, never in the output). Each keeps its own dependencies and setup.
+- **YouTube compatibility:** `youtube_transcript_scraper` uses the instance-based transcript API and converts SDK transcript objects to raw entries. `run()` reads the video duration from the Data API `contentDetails`; `fetch_video_metadata()` returns metadata only. The `youtube-summarizer` and `youtube-to-recipe` examples carry their own copy of the tool.
+- **Calculator:** `CalculatorToolConfig(safe_mode=True, allowed_functions={})`. Safe mode parses the expression and only evaluates allowlisted operators, math functions and the configured callables; `safe_mode=False` hands the string to `sympy.sympify`.
+- **PDF reader:** page ranges are bounded by the document length before iteration, and streamed downloads are closed on every exit path.
+- **Webpage scraper:** `_fetch_webpage` returns `(text, final_url)`. The body is decoded from its bytes (BOM, HTTP
+  charset, then the HTML declaration) and relative links and images are resolved against the final URL or
+  `<base>`. The `deep-research` example carries its own copy.
+- **Search tools:** `hackernews_search` reports failed queries in `failures`; `serply_search` does not follow
+  redirects (its key travels in `X-Api-Key`); `wikipedia_search` validates the edition code before building the
+  host; `searxng_search` sends the `social media` category under SearXNG's own name.
 - **Authoring guide:** `atomic-forge/guides/tool_structure.md`.
 
 ### atomic-examples

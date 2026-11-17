@@ -377,9 +377,9 @@ class TestToolDefinitionService:
         mock_client_session.list_resources.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_mapping_adapter_resource_decodes_uri_and_requires_named_parameters(self, mock_client_session: AsyncMock):
+    async def test_mapping_adapter_preserves_uri_and_requires_only_explicit_parameters(self, mock_client_session: AsyncMock):
         adapter_response = MagicMock(
-            resources=[{"name": "user_document", "uri": "documents://user%20files/%7Buser_id%7D/%7Bdocument_id%7D"}]
+            resources=[{"name": "user_document", "uri": "documents://user%20files/%7Buser_id%7D/{document_id}"}]
         )
         mock_client_session.list_resources.return_value = adapter_response
 
@@ -389,14 +389,13 @@ class TestToolDefinitionService:
             MCPResourceDefinition(
                 name="user_document",
                 description=None,
-                uri="documents://user files/{user_id}/{document_id}",
+                uri="documents://user%20files/%7Buser_id%7D/{document_id}",
                 input_schema={
                     "type": "object",
                     "properties": {
-                        "user_id": {"type": "string", "description": "URI parameter user_id"},
                         "document_id": {"type": "string", "description": "URI parameter document_id"},
                     },
-                    "required": ["user_id", "document_id"],
+                    "required": ["document_id"],
                 },
             )
         ]

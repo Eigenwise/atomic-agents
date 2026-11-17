@@ -65,6 +65,8 @@ class TestWebpageScraperTool(unittest.TestCase):
         mock_response = Mock()
         mock_response.text = self.sample_html
         mock_response.content = self.sample_html.encode("utf-8")
+        mock_response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        mock_response.url = self.mock_url
         mock_get.return_value = mock_response
 
         # Test the method
@@ -72,7 +74,7 @@ class TestWebpageScraperTool(unittest.TestCase):
 
         # Assertions
         mock_get.assert_called_once()
-        self.assertEqual(result, self.sample_html)
+        self.assertEqual(result, (self.sample_html, self.mock_url))
 
         # Check headers
         call_args = mock_get.call_args
@@ -113,17 +115,7 @@ class TestWebpageScraperTool(unittest.TestCase):
 
     def test_clean_markdown(self):
         """Test cleaning up markdown content."""
-        markdown = """# Title
-
-        
-
-        Some content
-          with weird spacing
-        
-        
-        
-        More content
-        """
+        markdown = "# Title\n\n  \n\nSome content\n  with weird spacing\n  \n\n\nMore content\n"
 
         expected = "# Title\n\nSome content\n  with weird spacing\n\nMore content\n"
 
@@ -133,9 +125,26 @@ class TestWebpageScraperTool(unittest.TestCase):
         # Assertions
         self.assertEqual(result, expected)
 
+    def test_clean_markdown_preserves_arbitrary_content(self):
+        markdown = "# Title of a real article\n\nArticle with weird spacing\n\nA unique conclusion."
+
+        self.assertEqual(self.tool._clean_markdown(markdown), markdown + "\n")
+
+    def test_clean_markdown_preserves_indented_code(self):
+        markdown = "Example:\n\n    if ready:\n        run()\n\n\nNext paragraph."
+
+        self.assertEqual(
+            self.tool._clean_markdown(markdown),
+            "Example:\n\n    if ready:\n        run()\n\nNext paragraph.\n",
+        )
+
+    def test_clean_markdown_normalizes_whitespace_only_blank_lines(self):
+        markdown = "First paragraph.\n \n\t\n\nSecond paragraph."
+
+        self.assertEqual(self.tool._clean_markdown(markdown), "First paragraph.\n\nSecond paragraph.\n")
+
     def test_clean_markdown_triple_newlines(self):
         """Test cleaning up markdown content with triple newlines."""
-        # Make sure we're not hitting the special case by using different content
         markdown = "Test\n\n\nMultiple\n\n\nNewlines"
 
         # Test the method
@@ -223,7 +232,7 @@ class TestWebpageScraperTool(unittest.TestCase):
     def test_run_with_links(self, mock_fetch):
         """Test running the tool with links included."""
         # Configure the mock
-        mock_fetch.return_value = self.sample_html
+        mock_fetch.return_value = (self.sample_html, self.mock_url)
 
         # Create input parameters
         params = WebpageScraperToolInputSchema(
@@ -245,7 +254,7 @@ class TestWebpageScraperTool(unittest.TestCase):
     def test_run_without_links(self, mock_fetch):
         """Test running the tool with links excluded."""
         # Configure the mock
-        mock_fetch.return_value = self.sample_html
+        mock_fetch.return_value = (self.sample_html, self.mock_url)
 
         # Create input parameters
         params = WebpageScraperToolInputSchema(

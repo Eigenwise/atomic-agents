@@ -18,7 +18,7 @@ from instructor import Mode
 
 config = AgentConfig(
     client=client,                      # required: instructor-wrapped client
-    model="gpt-5-mini",                 # required: model id
+    model="gpt-5.6-terra",                 # required: model id
     history=ChatHistory(),              # optional: omit for stateless agents
     system_prompt_generator=SystemPromptGenerator(
         background=["You are a concise research assistant."],
@@ -124,7 +124,7 @@ class UserCtx(BaseDynamicContextProvider):
         return f"Current user: {self.name or 'anonymous'}"
 
 agent.register_context_provider("user", UserCtx())
-agent.context_providers["user"].name = "Alice"   # dynamic update before next run
+agent.get_context_provider("user").name = "Alice"   # dynamic update before next run
 ```
 
 See `context-providers.md` for patterns (RAG, time, session, cached database schema).

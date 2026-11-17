@@ -126,6 +126,12 @@ You can customize the RAG Chatbot by:
 - Customizing the system prompts for both agents
 - Switching between ChromaDB and Qdrant by changing the `VECTOR_DB_TYPE` environment variable
 
+`CHUNK_SIZE` and `CHUNK_OVERLAP` are measured in characters. Chunks stay within
+`CHUNK_SIZE`, including separators, and carry up to `CHUNK_OVERLAP` trailing
+characters into the next chunk. The splitter prefers paragraph, line and word
+boundaries, and splits long paragraphs or words when necessary. Boundary
+whitespace is trimmed. Use a positive chunk size and `0 <= CHUNK_OVERLAP < CHUNK_SIZE`.
+
 ## Example Usage
 
 The chatbot can answer questions about the loaded document, such as:

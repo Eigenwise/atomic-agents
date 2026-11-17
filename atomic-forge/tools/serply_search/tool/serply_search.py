@@ -10,7 +10,6 @@ from pydantic import Field
 
 from atomic_agents import BaseIOSchema, BaseTool, BaseToolConfig
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -127,7 +126,7 @@ class SerplySearchTool(BaseTool[SerplySearchToolInputSchema, SerplySearchToolOut
     ) -> List[SerplySearchResultItem]:
         params = {"q": query, "num": str(max_results), "hl": self.hl, "gl": self.gl}
 
-        async with session.get(f"{self.base_url}/{search_type}/", params=params) as resp:
+        async with session.get(f"{self.base_url}/{search_type}/", params=params, allow_redirects=False) as resp:
             if resp.status != 200:
                 raise Exception(f"Serply {search_type} failed for '{query}': {resp.status} {resp.reason}")
             data = await resp.json()

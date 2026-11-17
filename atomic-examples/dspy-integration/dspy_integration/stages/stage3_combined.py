@@ -80,7 +80,7 @@ def run_stage3_combined(api_key: str) -> Tuple[EvalResult, Dict[str, Any]]:
     _display_stage_overview()
 
     # Configure DSPy
-    lm = dspy.LM("openai/gpt-5-mini", api_key=api_key)
+    lm = dspy.LM("openai/gpt-5.6-terra", api_key=api_key)
     dspy.configure(lm=lm)
 
     # Step 1: Show bridge module

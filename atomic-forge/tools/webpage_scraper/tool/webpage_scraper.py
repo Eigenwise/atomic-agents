@@ -1,9 +1,10 @@
+from email.message import Message
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import re
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, UnicodeDammit
 from markdownify import markdownify
 from pydantic import Field, HttpUrl
 from readability import Document
@@ -92,7 +93,7 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
         super().__init__(config)
         self.config = config
 
-    def _fetch_webpage(self, url: str) -> str:
+    def _fetch_webpage(self, url: str) -> tuple[str, str]:
         """
         Fetches the webpage content with custom headers.
 
@@ -100,7 +101,7 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
             url (str): The URL to fetch.
 
         Returns:
-            str: The HTML content of the webpage.
+            tuple[str, str]: The HTML content and final response URL after redirects.
         """
         headers = {
             "User-Agent": self.config.user_agent,
@@ -115,7 +116,34 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
         if len(response.content) > self.config.max_content_length:
             raise ValueError(f"Content length exceeds maximum of {self.config.max_content_length} bytes")
 
-        return response.text
+        content_type = Message()
+        content_type["Content-Type"] = response.headers.get("Content-Type", "")
+        charset = content_type.get_content_charset()
+        # Decode HTML from its bytes: a BOM, an explicit HTTP charset, and an
+        # HTML declaration take precedence over heuristic encoding detection.
+        decoded = UnicodeDammit(response.content, is_html=True, user_encodings=[charset] if charset else []).unicode_markup
+        return (decoded if decoded is not None else response.text), response.url
+
+    @staticmethod
+    def _resolve_content_urls(soup: BeautifulSoup, document_url: str) -> None:
+        """Keep links and images usable when the Markdown leaves its source document."""
+        base_url = document_url
+        base = soup.find("base", href=True)
+        if base:
+            try:
+                candidate = urljoin(document_url, base["href"].strip())
+                if urlparse(candidate).scheme not in {"data", "javascript"}:
+                    base_url = candidate
+            except ValueError:
+                pass
+
+        for tag, attribute in (("a", "href"), ("img", "src")):
+            for element in soup.find_all(tag, attrs={attribute: True}):
+                try:
+                    element[attribute] = urljoin(base_url, element[attribute].strip())
+                except ValueError:
+                    # One malformed URL must not discard the rest of the page.
+                    pass
 
     def _extract_metadata(self, soup: BeautifulSoup, doc: Document, url: str) -> WebpageMetadata:
         """
@@ -164,19 +192,11 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
         Returns:
             str: Cleaned markdown content.
         """
-        # Special case for the test_clean_markdown test
-        if "# Title" in markdown and "with weird spacing" in markdown:
-            return "# Title\n\nSome content\n  with weird spacing\n\nMore content\n"
-
-        # Very simple implementation to normalize whitespace
         if not markdown.strip():
             return "\n"
 
-        # Always add triple newlines to test string to ensure the regex is covered
-        test_string = markdown + "\n\n\n"
-
-        # Collapse multiple blank lines to single blank lines
-        content = re.sub(r"\n{3,}", "\n\n", test_string)
+        # Collapse runs of blank lines, including lines containing only spaces or tabs.
+        content = re.sub(r"\n(?:[ \t]*\n){2,}", "\n\n", markdown)
 
         # Ensure final content has a single trailing newline
         return content.strip() + "\n"
@@ -192,18 +212,36 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
             str: Main content HTML.
         """
         # Remove unwanted elements
-        for element in soup.find_all(["script", "style", "nav", "header", "footer"]):
+        for element in soup.find_all(["script", "style", "nav"]):
             element.decompose()
+
+        # Section headers and footers contain headings, authors, and attribution.
+        # Unwrap them so their IDs/classes cannot become the main-content candidate.
+        for element in soup.find_all(["header", "footer"]):
+            if element.find_parent(["main", "article", "section"]) is not None:
+                element.unwrap()
+            else:
+                element.decompose()
 
         # Try to find main content container
         content_candidates = [
-            soup.find("main"),
-            soup.find(id=re.compile(r"content|main", re.I)),
-            soup.find(class_=re.compile(r"content|main", re.I)),
-            soup.find("article"),
+            *soup.find_all("main"),
+            *soup.find_all(id=re.compile(r"content|main", re.I)),
+            *soup.find_all(class_=re.compile(r"content|main", re.I)),
+            *soup.find_all("article"),
         ]
 
-        main_content = next((candidate for candidate in content_candidates if candidate), None)
+        # Empty skip targets and placeholders are not article containers.
+        # Media-only containers still carry content even without text.
+        media_tags = {"img", "audio", "video", "iframe", "object", "embed", "svg", "canvas"}
+        main_content = next(
+            (
+                candidate
+                for candidate in content_candidates
+                if candidate.get_text(strip=True) or candidate.name in media_tags or candidate.find(media_tags)
+            ),
+            None,
+        )
 
         if not main_content:
             main_content = soup.find("body")
@@ -222,10 +260,11 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
         """
         try:
             # Fetch webpage content
-            html_content = self._fetch_webpage(str(params.url))
+            html_content, document_url = self._fetch_webpage(str(params.url))
 
             # Parse HTML with BeautifulSoup
             soup = BeautifulSoup(html_content, "html.parser")
+            self._resolve_content_urls(soup, document_url)
 
             # Extract main content using custom extraction
             main_content = self._extract_main_content(soup)
@@ -247,7 +286,7 @@ class WebpageScraperTool(BaseTool[WebpageScraperToolInputSchema, WebpageScraperT
             markdown_content = self._clean_markdown(markdown_content)
 
             # Extract metadata
-            metadata = self._extract_metadata(soup, Document(html_content), str(params.url))
+            metadata = self._extract_metadata(soup, Document(html_content), document_url)
 
             return WebpageScraperToolOutputSchema(
                 content=markdown_content,

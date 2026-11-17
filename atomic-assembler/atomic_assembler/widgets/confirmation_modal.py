@@ -26,13 +26,13 @@ class ConfirmationModal(ModalScreen):
         logging.debug("Composing ConfirmationModal")
         if self.mode == "yes_no":
             yield Vertical(
-                Static(self.message, id="modal-content"),
+                Static(self.message, id="modal-content", markup=False),
                 Static("[Y]es / [N]o", id="options"),
                 id="dialog",
             )
         elif self.mode == "continue":
             yield Vertical(
-                Static(self.message, id="modal-content"),
+                Static(self.message, id="modal-content", markup=False),
                 Static("Press any key to continue", id="options"),
                 id="dialog",
             )

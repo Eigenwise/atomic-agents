@@ -100,7 +100,7 @@ class BoChaSearchTool(BaseTool[BoChaSearchToolInputSchema, BoChaSearchToolOutput
         self.include = config.include
         self.exclude = config.exclude
 
-    async def _fetch_search_results(self, session: aiohttp.ClientSession, query: str) -> dict:
+    async def _fetch_search_results(self, session: aiohttp.ClientSession, query: str, count: Optional[int] = None) -> dict:
         headers = {
             "content-type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
@@ -108,7 +108,7 @@ class BoChaSearchTool(BaseTool[BoChaSearchToolInputSchema, BoChaSearchToolOutput
 
         json_data = {
             "query": query,
-            "count": self.count,
+            "count": count or self.count,
             "freshness": self.freshness,
         }
         if self.include is not None:
@@ -138,7 +138,7 @@ class BoChaSearchTool(BaseTool[BoChaSearchToolInputSchema, BoChaSearchToolOutput
     async def run_async(self, params: BoChaSearchToolInputSchema, count: Optional[int] = None) -> BoChaSearchToolOutputSchema:
         async with aiohttp.ClientSession() as session:
             # Fetch results for all queries
-            tasks = [self._fetch_search_results(session, query) for query in params.queries]
+            tasks = [self._fetch_search_results(session, query, count) for query in params.queries]
             raw_responses = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results for each query

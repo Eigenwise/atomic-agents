@@ -166,5 +166,5 @@ After scaffolding, tell the user:
 
 - Never commit `.env`. Only `.env.example`.
 - Never install anything globally. Use the project venv.
-- Never pick an old model. Default to current generation: OpenAI `gpt-5-mini`, Anthropic `claude-haiku-4-5`, Groq `llama-3.3-70b-versatile`, Ollama `llama3.1`, Gemini `gemini-2.5-flash`.
+- Never pick an old model. Default to current generation: OpenAI `gpt-5.6-terra`, Anthropic `claude-haiku-4-5`, Groq `llama-3.3-70b-versatile`, Ollama `llama3.1`, Gemini `gemini-2.5-flash`.
 - Never hand-roll what `framework/references/project-structure.md` already templates.

@@ -1,4 +1,5 @@
 import logging
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.widgets import Static, Footer
 from textual.binding import Binding
@@ -120,7 +121,12 @@ class FileExplorerScreen(Screen):
         """Refresh the file list and update the current path display."""
         logging.debug("Refreshing file list")
         self.update_current_path_display()
-        items = self._get_file_items()
+        try:
+            items = self._get_file_items()
+        except OSError as error:
+            logging.warning("Failed to list directory %s: %s", self.current_path, error)
+            self.notify(f"Cannot list {self.current_path}: {error}", severity="error", markup=False)
+            items = []
         self.file_list.update_list(items)
 
         # Set highlighted index based on stored selection for current directory
@@ -137,7 +143,9 @@ class FileExplorerScreen(Screen):
 
     def update_current_path_display(self):
         """Update the display of the current path."""
-        self.current_path_widget.update(f"Current directory: [bold {PRIMARY_COLOR}]{self.current_path}[/bold {PRIMARY_COLOR}]")
+        self.current_path_widget.update(
+            Text.assemble("Current directory: ", (str(self.current_path), f"bold {PRIMARY_COLOR}"))
+        )
 
     @on(GenericList.Highlighted)
     def on_highlighted(self, list_view):
@@ -145,7 +153,7 @@ class FileExplorerScreen(Screen):
         if list_view.item:
             # self.current_path = str(list_view.highlighted_item.item_data["path"])
             self.current_path_widget.update(
-                f"Current directory: [bold {PRIMARY_COLOR}]{list_view.item.item_data['path']}[/bold {PRIMARY_COLOR}]"
+                Text.assemble("Current directory: ", (str(list_view.item.item_data["path"]), f"bold {PRIMARY_COLOR}"))
             )
 
     def _get_file_items(self):
@@ -268,9 +276,9 @@ class FileExplorerScreen(Screen):
                     new_item_path.touch(exist_ok=False)
                     logging.info(f"New file created: {new_item_path}")
                 self.refresh_file_list()
-            except FileExistsError:
-                logging.warning(f"Failed to create item, already exists: {new_item_path}")
-                self.bell()
+            except OSError as error:
+                logging.warning("Failed to create item %s: %s", new_item_path, error)
+                self.notify(f"Cannot create {new_item_path}: {error}", severity="error", markup=False)
             finally:
                 self.new_item_input.value = ""
         self.exit_new_item_mode()
