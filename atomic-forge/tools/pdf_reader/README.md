@@ -20,6 +20,7 @@ Extracts text and metadata from a PDF, given either a local file path or an HTTP
 - `source` (str): a local file path or HTTP(S) URL pointing at a PDF.
 - `page_range` (str, optional): `'1'`, `'1-5'`, `'1,3,5-7'`, etc. (1-based). Out-of-range pages are silently skipped.
 - `include_metadata` (bool): default `True`.
+- `extraction_mode` (`"plain"` or `"layout"`): defaults to `"plain"`. Choose `"layout"` to preserve rendered row and column positions with fixed-width spacing, useful for reports and tables whose PDF text operators are stored column by column.
 
 ### Output Schema
 - `source` (str): echo of the input source.
@@ -46,12 +47,19 @@ print(out.text[:1000])
 
 # Read a local PDF, every page
 out = tool.run(PdfReaderToolInputSchema(source="./paper.pdf"))
+
+# Preserve row associations in a text-based inventory report
+out = tool.run(PdfReaderToolInputSchema(
+    source="./inventory.pdf",
+    extraction_mode="layout",
+))
 ```
 
 ## Notes
 - The tool fails gracefully and returns `error` set in the output rather than raising.
 - For URL sources, the download is hard-capped by `max_size_bytes` in the config (default 50 MB).
 - Encrypted PDFs are not currently supported.
+- Layout extraction uses [pypdf's layout mode](https://pypdf.readthedocs.io/en/5.1.0/user/extract-text.html). It retains spacing in the returned text; it does not produce structured table cells or perform OCR. Complex layouts and rotated text have the same limitations as the underlying pypdf mode.
 
 ## Contributing
 PRs welcome — see the main repo `CONTRIBUTING.md`.

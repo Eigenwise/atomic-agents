@@ -1,7 +1,7 @@
 import io
 import re
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Literal, Optional, Set
 
 import requests
 from pydantic import Field
@@ -35,6 +35,13 @@ class PdfReaderToolInputSchema(BaseIOSchema):
         ),
     )
     include_metadata: bool = Field(default=True, description="Whether to include document metadata in the output.")
+    extraction_mode: Literal["plain", "layout"] = Field(
+        default="plain",
+        description=(
+            "Text extraction strategy. 'plain' keeps the existing reading-order extraction; "
+            "'layout' uses fixed-width spacing to retain rendered rows and columns in text-based PDFs."
+        ),
+    )
 
 
 ####################
@@ -201,7 +208,8 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
             pages: List[PdfPage] = []
             for page_number in page_numbers:
                 page = reader.pages[page_number - 1]
-                pages.append(PdfPage(page_number=page_number, text=page.extract_text() or ""))
+                text = page.extract_text(extraction_mode=params.extraction_mode) or ""
+                pages.append(PdfPage(page_number=page_number, text=text))
 
             text = "\n\f\n".join(page.text for page in pages)
             metadata = self._format_metadata(reader) if params.include_metadata else None
