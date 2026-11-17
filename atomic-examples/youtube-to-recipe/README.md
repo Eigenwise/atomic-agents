@@ -79,6 +79,10 @@ The agent extracts recipe information in a structured format including:
 
 You can modify the `video_url` variable in `main.py` to extract recipes from different cooking videos. Additionally, you can adjust the agent's configuration in `agent.py` to customize the recipe extraction format or add additional fields to capture more recipe details.
 
+When the transcript input omits `language`, the scraper uses the language list in
+`YouTubeTranscriptToolConfig`, such as `languages=["de", "en"]`, in priority order.
+An explicit input language overrides that list. The default list is `en`, `en-US`, `en-GB`.
+
 ## Contributing
 
 Contributions are welcome! Please fork the repository and submit a pull request with your enhancements or bug fixes.

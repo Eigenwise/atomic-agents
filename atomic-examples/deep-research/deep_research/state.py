@@ -59,7 +59,7 @@ class ResearchState:
     queries_seen: set[str] = field(default_factory=set)
     urls_seen: set[str] = field(default_factory=set)
 
-    # Budget counter — see ResearchBudget.hard_call_cap.
+    # Agent call attempts, including failures — see ResearchBudget.hard_call_cap.
     agent_calls: int = 0
 
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
