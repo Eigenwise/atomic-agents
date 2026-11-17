@@ -73,7 +73,10 @@ def assert_value(result, kind, value):
     if kind == "tool":
         # Newer FastMCP versions advertise a typed string result; older versions
         # return the same value as a text content block.
-        actual = result.result if isinstance(result.result, str) else result.result[0]["text"]
+        actual = result.result
+        if not isinstance(actual, str):
+            block = actual[0]
+            actual = block["text"] if isinstance(block, dict) else block.text
         assert actual == value
     elif kind == "resource":
         assert result.content[0].text == value
