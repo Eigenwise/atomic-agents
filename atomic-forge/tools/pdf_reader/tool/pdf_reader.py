@@ -6,6 +6,7 @@ from typing import List, Optional, Set
 import requests
 from pydantic import Field
 from pypdf import PdfReader
+from pypdf.generic import ArrayObject, DictionaryObject
 
 from atomic_agents import BaseIOSchema, BaseTool, BaseToolConfig
 
@@ -35,6 +36,7 @@ class PdfReaderToolInputSchema(BaseIOSchema):
         ),
     )
     include_metadata: bool = Field(default=True, description="Whether to include document metadata in the output.")
+    include_links: bool = Field(default=False, description="Whether to extract each page's embedded URI link targets.")
 
 
 ####################
@@ -45,6 +47,9 @@ class PdfPage(BaseIOSchema):
 
     page_number: int = Field(..., description="1-based page number in the source document.")
     text: str = Field(..., description="Extracted text for this page.")
+    links: List[str] = Field(
+        default_factory=list, description="URI annotation targets in page order, when include_links=True."
+    )
 
 
 class PdfMetadata(BaseIOSchema):
@@ -187,6 +192,32 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
             modification_date=_g("/ModDate"),
         )
 
+    @staticmethod
+    def _page_links(page: DictionaryObject) -> List[str]:
+        annotations = page.get("/Annots")
+        if annotations is None:
+            return []
+        annotations = annotations.get_object()
+        if not isinstance(annotations, ArrayObject):
+            return []
+        links = []
+        for reference in annotations:
+            annotation = reference.get_object()
+            if not isinstance(annotation, DictionaryObject) or annotation.get("/Subtype") != "/Link":
+                continue
+            action = annotation.get("/A")
+            if action is None:
+                continue
+            action = action.get_object()
+            if not isinstance(action, DictionaryObject) or action.get("/S") != "/URI":
+                continue
+            uri = action.get("/URI")
+            if uri is not None:
+                uri = uri.get_object()
+            if isinstance(uri, str) and uri:
+                links.append(uri)
+        return links
+
     def run(self, params: PdfReaderToolInputSchema) -> PdfReaderToolOutputSchema:
         try:
             data = self._load_bytes(params.source)
@@ -201,7 +232,13 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
             pages: List[PdfPage] = []
             for page_number in page_numbers:
                 page = reader.pages[page_number - 1]
-                pages.append(PdfPage(page_number=page_number, text=page.extract_text() or ""))
+                pages.append(
+                    PdfPage(
+                        page_number=page_number,
+                        text=page.extract_text() or "",
+                        links=self._page_links(page) if params.include_links else [],
+                    )
+                )
 
             text = "\n\f\n".join(page.text for page in pages)
             metadata = self._format_metadata(reader) if params.include_metadata else None

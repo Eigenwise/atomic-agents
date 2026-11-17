@@ -20,11 +20,12 @@ Extracts text and metadata from a PDF, given either a local file path or an HTTP
 - `source` (str): a local file path or HTTP(S) URL pointing at a PDF.
 - `page_range` (str, optional): `'1'`, `'1-5'`, `'1,3,5-7'`, etc. (1-based). Out-of-range pages are silently skipped.
 - `include_metadata` (bool): default `True`.
+- `include_links` (bool): extract embedded URI annotations for the selected pages; default `False`.
 
 ### Output Schema
 - `source` (str): echo of the input source.
 - `text` (str): concatenated text for the extracted pages, separated by `\f` (form feed).
-- `pages` (list[PdfPage]): per-page extracted text with 1-based `page_number`.
+- `pages` (list[PdfPage]): per-page extracted text with 1-based `page_number` and `links` (list[str]). Links are empty unless requested.
 - `page_count` (int): number of pages extracted (after page_range filter).
 - `total_page_count` (int): total pages in the source document.
 - `metadata` (PdfMetadata, optional): document info dictionary.
@@ -47,6 +48,16 @@ print(out.text[:1000])
 # Read a local PDF, every page
 out = tool.run(PdfReaderToolInputSchema(source="./paper.pdf"))
 ```
+
+To keep citation targets that are not printed as text:
+
+```python
+out = tool.run(PdfReaderToolInputSchema(source="./paper.pdf", include_links=True))
+for page in out.pages:
+    print(page.page_number, page.links)
+```
+
+URI targets are returned as stored in the PDF, in annotation order, including repeated and relative targets. Internal page jumps and other annotation types are omitted. Targets are never fetched or executed, and extracted page text stays unchanged.
 
 ## Notes
 - The tool fails gracefully and returns `error` set in the output rather than raising.
