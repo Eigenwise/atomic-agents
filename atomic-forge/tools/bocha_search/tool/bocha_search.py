@@ -131,7 +131,7 @@ class BoChaSearchTool(BaseTool[BoChaSearchToolInputSchema, BoChaSearchToolOutput
             query_results = response["results"]
             query_processed = []
             for result in query_results:
-                if all(key in result for key in ["name", "url", "snippet"]):
+                if all(key in result for key in ["name", "url"]):
                     query_processed.append(
                         BoChaSearchResultItemSchema(
                             name=result["name"],
