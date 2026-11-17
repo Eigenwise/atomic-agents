@@ -90,6 +90,8 @@ All limits live in `ResearchBudget` inside `config.py`. Tune to taste:
 
 Worst-case first turn with defaults: 1 plan + 4×2×(1 extract×3 sources + 1 reflect) = 33 agent calls + 2 writer passes ≈ **35 agent calls, 24 scrapes**. Chat follow-ups add a decider call plus either Q&A or another research pass; the `hard_call_cap` of 80 leaves headroom.
 
+The cap applies before every agent invocation, including the writer and follow-up agents. Failed attempts consume a slot too, since a provider may have processed the request before reporting an error. If a stage runs out of calls, it raises a clear budget error before sending another request; accumulated sources and learnings stay available. Chat mode reports the error and returns to the prompt. The cap counts agent invocations, not the provider retries that Instructor may perform inside one invocation.
+
 ## License
 
 MIT — see the [LICENSE](../../LICENSE) file.

@@ -7,7 +7,8 @@ This module provides the core integration that allows:
 3. Applying DSPy optimizers (BootstrapFewShot, MIPROv2, etc.) to improve agent performance
 """
 
-from typing import Any, Dict, List, Literal, Optional, Type, get_args, get_origin
+from types import UnionType
+from typing import Any, Dict, List, Literal, Optional, Type, Union, get_args, get_origin
 
 import dspy
 from pydantic import BaseModel
@@ -38,18 +39,10 @@ def python_type_to_dspy_type(python_type: Any) -> Any:
             return list[python_type_to_dspy_type(args[0])]
         return list
 
-    # Handle Optional types
-    if origin is type(None) or (hasattr(origin, "__origin__") and origin.__origin__ is type(None)):
-        return python_type
-
-    # Handle Union types (including Optional)
-    if hasattr(origin, "__name__") and origin.__name__ == "UnionType":
-        args = get_args(python_type)
-        # Filter out NoneType for Optional handling
-        non_none_args = [a for a in args if a is not type(None)]
-        if len(non_none_args) == 1:
-            return python_type_to_dspy_type(non_none_args[0])
-        return python_type
+    # Keep every branch, including None, in either spelling of a union.
+    # typing.Union also works with DSPy's older signature builder.
+    if origin in (Union, UnionType):
+        return Union[get_args(python_type)]
 
     # Basic types pass through
     if python_type in (str, int, float, bool, list, dict):
@@ -229,10 +222,8 @@ class DSPyAtomicModule(dspy.Module):
         prediction = self(**kwargs)
 
         # Extract output fields from prediction
-        output_dict = {}
-        for field_name in self.output_schema.model_fields.keys():
-            if hasattr(prediction, field_name):
-                output_dict[field_name] = getattr(prediction, field_name)
+        prediction_fields = dict(prediction.items())
+        output_dict = {name: prediction_fields[name] for name in self.output_schema.model_fields if name in prediction_fields}
 
         # Validate and return as Pydantic model
         return self.output_schema(**output_dict)
@@ -291,11 +282,7 @@ class DSPyAtomicPipeline(dspy.Module):
             results[name] = prediction
 
             # Prepare input for next step (using all prediction fields)
-            current_input = {
-                k: getattr(prediction, k)
-                for k in dir(prediction)
-                if not k.startswith("_") and not callable(getattr(prediction, k))
-            }
+            current_input = dict(prediction.items())
 
         return results
 

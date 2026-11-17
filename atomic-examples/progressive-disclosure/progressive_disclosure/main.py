@@ -71,7 +71,7 @@ class ProgressiveDisclosureConfig:
     """Configuration for the Progressive Disclosure demo."""
 
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    finder_model: str = "gpt-5-mini"  # Lightweight model for tool discovery
+    finder_model: str = "gpt-5.6-terra"  # Lightweight model for tool discovery
     orchestrator_model: str = "gpt-5.1"  # More capable model for execution
     parallel_execution: bool = True  # Enable parallel tool execution
 

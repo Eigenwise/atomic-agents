@@ -129,6 +129,22 @@ def test_successful_envelope_keeps_output_precedence(error_test_connection, mapp
     session.call_tool.assert_awaited_once_with(name="SearchTool", arguments={})
 
 
+@pytest.mark.parametrize("error_test_tool", [False], indirect=True, ids=["generic"])
+@pytest.mark.parametrize("structured", [None, {}, {"name": "structured", "count": 0, "items": ["a", "b"]}])
+@pytest.mark.parametrize("mapping", [False, True], ids=["sdk", "mapping"])
+@pytest.mark.parametrize("synchronous", [False, True], ids=["async", "sync"])
+def test_generic_tool_keeps_structured_only_result(error_test_connection, structured, mapping, synchronous):
+    tool, session, transport, typed, borrowed = error_test_connection
+    envelope = CallToolResult(content=[], structuredContent=structured)
+    session.call_tool.return_value = envelope.model_dump() if mapping else envelope
+    params = tool.input_schema(tool_name="SearchTool")
+
+    output = tool.run(params) if synchronous else asyncio.run(tool.arun(params))
+
+    assert output.result == ([] if structured is None else structured)
+    session.call_tool.assert_awaited_once_with(name="SearchTool", arguments={})
+
+
 @pytest.mark.parametrize("content", [None, "article"])
 @pytest.mark.parametrize("synchronous", [False, True], ids=["async", "sync"])
 def test_raw_error_named_dictionary_stays_application_data(error_test_connection, content, synchronous):

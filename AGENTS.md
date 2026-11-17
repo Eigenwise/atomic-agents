@@ -99,13 +99,16 @@ Each example is self-contained and demonstrates specific patterns and capabiliti
 - `bocha_search/` - BoCha web search
 - `calculator/` - Mathematical computation tool
 - `datetime_tool/` - Timezone-aware now / parse / convert / shift / diff
+- `deed_page/` - Publish HTML files to a public URL via the deed.page API (no key)
 - `fia_signals/` - Crypto market intelligence (regime, signals, yields, gas, trending, wallet risk)
 - `firecrawl_search/` - Web and news search via the Firecrawl API, with optional page content as Markdown
 - `fxmacrodata/` - Macroeconomic releases, release calendars, FX rates, and COT positioning via the FXMacroData API
 - `hackernews_search/` - Hacker News search via the free Algolia API
+- `outcrawl_search/` - Web search via the Outcrawl API, with optional page content as Markdown
 - `pdf_reader/` - PDF text + metadata extraction (local file or URL, page-range support)
 - `searxng_search/` - Privacy-focused search integration
 - `serply_search/` - Google web, news, and scholar search via the Serply API
+- `sofya_search/` - Web and news search via the Sofya API, with page text for each result
 - `tavily_search/` - Tavily API search tool
 - `weather/` - Current conditions and daily/hourly forecast via Open-Meteo (no key)
 - `webpage_scraper/` - Web scraping capabilities
@@ -358,7 +361,7 @@ client = instructor.from_openai(openai.OpenAI(api_key=os.environ["OPENAI_API_KEY
 agent = AtomicAgent[InputSchema, OutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",
+        model="gpt-5.6-terra",
         history=ChatHistory(),
         system_prompt_generator=SystemPromptGenerator(
             background=["You are a helpful assistant. Provide accurate answers."],

@@ -18,6 +18,7 @@ from atomic_agents.base.base_io_schema import BaseIOSchema
 from atomic_agents.base import BaseTool, BaseResource, BasePrompt
 from atomic_agents.connectors.mcp.schema_transformer import SchemaTransformer
 from atomic_agents.connectors.mcp.mcp_definition_service import (
+    _transport_endpoint,
     MCPAttributeType,
     MCPDefinitionService,
     MCPToolDefinition,
@@ -34,6 +35,7 @@ class MCPToolOutputSchema(BaseIOSchema):
 
     Used as a fallback when the MCP server does not provide an outputSchema definition.
     Tools with MCP-provided outputSchema will have typed output schemas instead.
+    When a result has no content blocks, its structuredContent is returned directly.
     """
 
     result: Any = Field(..., description="The result returned by the MCP tool.")
@@ -74,6 +76,13 @@ class _GeneratedMCPTool(Protocol):
     mcp_endpoint: str | None
     transport_type: MCPTransportType
     output_schema: type[BaseIOSchema]
+
+
+def _mcp_arguments(params: BaseIOSchema, identifier_name: str) -> dict[str, Any]:
+    """Remove routing metadata and restore any conflicting server argument names."""
+    arguments = params.model_dump(exclude={identifier_name}, exclude_none=True)
+    argument_names = getattr(type(params), "__mcp_argument_names__", {})
+    return {argument_names.get(name, name): value for name, value in arguments.items()}
 
 
 def _validated_tool_envelope(tool_result: _ToolResult) -> mcp.types.CallToolResult | None:
@@ -210,6 +219,10 @@ def _validate_typed_tool_output(tool_result: _ToolResult, output_schema: type[Ba
 
 
 def _render_generic_tool_output(tool_result: _ToolResult, output_schema: type[BaseIOSchema]) -> BaseIOSchema:
+    envelope = _validated_tool_envelope(tool_result)
+    if envelope is not None and not envelope.content and envelope.structuredContent is not None:
+        return output_schema(**{"result": envelope.structuredContent})
+
     content: _ToolContent | _ToolResult
     if isinstance(tool_result, BaseModel) and hasattr(tool_result, "content"):
         content = getattr(tool_result, "content")
@@ -235,7 +248,8 @@ class MCPFactory:
         Initialize the factory.
 
         Args:
-            mcp_endpoint: URL of the MCP server (for SSE/HTTP stream) or the full command to run the server (for STDIO)
+            mcp_endpoint: MCP server base URL or explicit /mcp or /sse endpoint (for SSE/HTTP stream),
+                or the full command to run the server (for STDIO). Query parameters are preserved.
             transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO)
             client_session: Optional pre-initialized ClientSession for reuse
             event_loop: Optional event loop for running asynchronous operations
@@ -347,7 +361,7 @@ class MCPFactory:
                     bound_working_directory = getattr(self, "working_directory", None)
 
                     # Get arguments, excluding tool_name
-                    arguments = params.model_dump(exclude={"tool_name"}, exclude_none=True)
+                    arguments = _mcp_arguments(params, "tool_name")
 
                     async def _connect_and_call():
                         stack = AsyncExitStack()
@@ -368,13 +382,13 @@ class MCPFactory:
                             elif bound_transport_type == MCPTransportType.HTTP_STREAM:
                                 # HTTP Stream transport - use trailing slash to avoid redirect
                                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
-                                http_endpoint = f"{bound_mcp_endpoint}/mcp/"
+                                http_endpoint = _transport_endpoint(bound_mcp_endpoint, "/mcp/")
                                 logger.debug(f"Executing tool '{bound_tool_name}' via HTTP Stream: endpoint={http_endpoint}")
                                 http_transport = await stack.enter_async_context(streamablehttp_client(http_endpoint))
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
-                                sse_endpoint = f"{bound_mcp_endpoint}/sse"
+                                sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Executing tool '{bound_tool_name}' via SSE: endpoint={sse_endpoint}")
                                 sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
                                 read_stream, write_stream = sse_transport
@@ -427,7 +441,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.arun(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to execute MCP tool '{tool_name}': {e}") from e
+                            raise RuntimeError(f"Failed to execute MCP tool '{self.mcp_tool_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.arun(params))
@@ -623,7 +637,7 @@ class MCPFactory:
                     persistent_session: Optional[ClientSession] = getattr(self, "_client_session", None)
                     bound_working_directory = getattr(self, "working_directory", None)
 
-                    arguments = params.model_dump(exclude={"resource_name"}, exclude_none=True)
+                    arguments = _mcp_arguments(params, "resource_name")
 
                     async def _connect_and_read():
                         stack = AsyncExitStack()
@@ -646,7 +660,7 @@ class MCPFactory:
                             elif bound_transport_type == MCPTransportType.HTTP_STREAM:
                                 # HTTP Stream transport - use trailing slash to avoid redirect
                                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
-                                http_endpoint = f"{bound_mcp_endpoint}/mcp/"
+                                http_endpoint = _transport_endpoint(bound_mcp_endpoint, "/mcp/")
                                 logger.debug(
                                     f"Reading resource '{self.mcp_resource_name}' via HTTP Stream: endpoint={http_endpoint}"
                                 )
@@ -654,7 +668,7 @@ class MCPFactory:
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
-                                sse_endpoint = f"{bound_mcp_endpoint}/sse"
+                                sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Reading resource '{self.mcp_resource_name}' via SSE: endpoint={sse_endpoint}")
                                 sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
                                 read_stream, write_stream = sse_transport
@@ -704,17 +718,17 @@ class MCPFactory:
                             if actual_content and len(actual_content) > 0:
                                 # Get mimeType from the first content item
                                 first_content = actual_content[0]
-                                actual_mime = getattr(first_content, "mimeType", mime_type)
+                                actual_mime = getattr(first_content, "mimeType", self._mime_type)
                             else:
-                                actual_mime = mime_type
+                                actual_mime = self._mime_type
                         elif isinstance(resource_result, dict) and "contents" in resource_result:
                             actual_content = resource_result["contents"]
-                            actual_mime = resource_result.get("mime_type", mime_type)
+                            actual_mime = resource_result.get("mime_type", self._mime_type)
                         else:
                             actual_content = resource_result
-                            actual_mime = mime_type
+                            actual_mime = self._mime_type
 
-                        return OutputSchema(content=actual_content, mime_type=actual_mime)
+                        return self.output_schema(content=actual_content, mime_type=actual_mime)
 
                     except Exception as e:
                         logger.error(f"Error reading MCP resource '{self.mcp_resource_name}': {e}", exc_info=True)
@@ -730,7 +744,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.aread(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to read MCP resource '{resource_name}': {e}") from e
+                            raise RuntimeError(f"Failed to read MCP resource '{self.mcp_resource_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.aread(params))
@@ -747,6 +761,7 @@ class MCPFactory:
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
                     "uri": uri,
+                    "_mime_type": mime_type,
                 }
 
                 # Create the class using new_class() for proper generic type support
@@ -842,7 +857,7 @@ class MCPFactory:
                     bound_working_directory = getattr(self, "working_directory", None)
 
                     # Get arguments
-                    arguments = params.model_dump(exclude={"prompt_name"}, exclude_none=True)
+                    arguments = _mcp_arguments(params, "prompt_name")
 
                     async def _connect_and_generate():
                         stack = AsyncExitStack()
@@ -865,13 +880,13 @@ class MCPFactory:
                             elif bound_transport_type == MCPTransportType.HTTP_STREAM:
                                 # HTTP Stream transport - use trailing slash to avoid redirect
                                 # See: https://github.com/modelcontextprotocol/python-sdk/issues/732
-                                http_endpoint = f"{bound_mcp_endpoint}/mcp/"
+                                http_endpoint = _transport_endpoint(bound_mcp_endpoint, "/mcp/")
                                 logger.debug(f"Getting prompt '{bound_prompt_name}' via HTTP Stream: endpoint={http_endpoint}")
                                 http_transport = await stack.enter_async_context(streamablehttp_client(http_endpoint))
                                 read_stream, write_stream, _ = http_transport
                             elif bound_transport_type == MCPTransportType.SSE:
                                 # SSE transport (deprecated)
-                                sse_endpoint = f"{bound_mcp_endpoint}/sse"
+                                sse_endpoint = _transport_endpoint(bound_mcp_endpoint, "/sse")
                                 logger.debug(f"Getting prompt '{bound_prompt_name}' via SSE: endpoint={sse_endpoint}")
                                 sse_transport = await stack.enter_async_context(sse_client(sse_endpoint))
                                 read_stream, write_stream = sse_transport
@@ -926,13 +941,13 @@ class MCPFactory:
                                 texts.append(content)
                             elif isinstance(content, dict):
                                 texts.append(content.get("text", ""))
-                            elif getattr(content, "text", None):
+                            elif isinstance(getattr(content, "text", None), str):
                                 texts.append(content.text)  # type: ignore
                             else:
                                 texts.append(str(content))
                         final_content = "\n\n".join(texts)
 
-                        return OutputSchema(content=final_content)
+                        return self.output_schema(content=final_content)
 
                     except Exception as e:
                         logger.error(f"Error getting MCP prompt '{bound_prompt_name}': {e}", exc_info=True)
@@ -948,7 +963,7 @@ class MCPFactory:
                         try:
                             return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.agenerate(params))
                         except AttributeError as e:
-                            raise RuntimeError(f"Failed to get MCP prompt '{prompt_name}': {e}") from e
+                            raise RuntimeError(f"Failed to get MCP prompt '{self.mcp_prompt_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
                         return asyncio.run(self.agenerate(params))

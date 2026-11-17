@@ -2,7 +2,7 @@ import instructor
 from instructor import Mode
 from instructor.processing.multimodal import Image, Audio, PDF
 from pydantic import BaseModel, Field
-from typing import Optional, Type, Generator, AsyncGenerator, get_args, get_origin, Dict, List, Callable, Union, Any
+from typing import Optional, Type, Generator, AsyncGenerator, Dict, List, Callable, Union, Any
 import logging
 from atomic_agents.context.chat_history import ChatHistory
 from atomic_agents.context.base_chat_history import BaseChatHistory
@@ -12,6 +12,7 @@ from atomic_agents.context.system_prompt_generator import (
     BaseSystemPromptGenerator,
 )
 from atomic_agents.base.base_io_schema import BaseIOSchema
+from atomic_agents.base._schema_types import resolve_schema_types
 from atomic_agents.utils.token_counter import get_token_counter, TokenCountResult
 import json
 
@@ -51,6 +52,14 @@ _TOOL_MODES = frozenset(
     }
 )
 
+# Events emitted by AtomicAgent itself, not accepted by Instructor's hook registry.
+_LOCAL_HOOK_EVENTS = frozenset({"token:counted"})
+
+
+def _is_instructor_hook(event: str) -> bool:
+    return event not in _LOCAL_HOOK_EVENTS
+
+
 # Instructor multimodal objects that can be lowered to a chat-format content part.
 _InstructorMedia = Union[Image, Audio, PDF]
 
@@ -60,7 +69,7 @@ def model_from_chunks_patched(cls, json_chunks, **kwargs):
     potential_object = ""
     partial_model = cls.get_partial_model()
     for chunk in json_chunks:
-        potential_object += chunk
+        potential_object = (potential_object + chunk).lstrip(" \t\r\n")
         obj = from_json((potential_object or "{}").encode(), partial_mode="trailing-strings")
         obj = partial_model.model_validate(obj, **kwargs)
         yield obj
@@ -71,7 +80,7 @@ async def model_from_chunks_async_patched(cls, json_chunks, **kwargs):
     potential_object = ""
     partial_model = cls.get_partial_model()
     async for chunk in json_chunks:
-        potential_object += chunk
+        potential_object = (potential_object + chunk).lstrip(" \t\r\n")
         obj = from_json((potential_object or "{}").encode(), partial_mode="trailing-strings")
         obj = partial_model.model_validate(obj, **kwargs)
         yield obj
@@ -106,9 +115,11 @@ class AgentConfig(BaseModel):
     client: instructor.Instructor = Field(..., description="Client for interacting with the language model.")
     name: Optional[str] = Field(
         default=None,
-        description="Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name.",
+        description=(
+            "Stable name for this agent in logs and traces, for example the role it plays. Defaults to the class name."
+        ),
     )
-    model: str = Field(default="gpt-5-mini", description="The model to use for generating responses.")
+    model: str = Field(default="gpt-5.6-terra", description="The model to use for generating responses.")
     history: Optional[BaseChatHistory] = Field(default=None, description="History component for storing chat history.")
     system_prompt_generator: Optional[BaseSystemPromptGenerator] = Field(
         default=None,
@@ -146,8 +157,9 @@ class AgentConfig(BaseModel):
     model_api_parameters: Optional[dict] = Field(default=None, description="Additional parameters passed to the API provider.")
     max_context_tokens: Optional[int] = Field(
         default=None,
+        gt=0,
         description=(
-            "Maximum tokens for the full context (system prompt + history + tools). "
+            "Positive maximum tokens for the full context (system prompt + history + tools), or None to disable trimming. "
             "When exceeded, oldest conversation turns are automatically trimmed to stay within limit. "
             "Uses LiteLLM's provider-agnostic token counter — works with any supported model."
         ),
@@ -172,7 +184,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         history (BaseChatHistory): History component for storing chat history.
         system_prompt_generator (BaseSystemPromptGenerator): Component for generating system prompts.
         system_role (Optional[str]): The role of the system in the conversation. None means no system prompt.
-        assistant_role (str): The role of the assistant in the conversation. Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
+        assistant_role (str): The role of the assistant in the conversation.
+            Use 'model' for Gemini, 'assistant' for OpenAI/Anthropic.
         initial_history (ChatHistory): Initial state of the history.
         current_user_input (Optional[InputSchema]): The current user input being processed.
         model_api_parameters (dict): Additional parameters passed to the API provider.
@@ -340,24 +353,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self.history.add_message(self.tool_result_role, content)
 
     def _resolve_schema_types(self) -> tuple[Type[BaseIOSchema], Type[BaseIOSchema]]:
-        """Resolve AtomicAgent's schemas through the instance's specialized bases."""
-
-        def resolve(base: Any, bindings: Dict[Any, Any]) -> Optional[tuple[Any, Any]]:
-            origin = get_origin(base) or base
-            arguments = tuple(bindings.get(argument, argument) for argument in get_args(base))
-            if origin is AtomicAgent:
-                return (arguments[0], arguments[1]) if len(arguments) == 2 else None
-
-            bindings = {**bindings, **dict(zip(getattr(origin, "__parameters__", ()), arguments))}
-            # Read only bases declared on this class; inherited __orig_bases__
-            # can skip a specialization introduced by an intermediate subclass.
-            for parent in origin.__dict__.get("__orig_bases__", origin.__bases__):
-                schemas = resolve(parent, bindings)
-                if schemas is not None:
-                    return schemas
-            return None
-
-        return resolve(getattr(self, "__orig_class__", type(self)), {}) or (BasicChatInputSchema, BasicChatOutputSchema)
+        """Resolve schemas using the same inheritance rule as component bases."""
+        return resolve_schema_types(self, AtomicAgent) or (BasicChatInputSchema, BasicChatOutputSchema)
 
     @property
     def input_schema(self) -> Type[BaseIOSchema]:
@@ -683,6 +680,17 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
 
         return result
 
+    def _discard_turn(self, turn_id: Optional[str]) -> None:
+        """
+        Removes the turn a failed run started, so the history never keeps a user message
+        without its response and a retry does not send the same request twice.
+
+        Args:
+            turn_id (Optional[str]): The turn the failed run added, or None if it added none.
+        """
+        if turn_id is not None and self.history.get_current_turn_id() == turn_id:
+            self.history.delete_turn_id(turn_id)
+
     def run(self, user_input: Optional[InputSchema] = None) -> OutputSchema:
         """
         Runs the chat agent with the given user input synchronously.
@@ -697,19 +705,25 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.client, instructor.AsyncInstructor
         ), "The run method is not supported for async clients. Use run_async instead."
 
+        added_turn_id = None
         if user_input:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
+            added_turn_id = self.history.get_current_turn_id()
 
         self._trim_context()
-        self._prepare_messages()
-        response = self.client.chat.completions.create(
-            messages=self.messages,
-            model=self.model,
-            response_model=self.output_schema,
-            **self._get_completion_kwargs(),
-        )
+        try:
+            self._prepare_messages()
+            response = self.client.chat.completions.create(
+                messages=self.messages,
+                model=self.model,
+                response_model=self.output_schema,
+                **self._get_completion_kwargs(),
+            )
+        except Exception:
+            self._discard_turn(added_turn_id)
+            raise
         self.history.add_message(self.assistant_role, response)
         self._prepare_messages()
 
@@ -732,31 +746,42 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.client, instructor.AsyncInstructor
         ), "The run_stream method is not supported for async clients. Use run_async instead."
 
+        added_turn_id = None
         if user_input:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
+            added_turn_id = self.history.get_current_turn_id()
 
         self._trim_context()
-        self._prepare_messages()
+        try:
+            self._prepare_messages()
 
-        response_stream = self.client.chat.completions.create_partial(
-            model=self.model,
-            messages=self.messages,
-            response_model=self.output_schema,
-            **self._get_completion_kwargs(),
-            stream=True,
-        )
+            response_stream = self.client.chat.completions.create_partial(
+                model=self.model,
+                messages=self.messages,
+                response_model=self.output_schema,
+                **self._get_completion_kwargs(),
+                stream=True,
+            )
 
-        last_response = None
-        for partial_response in response_stream:
-            last_response = partial_response
-            yield partial_response
+            last_response = None
+            for partial_response in response_stream:
+                last_response = partial_response
+                yield partial_response
+
+            if last_response:
+                # Keep non-idempotent values such as Json[T] valid for revalidation,
+                # and omit computed fields that are outputs rather than inputs.
+                # Dumped keys are field names, including for aliased schemas.
+                full_response_content = self.output_schema.model_validate(
+                    last_response.model_dump(round_trip=True), by_name=True
+                )
+        except Exception:
+            self._discard_turn(added_turn_id)
+            raise
 
         if last_response:
-            # model_dump() keys the data by field name, so accept field names
-            # for output schemas whose fields have an alias.
-            full_response_content = self.output_schema.model_validate(last_response.model_dump(), by_name=True)
             self.history.add_message(self.assistant_role, full_response_content)
             self._prepare_messages()
             return full_response_content
@@ -777,17 +802,23 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         assert isinstance(self.client, instructor.AsyncInstructor), "The run_async method is for async clients."
 
+        added_turn_id = None
         if user_input:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
+            added_turn_id = self.history.get_current_turn_id()
 
         self._trim_context()
-        self._prepare_messages()
+        try:
+            self._prepare_messages()
 
-        response = await self.client.chat.completions.create(
-            model=self.model, messages=self.messages, response_model=self.output_schema, **self._get_completion_kwargs()
-        )
+            response = await self.client.chat.completions.create(
+                model=self.model, messages=self.messages, response_model=self.output_schema, **self._get_completion_kwargs()
+            )
+        except Exception:
+            self._discard_turn(added_turn_id)
+            raise
 
         self.history.add_message(self.assistant_role, response)
         self._prepare_messages()
@@ -804,30 +835,40 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             OutputSchema: Partial responses from the chat agent.
         """
         assert isinstance(self.client, instructor.AsyncInstructor), "The run_async method is for async clients."
+        added_turn_id = None
         if user_input:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
+            added_turn_id = self.history.get_current_turn_id()
 
         self._trim_context()
-        self._prepare_messages()
+        try:
+            self._prepare_messages()
 
-        response_stream = self.client.chat.completions.create_partial(
-            model=self.model,
-            messages=self.messages,
-            response_model=self.output_schema,
-            **self._get_completion_kwargs(),
-            stream=True,
-        )
+            response_stream = self.client.chat.completions.create_partial(
+                model=self.model,
+                messages=self.messages,
+                response_model=self.output_schema,
+                **self._get_completion_kwargs(),
+                stream=True,
+            )
 
-        last_response = None
-        async for partial_response in response_stream:
-            last_response = partial_response
-            yield partial_response
+            last_response = None
+            async for partial_response in response_stream:
+                last_response = partial_response
+                yield partial_response
+
+            if last_response:
+                # See run_stream(): preserve validation input types and field names.
+                full_response_content = self.output_schema.model_validate(
+                    last_response.model_dump(round_trip=True), by_name=True
+                )
+        except Exception:
+            self._discard_turn(added_turn_id)
+            raise
 
         if last_response:
-            # See run_stream(): accept field names for aliased output schemas.
-            full_response_content = self.output_schema.model_validate(last_response.model_dump(), by_name=True)
             self.history.add_message(self.assistant_role, full_response_content)
             self._prepare_messages()
 
@@ -875,6 +916,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         Registers a hook handler for a specific event.
 
+        Local events use a snapshot of the registered handlers for each dispatch.
+
         Args:
             event (str): The event name (e.g., 'parse:error', 'completion:kwargs', etc.)
             handler (Callable): The callback function to handle the event
@@ -884,7 +927,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hook_handlers[event].append(handler)
 
         # Register with instructor client if it supports hooks
-        if self._hooks_enabled and hasattr(self.client, "on"):
+        if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "on"):
             self.client.on(event, handler)
 
     def unregister_hook(self, event: str, handler: Callable) -> None:
@@ -899,7 +942,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self._hook_handlers[event].remove(handler)
 
             # Remove from instructor client if it supports hooks
-            if self._hooks_enabled and hasattr(self.client, "off"):
+            if _is_instructor_hook(event) and self._hooks_enabled and hasattr(self.client, "off"):
                 self.client.off(event, handler)
 
     def clear_hooks(self, event: Optional[str] = None) -> None:
@@ -928,7 +971,7 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         if not self._hooks_enabled or event not in self._hook_handlers:
             return
 
-        for handler in self._hook_handlers[event]:
+        for handler in tuple(self._hook_handlers[event]):
             try:
                 handler(*args, **kwargs)
             except Exception as e:
@@ -943,6 +986,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = True
         if hasattr(self.client, "on"):
             for event, handlers in self._hook_handlers.items():
+                if not _is_instructor_hook(event):
+                    continue
                 for handler in handlers:
                     self.client.on(event, handler)
 
@@ -953,6 +998,8 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         self._hooks_enabled = False
         if hasattr(self.client, "off"):
             for event, handlers in self._hook_handlers.items():
+                if not _is_instructor_hook(event):
+                    continue
                 for handler in handlers:
                     self.client.off(event, handler)
 
@@ -1054,11 +1101,11 @@ if __name__ == "__main__":
         """
         if streaming:
             client = instructor.from_openai(AsyncOpenAI())
-            config = AgentConfig(client=client, model="gpt-5-mini")
+            config = AgentConfig(client=client, model="gpt-5.6-terra")
             agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](config)
         else:
             client = instructor.from_openai(OpenAI())
-            config = AgentConfig(client=client, model="gpt-5-mini")
+            config = AgentConfig(client=client, model="gpt-5.6-terra")
             agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](config)
 
         # Display agent information before starting the chat

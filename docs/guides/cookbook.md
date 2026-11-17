@@ -44,7 +44,7 @@ def create_basic_chatbot():
     agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             history=ChatHistory()
         )
     )
@@ -131,7 +131,7 @@ def create_memory_chatbot():
     agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             history=history,
             system_prompt_generator=system_prompt
         )
@@ -249,7 +249,7 @@ def create_structured_agent():
     agent = AtomicAgent[BasicChatInputSchema, StructuredOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             history=ChatHistory(),
             system_prompt_generator=system_prompt
         )
@@ -317,7 +317,7 @@ def get_client(provider: Provider):
 
     if provider == Provider.OPENAI:
         from openai import OpenAI
-        return instructor.from_openai(OpenAI()), "gpt-5-mini"
+        return instructor.from_openai(OpenAI()), "gpt-5.6-terra"
 
     elif provider == Provider.ANTHROPIC:
         from anthropic import Anthropic
@@ -477,7 +477,7 @@ def create_tool_agent():
     agent = AtomicAgent[BasicChatInputSchema, AgentOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             history=ChatHistory(),
             system_prompt_generator=system_prompt
         )
@@ -554,7 +554,7 @@ def create_streaming_agent():
     agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
         config=AgentConfig(
             client=client,
-            model="gpt-5-mini",
+            model="gpt-5.6-terra",
             history=ChatHistory()
         )
     )
@@ -690,7 +690,7 @@ class ResearchAgent:
         self.query_agent = AtomicAgent[ResearchQuerySchema, GeneratedQueriesSchema](
             config=AgentConfig(
                 client=self.client,
-                model="gpt-5-mini",
+                model="gpt-5.6-terra",
                 system_prompt_generator=SystemPromptGenerator(
                     background=["You generate effective search queries for research."],
                     steps=["Analyze the topic.", "Generate diverse, specific queries."],
@@ -703,7 +703,7 @@ class ResearchAgent:
         self.synthesis_agent = AtomicAgent[SynthesisInputSchema, SynthesisOutputSchema](
             config=AgentConfig(
                 client=self.client,
-                model="gpt-5-mini",
+                model="gpt-5.6-terra",
                 system_prompt_generator=SystemPromptGenerator(
                     background=["You synthesize research findings into clear summaries."],
                     steps=["Review the research results.", "Identify key patterns.", "Synthesize findings."],
@@ -850,7 +850,7 @@ class RAGAgent:
         self.agent = AtomicAgent[BasicChatInputSchema, RAGOutputSchema](
             config=AgentConfig(
                 client=self.client,
-                model="gpt-5-mini",
+                model="gpt-5.6-terra",
                 history=ChatHistory(),
                 system_prompt_generator=SystemPromptGenerator(
                     background=[

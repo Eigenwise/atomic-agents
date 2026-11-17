@@ -17,13 +17,16 @@ The Atomic Forge project includes the following tools:
 - [BoCha Search](/atomic-forge/tools/bocha_search/README.md)
 - [Calculator](/atomic-forge/tools/calculator/README.md)
 - [DateTime](/atomic-forge/tools/datetime_tool/README.md) — timezone-aware now/parse/convert/shift/diff.
+- [deed.page Publisher](/atomic-forge/tools/deed_page/README.md) — publish HTML files to a public URL (no account or key required).
 - [Fía Signals](/atomic-forge/tools/fia_signals/README.md)
 - [Firecrawl Search](/atomic-forge/tools/firecrawl_search/README.md) — web and news search via the Firecrawl API, with optional page content as Markdown.
 - [FXMacroData](/atomic-forge/tools/fxmacrodata/README.md)
 - [Hacker News Search](/atomic-forge/tools/hackernews_search/README.md) — search HN stories, comments, Show HN, Ask HN via the free Algolia API.
+- [Outcrawl Search](/atomic-forge/tools/outcrawl_search/README.md)
 - [PDF Reader](/atomic-forge/tools/pdf_reader/README.md) — extract text and metadata from a local or remote PDF, with page-range filtering.
 - [SearXNG Search](/atomic-forge/tools/searxng_search/README.md)
 - [Serply Search](/atomic-forge/tools/serply_search/README.md)
+- [Sofya Search](/atomic-forge/tools/sofya_search/README.md)
 - [Tavily Search](/atomic-forge/tools/tavily_search/README.md)
 - [Webpage Scraper](/atomic-forge/tools/webpage_scraper/README.md)
 - [Weather](/atomic-forge/tools/weather/README.md) — current conditions and forecast via the free Open-Meteo API.

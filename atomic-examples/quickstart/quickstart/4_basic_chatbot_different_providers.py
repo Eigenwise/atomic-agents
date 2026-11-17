@@ -24,7 +24,7 @@ def setup_client(provider):
 
         api_key = os.getenv("OPENAI_API_KEY")
         client = instructor.from_openai(OpenAI(api_key=api_key))
-        model = "gpt-5-mini"
+        model = "gpt-5.6-terra"
         model_api_parameters = {"reasoning_effort": "low", "max_tokens": 2048}
         assistant_role = "assistant"
     elif provider == "2" or provider == "anthropic":

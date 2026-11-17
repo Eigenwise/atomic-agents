@@ -320,14 +320,14 @@ class TestAtomicAgent:
         return AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
             config=AgentConfig(
                 client=mock_client,
-                model="gpt-5-mini",
+                model="gpt-5.6-terra",
                 history=ChatHistory()
             )
         )
 
     def test_agent_initialization(self, agent):
         """Test agent initializes correctly."""
-        assert agent.model == "gpt-5-mini"
+        assert agent.model == "gpt-5.6-terra"
         assert agent.history is not None
 
     def test_run_adds_to_history(self, agent, mock_client):
@@ -377,7 +377,7 @@ class TestAgentWithCustomSchema:
         return AtomicAgent[BasicChatInputSchema, CustomOutput](
             config=AgentConfig(
                 client=mock_client,
-                model="gpt-5-mini"
+                model="gpt-5.6-terra"
             )
         )
 
@@ -414,7 +414,7 @@ class TestAgentIntegration:
         agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
             config=AgentConfig(
                 client=mock_client,
-                model="gpt-5-mini",
+                model="gpt-5.6-terra",
                 history=ChatHistory(),
                 system_prompt_generator=system_prompt
             )
@@ -486,7 +486,7 @@ class TestAsyncAgent:
         return AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
             config=AgentConfig(
                 client=mock_client,
-                model="gpt-5-mini",
+                model="gpt-5.6-terra",
                 history=ChatHistory()
             )
         )

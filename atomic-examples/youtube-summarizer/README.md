@@ -62,6 +62,10 @@ The entry point for the YouTube Summarizer application. It orchestrates fetching
 
 You can modify the `video_url` variable in `main.py` to analyze different YouTube videos. Additionally, you can adjust the agent's configuration in `agent.py` to tailor the summaries and insights according to your requirements.
 
+When the transcript input omits `language`, the scraper uses the language list in
+`YouTubeTranscriptToolConfig`, such as `languages=["de", "en"]`, in priority order.
+An explicit input language overrides that list. The default list is `en`, `en-US`, `en-GB`.
+
 ## Contributing
 
 Contributions are welcome! Please fork the repository and submit a pull request with your enhancements or bug fixes.

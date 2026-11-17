@@ -130,8 +130,9 @@ class SearXNGSearchTool(BaseTool[SearXNGSearchToolInputSchema, SearXNGSearchTool
             ValueError: If the base URL is not provided.
             Exception: If the request to SearXNG fails.
         """
+        category = "social media" if params.category == "social_media" else params.category
         async with aiohttp.ClientSession() as session:
-            tasks = [self._fetch_search_results(session, query, params.category) for query in params.queries]
+            tasks = [self._fetch_search_results(session, query, category) for query in params.queries]
             results = await asyncio.gather(*tasks)
 
         all_results = [item for sublist in results for item in sublist]
@@ -154,8 +155,8 @@ class SearXNGSearchTool(BaseTool[SearXNGSearchToolInputSchema, SearXNGSearchTool
                 seen_urls.add(result["url"])
 
         # Filter results to include only those with the correct category if it is set
-        if params.category:
-            filtered_results = [result for result in unique_results if result.get("category") == params.category]
+        if category:
+            filtered_results = [result for result in unique_results if result.get("category") == category]
         else:
             filtered_results = unique_results
 

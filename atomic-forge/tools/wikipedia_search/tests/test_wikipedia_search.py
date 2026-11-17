@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
+from yarl import URL
 
 from tool.wikipedia_search import (
     WikipediaSearchTool,
@@ -16,12 +18,49 @@ def tool():
 
 
 def test_input_schema_rejects_invalid_max_results():
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         WikipediaSearchToolInputSchema(queries=["x"], max_results_per_query=0)
     with pytest.raises(ValidationError):
         WikipediaSearchToolInputSchema(queries=["x"], max_results_per_query=21)
+
+
+@pytest.mark.parametrize(
+    "language",
+    [
+        "example.invalid/path",
+        "example.invalid?",
+        "example.invalid#",
+        "en.wikipedia.org",
+        "user@en",
+        "en:443",
+        "en/path",
+        "en%2fpath",
+        "en\\path",
+        "en\n",
+        " en",
+        "",
+        "-en",
+        "en-",
+        "a" * 64,
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_edition_is_rejected_before_opening_session(tool, language):
+    with patch("tool.wikipedia_search.aiohttp.ClientSession", side_effect=AssertionError("network session opened")) as session:
+        with pytest.raises(ValidationError):
+            await tool.run_async(WikipediaSearchToolInputSchema(queries=["article"], language=language))
+        session.assert_not_called()
+
+
+@pytest.mark.parametrize("language", ["en", "EN", "simple", "zh-min-nan", "be-tarask", "test2", "a" * 63])
+def test_edition_codes_stay_within_the_wikipedia_host(language):
+    params = WikipediaSearchToolInputSchema(queries=["article"], language=language)
+    url = URL(WikipediaSearchTool._api_base(params.language) + "/w/api.php")
+    assert url.host == language.lower() + ".wikipedia.org"
+    assert url.path == "/w/api.php"
+    assert url.user is None
+    assert not url.query_string
+    assert not url.fragment
 
 
 @pytest.mark.asyncio
@@ -98,6 +137,32 @@ async def test_run_async_skips_404_summaries(tool):
 
     assert len(out.results) == 1
     assert out.results[0].title == "Real Page"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("summary_failure", [None, RuntimeError("unavailable")])
+@pytest.mark.parametrize("full_text", [True, False])
+async def test_full_text_follows_first_returned_article(tool, summary_failure, full_text):
+    summaries = [
+        summary_failure,
+        {"title": "Available Page", "extract": "Summary"},
+        {"title": "Another Page", "extract": "Another summary"},
+    ]
+    with (
+        patch.object(tool, "_search_titles", AsyncMock(return_value=["Missing Page", "Available Page", "Another Page"])),
+        patch.object(tool, "_fetch_summary", AsyncMock(side_effect=summaries)),
+        patch.object(tool, "_fetch_full_extract", AsyncMock(return_value="Full article")) as extract,
+    ):
+        result = await tool._process_query(MagicMock(), "topic", "en", 3, full_text)
+
+    assert [article.title for article in result] == ["Available Page", "Another Page"]
+    assert result[0].full_text == ("Full article" if full_text else None)
+    assert result[1].full_text is None
+    if full_text:
+        extract.assert_awaited_once()
+        assert extract.await_args.args[1:] == ("Available Page", "en")
+    else:
+        extract.assert_not_awaited()
 
 
 def test_run_invokes_run_async_in_thread(tool):

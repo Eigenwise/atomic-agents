@@ -98,7 +98,7 @@ client = instructor.from_openai(openai.OpenAI())  # Pass your API key here if no
 agent = AtomicAgent[BasicChatInputSchema, BasicChatOutputSchema](
     config=AgentConfig(
         client=client,
-        model="gpt-5-mini",  # Use your provider's model
+        model="gpt-5.6-terra",  # Use your provider's model
         history=history
     )
 )
