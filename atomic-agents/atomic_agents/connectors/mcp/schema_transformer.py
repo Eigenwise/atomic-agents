@@ -1,11 +1,12 @@
 """Module for transforming JSON schemas to Pydantic models."""
 
 import logging
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, validators
-from pydantic import BeforeValidator, Field, TypeAdapter, WithJsonSchema, create_model
+from pydantic import BeforeValidator, Field, TypeAdapter, WithJsonSchema, create_model, model_validator
 from pydantic_core import SchemaError
 from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
@@ -54,6 +55,34 @@ _NUMERIC_CONSTRAINTS = {
 }
 _STRING_CONSTRAINTS = {"minLength": "min_length", "maxLength": "max_length"}
 _ARRAY_CONSTRAINTS = {"minItems": "min_length", "maxItems": "max_length"}
+
+
+def _dependency_rule(schema: Dict[str, Any]) -> Tuple[Dict[str, List[str]], Any]:
+    dependencies = {name: list(required) for name, required in schema.get("dependentRequired", {}).items()}
+
+    def validate(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            for name, required in dependencies.items():
+                if name in value:
+                    missing = [dependency for dependency in required if dependency not in value]
+                    if missing:
+                        raise ValueError(f"Properties {missing!r} are required when {name!r} is present")
+        return value
+
+    return dependencies, validate
+
+
+def _dependency_model_options(schema: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    dependencies, validate = _dependency_rule(schema)
+    if not dependencies:
+        return {}, {}
+
+    def validate_model(cls: Type, value: Any) -> Any:
+        return validate(value)
+
+    config = {"json_schema_extra": {"dependentRequired": dependencies}}
+    validators = {"_validate_dependent_required": model_validator(mode="before")(classmethod(validate_model))}
+    return config, validators
 
 
 def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict[str, Any]) -> Type:
@@ -163,7 +192,8 @@ class SchemaTransformer:
             is_required = prop_name in required_fields
             fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, root_schema, model_cache)
 
-        return create_model(model_name, **fields)
+        config, validators = _dependency_model_options(schema)
+        return create_model(model_name, __config__=config, __validators__=validators, **fields)
 
     @staticmethod
     def json_to_pydantic_field(
@@ -247,6 +277,14 @@ class SchemaTransformer:
 
                 python_type = _constrained_value_type(python_type, json_type, prop_schema)
 
+        dependencies, validate_dependencies = _dependency_rule(prop_schema)
+        if dependencies:
+            python_type = Annotated[
+                python_type,
+                BeforeValidator(validate_dependencies),
+                Field(json_schema_extra={"dependentRequired": dependencies}),
+            ]
+
         field_kwargs = {"description": description}
         if required:
             field_kwargs["default"] = ...
@@ -310,11 +348,13 @@ class SchemaTransformer:
             )
 
         # Create the model
+        config, validators = _dependency_model_options(schema)
         model = create_model(
             model_name,
             __base__=BaseIOSchema,
             __doc__=docstring or f"Dynamically generated Pydantic model for {model_name}",
-            __config__={"title": tool_name_literal},
+            __config__={"title": tool_name_literal, **config},
+            __validators__=validators,
             **fields,
         )
 
