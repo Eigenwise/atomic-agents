@@ -1,6 +1,6 @@
 # Communication & Integrations
 
-*Last Updated: 2026-11-14*
+*Last Updated: 2026-11-17*
 
 The framework exposes no HTTP API of its own; "communication" here means how it talks to LLM
 providers and external tools.
@@ -32,7 +32,11 @@ providers and external tools.
   `fetch_mcp_tools` / `fetch_mcp_resources` / `fetch_mcp_prompts` (sync + async). See the
   `mcp-agent` and `progressive-disclosure` examples.
 - Discovery follows tool, resource, template and prompt cursors. Template continuation errors propagate, and a
-  repeated cursor raises `RuntimeError` instead of looping.
+  repeated cursor raises `RuntimeError` instead of looping. A catalog the server did not advertise in its
+  negotiated capabilities (`tools`, `resources`, `prompts`) returns an empty list without a list request.
+- A server argument named like the routing field (`tool_name`, `resource_name`, `prompt_name`) is exposed as
+  `mcp_tool_name` (and so on) on the generated input model and sent to the server under its own name
+  (`__mcp_argument_names__` on the model, translated back in `_mcp_arguments`, `mcp_factory.py`).
 - HTTP and SSE endpoints go through `_transport_endpoint` (`mcp_definition_service.py`): the transport path
   (`/mcp/` or `/sse`) is appended to the URL path, the query string is kept, and a URL whose path already ends
   in that segment is used as given.
@@ -41,7 +45,9 @@ providers and external tools.
   supported. Boolean schemas are accepted: `true` maps to `Any`, `false` to a field that rejects every value and is
   emitted as `{"not": {}}`.
 - Field constraints are carried onto the generated models: numeric `minimum` / `maximum` / `exclusiveMinimum` /
-  `exclusiveMaximum` / `multipleOf`, string `minLength` / `maxLength` / `pattern`, array `minItems` / `maxItems`.
+  `exclusiveMaximum` / `multipleOf`, string `minLength` / `maxLength` / `pattern`, array `minItems` / `maxItems`,
+  object `minProperties` / `maxProperties` on dict-valued fields. A fixed-length `prefixItems` array becomes a
+  `Tuple` with a type per position.
   Draft-04 boolean exclusive flags are ignored. A pattern Pydantic's regex engine rejects is logged at WARNING and
   skipped; the field keeps its other constraints.
 - Resource URIs are kept exactly as the server sent them (no decoding). Braces in a plain SDK `Resource` URI are
@@ -89,6 +95,8 @@ providers and external tools.
   `atomic-forge/tools/`, and copies the chosen tool into the user's project (skipping build files).
   Source URL and paths are in `atomic-assembler/atomic_assembler/constants.py` and `utils.py`
   (`GithubRepoCloner`, `AtomicToolManager`).
+- The tool explorer screen clones in a Textual thread worker (`_load_catalog`) and receives the result as a
+  `CatalogLoaded` message, so the interface stays responsive during the clone.
 - `GithubRepoCloner(base_url, branch="main")` removes its temp directory when the clone fails. A missing tools
   folder lists as empty. `copy_atomic_tool` refuses an existing destination and, when a copy fails partway, removes
   only the folder it created, so the copy can be retried.
