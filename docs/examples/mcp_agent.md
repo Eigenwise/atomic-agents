@@ -130,6 +130,29 @@ async def setup_tools():
     return tools
 ```
 
+### Parameters that match routing fields
+
+Generated input models use `tool_name`, `resource_name`, or `prompt_name` to select
+the component. A server may also declare an argument with that spelling. In that
+case, its argument appears as `mcp_tool_name`, `mcp_resource_name`, or
+`mcp_prompt_name` in the generated model and its JSON schema. If that name already
+belongs to another server argument, the factory adds `_1`, `_2`, and so on until
+the name is available. All other argument names keep their spelling.
+
+For example, a tool named `route` with a server argument named `tool_name` can be
+called through its generated class as follows:
+
+```python
+params = RouteTool.input_schema(tool_name="route", mcp_tool_name="search")
+result = await RouteTool().arun(params)
+```
+
+The MCP call selects `route` and sends `{"tool_name": "search"}` as its arguments.
+The routing property remains available to orchestrators, and ordinary model
+serialization uses the same field names as the generated input schema. Resource
+URI parameters and prompt arguments follow the same rule. Server output schemas
+keep their original field names because they do not contain routing fields.
+
 ## MCP Transport Methods
 
 The example implements three distinct transport methods via the `MCPTransportType` enum, each with its own advantages:
