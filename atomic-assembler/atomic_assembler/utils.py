@@ -19,7 +19,7 @@ class GithubRepoCloner:
 
     def clone(self):
         try:
-            git.Repo.clone_from(self.repo_url, self.repo_path, branch=self.branch)
+            git.Repo.clone_from(self.repo_url, self.repo_path, branch=self.branch, depth=1, single_branch=True)
             logging.info(f"Repository cloned to {self.repo_path} on branch {self.branch}")
         except git.GitCommandError as e:
             self.cleanup()
