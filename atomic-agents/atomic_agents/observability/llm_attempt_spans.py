@@ -52,7 +52,14 @@ class _PromptCompletionUsage(Protocol):
     completion_tokens_details: _CompletionTokenDetails | None
 
 
-_Usage = _InputOutputUsage | _PromptCompletionUsage
+class _AnthropicUsage(Protocol):
+    input_tokens: int
+    output_tokens: int
+    cache_read_input_tokens: int | None
+    cache_creation_input_tokens: int | None
+
+
+_Usage = _InputOutputUsage | _PromptCompletionUsage | _AnthropicUsage
 
 
 class _Response(Protocol):
@@ -226,6 +233,16 @@ def _usage_attributes(usage: _Usage | None) -> dict[str, int]:
             None,
         ),
     }
+    # Anthropic's input_tokens excludes both cache reads and cache writes.
+    # OpenAI's nested cached_tokens is already included in its input total.
+    separate_cache = {
+        "cache_read.input_tokens": getattr(usage, "cache_read_input_tokens", None),
+        "cache_write.input_tokens": getattr(usage, "cache_creation_input_tokens", None),
+    }
+    separate_cache = {key: value for key, value in separate_cache.items() if isinstance(value, int)}
+    readers.update(separate_cache)
+    if isinstance(readers["input_tokens"], int):
+        readers["input_tokens"] += sum(separate_cache.values())
     return {"gen_ai.usage." + key: value for key, value in readers.items() if isinstance(value, int)}
 
 
