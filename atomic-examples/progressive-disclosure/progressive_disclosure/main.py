@@ -23,8 +23,10 @@ With progressive disclosure: Only 2-5 relevant tools (~1,000 tokens)
 import asyncio
 import os
 import shlex
+from concurrent.futures import Future
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from threading import Thread
 from typing import List, Type, Dict
 
 import instructor
@@ -102,6 +104,9 @@ class MCPServerManager:
         self.exit_stacks: Dict[str, AsyncExitStack] = {}
         self.tools_by_server: Dict[str, List[Type[BaseTool]]] = {}
         self.all_tools: List[Type[BaseTool]] = []
+        self._threads: Dict[str, Thread] = {}
+        self._stop_events: Dict[str, asyncio.Event] = {}
+        self._errors: Dict[str, BaseException] = {}
 
     async def _connect_server(self, config: ServerConfig) -> ClientSession:
         """Connect to a single MCP server."""
@@ -116,44 +121,83 @@ class MCPServerManager:
         await session.initialize()
         return session
 
+    def _run_server(self, config: ServerConfig, loop: asyncio.AbstractEventLoop, ready: Future) -> None:
+        """Keep the transports and their exit stack in one owner task."""
+        asyncio.set_event_loop(loop)
+
+        async def own_session():
+            try:
+                session = await self._connect_server(config)
+                ready.set_result(session)
+                await self._stop_events[config.name].wait()
+            finally:
+                await self.exit_stacks[config.name].aclose()
+
+        try:
+            loop.run_until_complete(own_session())
+        except BaseException as error:
+            self._errors[config.name] = error
+            if not ready.done():
+                ready.set_exception(error)
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(loop.shutdown_default_executor())
+            finally:
+                loop.close()
+
     def connect_all(self, console: Console) -> None:
         """Connect to all configured MCP servers."""
-        for config in self.server_configs:
-            console.print(f"[dim]Connecting to {config.name}...[/dim]")
+        try:
+            for config in self.server_configs:
+                console.print(f"[dim]Connecting to {config.name}...[/dim]")
+                loop = asyncio.new_event_loop()
+                ready = Future()
+                self.loops[config.name] = loop
+                self._stop_events[config.name] = asyncio.Event()
+                thread = Thread(target=self._run_server, args=(config, loop, ready), name=f"mcp-owner-{config.name}")
+                self._threads[config.name] = thread
+                thread.start()
+                session = ready.result()
+                self.sessions[config.name] = session
 
-            # Create event loop for this server
-            loop = asyncio.new_event_loop()
-            self.loops[config.name] = loop
-
-            # Connect
-            session = loop.run_until_complete(self._connect_server(config))
-            self.sessions[config.name] = session
-
-            # Fetch tools
-            tools = fetch_mcp_tools(
-                mcp_endpoint=None,
-                transport_type=MCPTransportType.STDIO,
-                client_session=session,
-                event_loop=loop,
-            )
-
-            self.tools_by_server[config.name] = tools
-            self.all_tools.extend(tools)
-
-            console.print(f"[green]  Connected: {len(tools)} tools[/green]")
+                tools = fetch_mcp_tools(
+                    mcp_endpoint=None,
+                    transport_type=MCPTransportType.STDIO,
+                    client_session=session,
+                    event_loop=loop,
+                )
+                self.tools_by_server[config.name] = tools
+                self.all_tools.extend(tools)
+                console.print(f"[green]  Connected: {len(tools)} tools[/green]")
+        except BaseException:
+            self.close_all(console)
+            raise
 
     def close_all(self, console: Console) -> None:
         """Close all server connections."""
-        for name in list(self.sessions.keys()):
+        for name, thread in list(self._threads.items()):
             console.print(f"[dim]Closing {name}...[/dim]")
             try:
-                loop = self.loops.get(name)
-                exit_stack = self.exit_stacks.get(name)
-                if loop and exit_stack:
-                    loop.run_until_complete(exit_stack.aclose())
-                    loop.close()
+                loop = self.loops[name]
+                if not loop.is_closed():
+                    try:
+                        loop.call_soon_threadsafe(self._stop_events[name].set)
+                    except RuntimeError:
+                        if not loop.is_closed():
+                            raise
+                thread.join()
+                if name in self._errors:
+                    error = self._errors.pop(name)
+                    console.print(f"[red]Error closing {name}: {error}[/red]")
             except Exception as e:
                 console.print(f"[red]Error closing {name}: {e}[/red]")
+        self._threads.clear()
+        self._stop_events.clear()
+        self.sessions.clear()
+        self.exit_stacks.clear()
+        self.tools_by_server.clear()
+        self.all_tools.clear()
 
 
 ########################

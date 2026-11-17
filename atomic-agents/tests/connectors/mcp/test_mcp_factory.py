@@ -1805,7 +1805,7 @@ def test_fetch_mcp_tools_rejects_persistent_session_without_event_loop(
 
 
 def test_run_tool_with_persistent_session_no_event_loop(monkeypatch):
-    """Covers AttributeError when no event loop is provided for persistent session."""
+    """A persistent session with a removed loop reports its missing owner."""
     import atomic_agents.connectors.mcp.mcp_factory as mtf
 
     # Setup persistent client
@@ -1832,14 +1832,14 @@ def test_run_tool_with_persistent_session_no_event_loop(monkeypatch):
         inst._event_loop = None
         with pytest.raises(RuntimeError) as exc:
             inst.run(tool_cls.input_schema(tool_name="ToolCOV"))
-        # The error originates as AttributeError but is wrapped in RuntimeError
-        assert "'NoneType' object has no attribute 'run_until_complete'" in str(exc.value)
+        # No coroutine is created when the persistent session has no event loop
+        assert "persistent MCP session requires an event loop" in str(exc.value)
     finally:
         loop.close()
 
 
 def test_run_resource_with_persistent_session_no_event_loop(monkeypatch):
-    """Covers AttributeError when no event loop is provided for persistent session."""
+    """A persistent session with a removed loop reports its missing owner."""
     import atomic_agents.connectors.mcp.mcp_factory as mtf
 
     # Setup persistent client
@@ -1871,14 +1871,14 @@ def test_run_resource_with_persistent_session_no_event_loop(monkeypatch):
         inst._event_loop = None
         with pytest.raises(RuntimeError) as exc:
             inst.read(res_cls.input_schema(resource_name="ResCOV"))
-        # The error originates as AttributeError but is wrapped in RuntimeError
-        assert "'NoneType' object has no attribute 'run_until_complete'" in str(exc.value)
+        # No coroutine is created when the persistent session has no event loop
+        assert "persistent MCP session requires an event loop" in str(exc.value)
     finally:
         loop.close()
 
 
 def test_run_prompt_with_persistent_session_no_event_loop(monkeypatch):
-    """Covers AttributeError when no event loop is provided for persistent session."""
+    """A persistent session with a removed loop reports its missing owner."""
     import atomic_agents.connectors.mcp.mcp_factory as mtf
 
     # Setup persistent client
@@ -1907,8 +1907,8 @@ def test_run_prompt_with_persistent_session_no_event_loop(monkeypatch):
         inst._event_loop = None
         with pytest.raises(RuntimeError) as exc:
             inst.generate(prompt_cls.input_schema(prompt_name="PromptCOV"))
-        # The error originates as AttributeError but is wrapped in RuntimeError
-        assert "'NoneType' object has no attribute 'run_until_complete'" in str(exc.value)
+        # No coroutine is created when the persistent session has no event loop
+        assert "persistent MCP session requires an event loop" in str(exc.value)
     finally:
         loop.close()
 
