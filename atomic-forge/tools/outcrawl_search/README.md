@@ -30,6 +30,8 @@ Searches the web through the [Outcrawl](https://outcrawl.ai) API and returns eac
 ### Output Schema
 A list of `OutcrawlSearchResultItem` items. Each has `query`, `title`, `url`, and optional `snippet`, `rank`, and `content` (Markdown, only when `scrape_content` is set and the page fetch succeeded).
 
+`failures` lists unsuccessful queries and their error messages when other queries returned results. It is empty when every query succeeded.
+
 ## Usage
 
 ```python
@@ -49,7 +51,9 @@ for item in output.results:
         print(item.content[:200])
 ```
 
-A query that fails is logged and skipped, so the other queries still return results. A page that fails to fetch keeps its search result with `content` left empty.
+A query that fails is logged and recorded in `failures`, so the other queries still return results. If at least one query failed and none returned results, the tool raises `RuntimeError` with the first failure. This keeps authentication, exhausted-credit, rate-limit and transport failures distinguishable from a successful search with no matches. Provider error messages have the configured API key redacted before logging or reporting.
+
+A page that fails to fetch keeps its search result with `content` left empty; optional page-fetch failures do not turn a successful search into a failed query.
 
 ## Contributing
 PRs welcome. See the main repo `CONTRIBUTING.md`.
