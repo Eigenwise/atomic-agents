@@ -2,6 +2,7 @@
 
 import json
 import threading
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -19,7 +20,7 @@ def service():
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             query = payload.get("query")
             if self.path == "/v1/scrape":
-                status, body = 503, {"error": "page unavailable"}
+                status, body = 503, {"error": "page unavailable: test-outcrawl-credential"}
             elif query.startswith("error-"):
                 status, body = int(query.removeprefix("error-")), {"error": "provider request rejected"}
             elif query == "secret-error":
@@ -118,3 +119,21 @@ async def test_provider_echoed_key_is_not_exposed(service, caplog, partial):
     assert "test-outcrawl-credential" not in detail
     assert "test-outcrawl-credential" not in caplog.text
     assert "[redacted]" in detail
+
+
+@pytest.mark.asyncio
+async def test_failed_query_traceback_locals_do_not_retain_credentials(service):
+    with pytest.raises(RuntimeError) as error:
+        await make_tool(service).run_async(OutcrawlSearchToolInputSchema(queries=["secret-error"]))
+
+    captured = "".join(traceback.TracebackException.from_exception(error.value, capture_locals=True).format())
+    assert "test-outcrawl-credential" not in captured
+
+
+@pytest.mark.asyncio
+async def test_optional_scrape_failure_logs_redact_provider_echoed_credentials(service, caplog):
+    output = await make_tool(service).run_async(OutcrawlSearchToolInputSchema(queries=["good"], scrape_content=True))
+    assert len(output.results) == 1
+    assert output.results[0].content is None
+    assert "[redacted]" in caplog.text
+    assert "test-outcrawl-credential" not in caplog.text
