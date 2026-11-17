@@ -692,6 +692,17 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
 
         return result
 
+    def _discard_turn(self, turn_id: Optional[str]) -> None:
+        """
+        Removes the turn a failed run started, so the history never keeps a user message
+        without its response and a retry does not send the same request twice.
+
+        Args:
+            turn_id (Optional[str]): The turn the failed run added, or None if it added none.
+        """
+        if turn_id is not None and self.history.get_current_turn_id() == turn_id:
+            self.history.delete_turn_id(turn_id)
+
     def run(self, user_input: Optional[InputSchema] = None) -> OutputSchema:
         """
         Runs the chat agent with the given user input synchronously.
@@ -706,19 +717,25 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.client, instructor.AsyncInstructor
         ), "The run method is not supported for async clients. Use run_async instead."
 
+        added_turn_id = None
         if user_input:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
+            added_turn_id = self.history.get_current_turn_id()
 
         self._trim_context()
-        self._prepare_messages()
-        response = self.client.chat.completions.create(
-            messages=self.messages,
-            model=self.model,
-            response_model=self.output_schema,
-            **self._get_completion_kwargs(),
-        )
+        try:
+            self._prepare_messages()
+            response = self.client.chat.completions.create(
+                messages=self.messages,
+                model=self.model,
+                response_model=self.output_schema,
+                **self._get_completion_kwargs(),
+            )
+        except Exception:
+            self._discard_turn(added_turn_id)
+            raise
         self.history.add_message(self.assistant_role, response)
         self._prepare_messages()
 
@@ -741,32 +758,42 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             self.client, instructor.AsyncInstructor
         ), "The run_stream method is not supported for async clients. Use run_async instead."
 
+        added_turn_id = None
         if user_input:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
+            added_turn_id = self.history.get_current_turn_id()
 
         self._trim_context()
-        self._prepare_messages()
+        try:
+            self._prepare_messages()
 
-        response_stream = self.client.chat.completions.create_partial(
-            model=self.model,
-            messages=self.messages,
-            response_model=self.output_schema,
-            **self._get_completion_kwargs(),
-            stream=True,
-        )
+            response_stream = self.client.chat.completions.create_partial(
+                model=self.model,
+                messages=self.messages,
+                response_model=self.output_schema,
+                **self._get_completion_kwargs(),
+                stream=True,
+            )
 
-        last_response = None
-        for partial_response in response_stream:
-            last_response = partial_response
-            yield partial_response
+            last_response = None
+            for partial_response in response_stream:
+                last_response = partial_response
+                yield partial_response
+
+            if last_response:
+                # Keep non-idempotent values such as Json[T] valid for revalidation,
+                # and omit computed fields that are outputs rather than inputs.
+                # Dumped keys are field names, including for aliased schemas.
+                full_response_content = self.output_schema.model_validate(
+                    last_response.model_dump(round_trip=True), by_name=True
+                )
+        except Exception:
+            self._discard_turn(added_turn_id)
+            raise
 
         if last_response:
-            # Keep non-idempotent values such as Json[T] valid for revalidation,
-            # and omit computed fields that are outputs rather than inputs.
-            # Dumped keys are field names, including for aliased schemas.
-            full_response_content = self.output_schema.model_validate(last_response.model_dump(round_trip=True), by_name=True)
             self.history.add_message(self.assistant_role, full_response_content)
             self._prepare_messages()
             return full_response_content
@@ -787,17 +814,23 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         """
         assert isinstance(self.client, instructor.AsyncInstructor), "The run_async method is for async clients."
 
+        added_turn_id = None
         if user_input:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
+            added_turn_id = self.history.get_current_turn_id()
 
         self._trim_context()
-        self._prepare_messages()
+        try:
+            self._prepare_messages()
 
-        response = await self.client.chat.completions.create(
-            model=self.model, messages=self.messages, response_model=self.output_schema, **self._get_completion_kwargs()
-        )
+            response = await self.client.chat.completions.create(
+                model=self.model, messages=self.messages, response_model=self.output_schema, **self._get_completion_kwargs()
+            )
+        except Exception:
+            self._discard_turn(added_turn_id)
+            raise
 
         self.history.add_message(self.assistant_role, response)
         self._prepare_messages()
@@ -814,30 +847,40 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
             OutputSchema: Partial responses from the chat agent.
         """
         assert isinstance(self.client, instructor.AsyncInstructor), "The run_async method is for async clients."
+        added_turn_id = None
         if user_input:
             self.history.initialize_turn()
             self.current_user_input = user_input
             self.history.add_message("user", user_input)
+            added_turn_id = self.history.get_current_turn_id()
 
         self._trim_context()
-        self._prepare_messages()
+        try:
+            self._prepare_messages()
 
-        response_stream = self.client.chat.completions.create_partial(
-            model=self.model,
-            messages=self.messages,
-            response_model=self.output_schema,
-            **self._get_completion_kwargs(),
-            stream=True,
-        )
+            response_stream = self.client.chat.completions.create_partial(
+                model=self.model,
+                messages=self.messages,
+                response_model=self.output_schema,
+                **self._get_completion_kwargs(),
+                stream=True,
+            )
 
-        last_response = None
-        async for partial_response in response_stream:
-            last_response = partial_response
-            yield partial_response
+            last_response = None
+            async for partial_response in response_stream:
+                last_response = partial_response
+                yield partial_response
+
+            if last_response:
+                # See run_stream(): preserve validation input types and field names.
+                full_response_content = self.output_schema.model_validate(
+                    last_response.model_dump(round_trip=True), by_name=True
+                )
+        except Exception:
+            self._discard_turn(added_turn_id)
+            raise
 
         if last_response:
-            # See run_stream(): preserve validation input types and field names.
-            full_response_content = self.output_schema.model_validate(last_response.model_dump(round_trip=True), by_name=True)
             self.history.add_message(self.assistant_role, full_response_content)
             self._prepare_messages()
 
