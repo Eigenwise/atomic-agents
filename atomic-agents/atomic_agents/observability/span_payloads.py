@@ -112,7 +112,10 @@ def _failure_count(error: BaseException) -> str | None:
 
 def _failure_message(error: BaseException, config: TracingConfig) -> str:
     if not config.hide_outputs:
-        return str(error)
+        try:
+            return str(error)
+        except Exception:
+            return f"{type(error).__qualname__}: <unprintable exception>"
     count = next((count for cause in _exception_chain(error) if (count := _failure_count(cause)) is not None), "1 errors")
     return f"{type(error).__qualname__}: {count} (__REDACTED__)"
 
@@ -135,7 +138,15 @@ def _redacted_traceback(error: BaseException, config: TracingConfig) -> list[str
 def _record_failure(span: Span, error: BaseException, config: TracingConfig) -> None:
     message = _bounded_text(_failure_message(error, config), config)
     span.set_attribute(ATTR_ERROR_TYPE, type(error).__qualname__)
-    span.record_exception(
-        error, attributes={"exception.message": message, "exception.stacktrace": _failure_stacktrace(error, config)}
-    )
+    attributes = {"exception.message": message, "exception.stacktrace": _failure_stacktrace(error, config)}
+    try:
+        span.record_exception(error, attributes=attributes)
+    except Exception:
+        # The SDK formats the exception before applying attribute overrides. A
+        # broken __str__ must not replace the original tool or agent failure,
+        # including when the exported message is redacted.
+        module = type(error).__module__
+        qualname = type(error).__qualname__
+        exception_type = f"{module}.{qualname}" if module and module != "builtins" else qualname
+        span.add_event("exception", {"exception.type": exception_type, "exception.escaped": "False", **attributes})
     span.set_status(Status(StatusCode.ERROR, message))
