@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "tool": "codebase-mapper",
   "version": "2.15.10",
-  "mappedAt": "2026-11-14",
-  "gitCommit": "7f7a4de481f391c05b36eec83865115c12280ab1",
+  "mappedAt": "2026-11-17",
+  "gitCommit": "ed3e432d1d41f5e65274fd4f1bfef7b73c39b08b",
   "documents": [
     "architecture.md",
     "coding-style.md",
@@ -24,7 +24,7 @@
     "dependencies.md": "742fe6f6b3e38094239008639c47b87b43d84a1bb3d31d49abfe478d808e1723",
     "directory-structure.md": "c8d654506843622fd394e0a998fddba769e4ec534449ccd6755d312192184bfd",
     "entry-points.md": "4a93321183b72d7b650690a9a90392c836417917c76d4c880717dd2489e0b99b",
-    "modules.md": "c45661e71b42515d0a89f5b8e8f84668423acc8c5c87f2cae35c986b74302006",
+    "modules.md": "043751edde733f2f6a6c6bd6a31b3f61b119d3559bc1627065d33fe87cc83220",
     "onboarding.md": "3d28c671dc095a2aadb297bd7ab200c677779a99c7534e03e55a3d64c935f07e",
     "patterns.md": "bd2ea1b37b5bddf1eed1e85cdb6916ac12abf18632c9f67400dc3d588d4420fe",
     "tech-landscape.md": "8a4459f7309dd13fa9e2425507fec35d21b8b3f691bc6a39b6626fffb8d1744d"
