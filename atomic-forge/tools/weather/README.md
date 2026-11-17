@@ -17,6 +17,7 @@ Looks up current conditions and a daily/hourly forecast for any location using t
 
 ### Input Schema
 - `location` (str): city name, `'City, Region'`, or `'lat,lon'`.
+- `country_code` (str, optional): two-letter ISO 3166-1 country code for city lookup, such as `GB` or `US`. Case-insensitive; omitted by default. Coordinates bypass geocoding, so the filter does not apply to `lat,lon`.
 - `units` (str): `metric` (Celsius / km/h / mm) or `imperial` (Fahrenheit / mph / inches). Default `metric`.
 - `forecast_days` (int): 1–16, default 3.
 - `include_hourly` (bool): include hourly forecast data, default `False`.
@@ -45,6 +46,14 @@ else:
     for day in out.daily:
         print(day.date, day.temperature_min, "→", day.temperature_max, day.weather_description)
 ```
+
+For an ambiguous city name, use an explicit country filter:
+
+```python
+out = tool.run(WeatherToolInputSchema(location="London", country_code="GB"))
+```
+
+The filter uses Open-Meteo's [`countryCode` parameter](https://open-meteo.com/en/docs/geocoding-api). If no city matches in that country, the tool returns a lookup error without fetching a forecast for another country.
 
 ## Notes
 - Weather codes are translated to human-readable descriptions via the WMO interpretation table (Open-Meteo).
