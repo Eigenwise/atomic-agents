@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Type, Optional, Union, Tuple, cast, Protocol, Callable
+from typing import Any, Dict, List, Type, Optional, Union, Tuple, Protocol, Callable, Coroutine, TypeVar
 from contextlib import AsyncExitStack
 import shlex
 import types
@@ -28,6 +28,43 @@ from atomic_agents.connectors.mcp.mcp_definition_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+_Result = TypeVar("_Result")
+
+
+class _MCPSessionLoopError(RuntimeError):
+    """The borrowed session's loop cannot execute a synchronous operation."""
+
+
+def _run_on_event_loop(
+    loop: Optional[asyncio.AbstractEventLoop], operation: Callable[[], Coroutine[Any, Any, _Result]]
+) -> _Result:
+    """Run a synchronous MCP operation on the session's owning loop."""
+    if loop is None:
+        raise _MCPSessionLoopError("A persistent MCP session requires an event loop")
+    if loop.is_closed():
+        raise _MCPSessionLoopError("The persistent MCP session's event loop is closed")
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+    if current_loop is loop:
+        raise _MCPSessionLoopError("Use the asynchronous MCP API from the session's running event loop")
+    if loop.is_running():
+        coroutine = operation()
+        try:
+            pending = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        except BaseException:
+            coroutine.close()
+            raise
+        try:
+            return pending.result()
+        except BaseException:
+            pending.cancel()
+            raise
+    if current_loop is not None:
+        raise _MCPSessionLoopError("Use the asynchronous MCP API when another event loop is already running")
+    return loop.run_until_complete(operation())
 
 
 class MCPToolOutputSchema(BaseIOSchema):
@@ -252,7 +289,8 @@ class MCPFactory:
                 or the full command to run the server (for STDIO). Query parameters are preserved.
             transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO)
             client_session: Optional pre-initialized ClientSession for reuse
-            event_loop: Optional event loop for running asynchronous operations
+            event_loop: Session's event loop. It may run continuously on another thread;
+                callers on that loop must use the asynchronous APIs.
             working_directory: Optional working directory to use when running STDIO commands
         """
         self.mcp_endpoint = mcp_endpoint
@@ -293,7 +331,7 @@ class MCPFactory:
             async def _gather_defs():
                 return await MCPDefinitionService.fetch_tool_definitions_from_session(self.client_session)  # pragma: no cover
 
-            return cast(asyncio.AbstractEventLoop, self.event_loop).run_until_complete(_gather_defs())  # pragma: no cover
+            return _run_on_event_loop(self.event_loop, _gather_defs)
         else:
             # Create new connection
             service = MCPDefinitionService(
@@ -439,8 +477,8 @@ class MCPFactory:
                     if persistent_session is not None:
                         # Use the always‑on session/loop supplied at construction time.
                         try:
-                            return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.arun(params))
-                        except AttributeError as e:
+                            return _run_on_event_loop(loop, lambda: self.arun(params))
+                        except (AttributeError, _MCPSessionLoopError) as e:
                             raise RuntimeError(f"Failed to execute MCP tool '{self.mcp_tool_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
@@ -583,7 +621,7 @@ class MCPFactory:
                     self.client_session
                 )  # pragma: no cover
 
-            return cast(asyncio.AbstractEventLoop, self.event_loop).run_until_complete(_gather_defs())  # pragma: no cover
+            return _run_on_event_loop(self.event_loop, _gather_defs)
         else:
             # Create new connection
             service = MCPDefinitionService(
@@ -742,8 +780,8 @@ class MCPFactory:
                     if persistent_session is not None:
                         # Use the always‑on session/loop supplied at construction time.
                         try:
-                            return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.aread(params))
-                        except AttributeError as e:
+                            return _run_on_event_loop(loop, lambda: self.aread(params))
+                        except (AttributeError, _MCPSessionLoopError) as e:
                             raise RuntimeError(f"Failed to read MCP resource '{self.mcp_resource_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
@@ -808,7 +846,7 @@ class MCPFactory:
                     self.client_session
                 )  # pragma: no cover
 
-            return cast(asyncio.AbstractEventLoop, self.event_loop).run_until_complete(_gather_defs())  # pragma: no cover
+            return _run_on_event_loop(self.event_loop, _gather_defs)
         else:
             # Create new connection
             service = MCPDefinitionService(
@@ -961,8 +999,8 @@ class MCPFactory:
                     if persistent_session is not None:
                         # Use the always‑on session/loop supplied at construction time.
                         try:
-                            return cast(asyncio.AbstractEventLoop, loop).run_until_complete(self.agenerate(params))
-                        except AttributeError as e:
+                            return _run_on_event_loop(loop, lambda: self.agenerate(params))
+                        except (AttributeError, _MCPSessionLoopError) as e:
                             raise RuntimeError(f"Failed to get MCP prompt '{self.mcp_prompt_name}': {e}") from e
                     else:
                         # Legacy behaviour – run in new event loop.
