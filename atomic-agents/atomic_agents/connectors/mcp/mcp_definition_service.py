@@ -4,6 +4,7 @@ import logging
 import re
 import shlex
 from contextlib import AsyncExitStack
+from datetime import timedelta
 from typing import List, NamedTuple, Optional, Dict, Any, Callable, Awaitable, TypeVar, Union
 from enum import Enum
 
@@ -59,6 +60,21 @@ def _transport_endpoint(endpoint: Optional[str], suffix: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
 
+def _session_timeout_options(request_timeout: Optional[float]) -> Dict[str, timedelta]:
+    if request_timeout is None:
+        return {}
+    message = "request_timeout must be finite positive seconds (at least one microsecond)."
+    if isinstance(request_timeout, bool) or not isinstance(request_timeout, (int, float)):
+        raise ValueError(message)
+    try:
+        timeout = timedelta(seconds=request_timeout)
+    except (OverflowError, ValueError) as error:
+        raise ValueError(message) from error
+    if timeout <= timedelta(0):
+        raise ValueError(message)
+    return {"read_timeout_seconds": timeout}
+
+
 class MCPTransportType(Enum):
     """Enum for MCP transport types."""
 
@@ -111,6 +127,7 @@ class MCPDefinitionService:
         endpoint: Optional[str] = None,
         transport_type: MCPTransportType = MCPTransportType.HTTP_STREAM,
         working_directory: Optional[str] = None,
+        request_timeout: Optional[float] = None,
     ):
         """
         Initialize the service.
@@ -120,10 +137,12 @@ class MCPDefinitionService:
                 or command string (for STDIO). Query parameters are preserved.
             transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO)
             working_directory: Optional working directory to use when running STDIO commands
+            request_timeout: Optional positive per-request response timeout in seconds for owned sessions.
         """
         self.endpoint = endpoint
         self.transport_type = transport_type
         self.working_directory = working_directory
+        self._session_options = _session_timeout_options(request_timeout)
 
     async def fetch_tool_definitions(self) -> List[MCPToolDefinition]:
         """
@@ -171,7 +190,7 @@ class MCPDefinitionService:
                 available_types = [t.value for t in MCPTransportType]
                 raise ValueError(f"Unknown transport type: {self.transport_type}. Available types: {available_types}")
 
-            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+            session = await stack.enter_async_context(ClientSession(read_stream, write_stream, **self._session_options))
             definitions = await self.fetch_tool_definitions_from_session(session)
 
         except ConnectionError as e:
@@ -262,7 +281,7 @@ class MCPDefinitionService:
                 available_types = [t.value for t in MCPTransportType]
                 raise ValueError(f"Unknown transport type: {self.transport_type}. Available types: {available_types}")
 
-            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+            session = await stack.enter_async_context(ClientSession(read_stream, write_stream, **self._session_options))
             resources = await self.fetch_resource_definitions_from_session(session)
 
         except ConnectionError as e:
@@ -391,7 +410,7 @@ class MCPDefinitionService:
                 available_types = [t.value for t in MCPTransportType]
                 raise ValueError(f"Unknown transport type: {self.transport_type}. Available types: {available_types}")
 
-            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+            session = await stack.enter_async_context(ClientSession(read_stream, write_stream, **self._session_options))
             prompts = await self.fetch_prompt_definitions_from_session(session)
 
         except ConnectionError as e:
