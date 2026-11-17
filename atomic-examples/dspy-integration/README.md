@@ -486,6 +486,11 @@ class DSPyAtomicModule(dspy.Module):
 
 ## The Bridge: DSPyAtomicModule
 
+`run_validated()` reads DSPy prediction data fields directly. Output names such as
+`items`, `keys` and `completions` remain valid even when DSPy exposes methods or
+properties with those names. Missing prediction data uses the Pydantic schema's
+defaults and validation rules.
+
 ### Core Functions
 
 #### `create_dspy_signature_from_schemas`

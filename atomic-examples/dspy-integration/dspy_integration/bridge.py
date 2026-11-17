@@ -229,10 +229,8 @@ class DSPyAtomicModule(dspy.Module):
         prediction = self(**kwargs)
 
         # Extract output fields from prediction
-        output_dict = {}
-        for field_name in self.output_schema.model_fields.keys():
-            if hasattr(prediction, field_name):
-                output_dict[field_name] = getattr(prediction, field_name)
+        prediction_fields = dict(prediction.items())
+        output_dict = {name: prediction_fields[name] for name in self.output_schema.model_fields if name in prediction_fields}
 
         # Validate and return as Pydantic model
         return self.output_schema(**output_dict)
@@ -291,11 +289,7 @@ class DSPyAtomicPipeline(dspy.Module):
             results[name] = prediction
 
             # Prepare input for next step (using all prediction fields)
-            current_input = {
-                k: getattr(prediction, k)
-                for k in dir(prediction)
-                if not k.startswith("_") and not callable(getattr(prediction, k))
-            }
+            current_input = dict(prediction.items())
 
         return results
 
