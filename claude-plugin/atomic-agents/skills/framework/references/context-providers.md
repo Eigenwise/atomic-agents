@@ -52,7 +52,7 @@ ctx.name = "Alice"; ctx.role = "admin"
 agent.run(...)
 
 # Inspect / unregister
-"user" in agent.context_providers
+"user" in agent.system_prompt_generator.context_providers
 agent.unregister_context_provider("user")
 ```
 

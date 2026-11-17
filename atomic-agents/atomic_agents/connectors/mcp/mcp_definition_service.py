@@ -203,7 +203,9 @@ class MCPDefinitionService:
         try:
             # `initialize` is idempotent – calling it twice is safe and
             # ensures the session is ready.
-            await session.initialize()
+            initialization = await session.initialize()
+            if initialization.capabilities.tools is None:
+                return []
             mcp_tools = await _fetch_all_pages(
                 await session.list_tools(), lambda cursor: session.list_tools(cursor=cursor), lambda response: response.tools
             )
@@ -290,7 +292,9 @@ class MCPDefinitionService:
         resources: List[MCPResourceDefinition] = []
 
         try:
-            await session.initialize()
+            initialization = await session.initialize()
+            if initialization.capabilities.resources is None:
+                return []
             resources_iterable: List[Union[types.Resource, types.ResourceTemplate]] = list(
                 await _fetch_all_pages(
                     await session.list_resources(),
@@ -418,7 +422,9 @@ class MCPDefinitionService:
         """
         prompts: List[MCPPromptDefinition] = []
         try:
-            await session.initialize()
+            initialization = await session.initialize()
+            if initialization.capabilities.prompts is None:
+                return []
             mcp_prompts = await _fetch_all_pages(
                 await session.list_prompts(),
                 lambda cursor: session.list_prompts(cursor=cursor),

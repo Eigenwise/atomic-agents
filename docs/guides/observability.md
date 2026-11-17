@@ -244,10 +244,16 @@ Attributes, GenAI keys first. All of them are written whether or not the OpenInf
 | `gen_ai.usage.input_tokens` | AGENT, LLM | Input tokens (AGENT: total across attempts) |
 | `gen_ai.usage.output_tokens` | AGENT, LLM | Output tokens |
 | `gen_ai.usage.cache_read.input_tokens` | AGENT, LLM | Cached input tokens, when the provider reports them |
+| `gen_ai.usage.cache_write.input_tokens` | AGENT, LLM | Input tokens used to create a cache entry, when reported separately |
 | `gen_ai.usage.reasoning.output_tokens` | AGENT, LLM | Reasoning tokens, when the provider reports them |
 | `gen_ai.input.messages`, `gen_ai.output.messages` | LLM | Opt-in canonical message JSON, omitted when hidden or over the size cap (then `<key>.original_length` carries the size) |
 | `gen_ai.conversation.id` | all | Set by `using_conversation` |
 | `error.type` | failed spans | Exception class name |
+
+Input totals include cached tokens. Anthropic reports cache reads and writes separately from its uncached
+`input_tokens`, so tracing adds both to the input total and also records each cache category. OpenAI's input
+total already includes its nested `cached_tokens`, so that value is not added again. Each attempt records its
+own counts, and the AGENT span accumulates those counts across retries.
 
 Atomic Agents' own keys:
 
@@ -292,8 +298,8 @@ run) and removes them again in `uninstrument()`:
 - `completion:error` records the exception, sets `error.type` and ends the span with status `ERROR`.
 - `parse:error` adds a `validation_error` event (with `atomic_agents.llm.attempt`) to the AGENT span and sets
   `atomic_agents.llm.last_validation_error`. Instructor then retries, which opens the next attempt span.
-- `completion:usage` writes the running totals to the AGENT span: the four `gen_ai.usage.*` keys and
-  `atomic_agents.llm.attempts`.
+- Usage from each `completion:response` is accumulated, then written to the AGENT span with
+  `atomic_agents.llm.attempts` when the run finishes.
 
 An attempt is one call to the model. A retry is any attempt after the first, normally because the response failed
 validation, so two attempt spans under one agent span means one retry. Hooks you registered on the same client yourself
@@ -311,6 +317,16 @@ AtomicAgentsInstrumentor().instrument(tracer_provider=tracer_provider, config=Tr
 
 With `llm_spans=False` the usage totals and attempt count still land on the AGENT span, and the `validation_error` event
 still fires.
+
+Completed Gemini `GenerateContent` responses report their `model_version` and
+`usage_metadata` on the attempt span and contribute to the agent's totals across
+retries. Input usage includes prompt and tool-use prompt tokens; cached tokens
+are a subset of the prompt and are not added twice. Output usage includes
+candidate and thought tokens, with thought tokens also exposed as
+`gen_ai.usage.reasoning.output_tokens`. Missing counts are omitted. These mappings
+follow the [GenerateContent usage fields](https://ai.google.dev/api/generate-content#UsageMetadata).
+They do not infer token counts from response text or add streaming usage where
+the SDK/Instructor response hook does not report it.
 
 ## Naming and conversations
 
@@ -405,9 +421,11 @@ Hiding wins over truncation, and a hidden payload is never serialized in the fir
 
 Covered by hiding and truncation: `atomic_agents.input`, `atomic_agents.output`, `input.value`, `output.value`,
 `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result` and `atomic_agents.llm.last_validation_error`. `tool.parameters`
-is truncated but never hidden. Status descriptions and recorded exception messages are truncated too, and under
-`hide_outputs` a Pydantic validation error message is replaced by `__REDACTED__` plus the error count, because the raw
-model output is quoted inside it.
+is truncated but never hidden. Status descriptions and recorded exception messages are truncated too. If either
+`hide_inputs` or `hide_outputs` is enabled, failure messages and exception stack traces use redacted text while
+retaining the exception type and available error or attempt counts. Exceptions can repeat private tool arguments
+as well as model output, so they follow both visibility settings. Successful output payloads remain governed by
+`hide_outputs`.
 
 Instructor's own logging is separate from Atomic Agents' tracing: in the installed Instructor 1.17.0 source,
 `instructor.v2.retry` (re-exported through `instructor.core.retry`) logs per-attempt validation failures at DEBUG

@@ -68,7 +68,7 @@ def model_from_chunks_patched(cls, json_chunks, **kwargs):
     potential_object = ""
     partial_model = cls.get_partial_model()
     for chunk in json_chunks:
-        potential_object += chunk
+        potential_object = (potential_object + chunk).lstrip(" \t\r\n")
         obj = from_json((potential_object or "{}").encode(), partial_mode="trailing-strings")
         obj = partial_model.model_validate(obj, **kwargs)
         yield obj
@@ -79,7 +79,7 @@ async def model_from_chunks_async_patched(cls, json_chunks, **kwargs):
     potential_object = ""
     partial_model = cls.get_partial_model()
     async for chunk in json_chunks:
-        potential_object += chunk
+        potential_object = (potential_object + chunk).lstrip(" \t\r\n")
         obj = from_json((potential_object or "{}").encode(), partial_mode="trailing-strings")
         obj = partial_model.model_validate(obj, **kwargs)
         yield obj
@@ -154,8 +154,9 @@ class AgentConfig(BaseModel):
     model_api_parameters: Optional[dict] = Field(default=None, description="Additional parameters passed to the API provider.")
     max_context_tokens: Optional[int] = Field(
         default=None,
+        gt=0,
         description=(
-            "Maximum tokens for the full context (system prompt + history + tools). "
+            "Positive maximum tokens for the full context (system prompt + history + tools), or None to disable trimming. "
             "When exceeded, oldest conversation turns are automatically trimmed to stay within limit. "
             "Uses LiteLLM's provider-agnostic token counter — works with any supported model."
         ),
@@ -782,9 +783,12 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
                 yield partial_response
 
             if last_response:
-                # model_dump() keys the data by field name, so accept field names
-                # for output schemas whose fields have an alias.
-                full_response_content = self.output_schema.model_validate(last_response.model_dump(), by_name=True)
+                # Keep non-idempotent values such as Json[T] valid for revalidation,
+                # and omit computed fields that are outputs rather than inputs.
+                # Dumped keys are field names, including for aliased schemas.
+                full_response_content = self.output_schema.model_validate(
+                    last_response.model_dump(round_trip=True), by_name=True
+                )
         except Exception:
             self._discard_turn(added_turn_id)
             raise
@@ -868,8 +872,10 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
                 yield partial_response
 
             if last_response:
-                # See run_stream(): accept field names for aliased output schemas.
-                full_response_content = self.output_schema.model_validate(last_response.model_dump(), by_name=True)
+                # See run_stream(): preserve validation input types and field names.
+                full_response_content = self.output_schema.model_validate(
+                    last_response.model_dump(round_trip=True), by_name=True
+                )
         except Exception:
             self._discard_turn(added_turn_id)
             raise
