@@ -60,9 +60,14 @@ To use this tool, you'll need a YouTube API key. Follow these steps to obtain on
 
 ### Output Schema
 - `transcript` (str): Transcript of the YouTube video.
-- `duration` (float): Duration of the YouTube video.
+- `duration` (float): Video duration in seconds from YouTube's `contentDetails.duration`.
 - `comments` (List[str]): Comments on the YouTube video.
 - `metadata` (dict): Metadata of the YouTube video.
+
+The tool fetches duration together with video metadata in one API request. It
+uses the video length rather than adding caption durations, which can overlap
+or omit silent sections. Missing or invalid video duration raises `ValueError` in `run()`.
+Live and upcoming broadcasts report `contentDetails.duration` as `P0D`, so their output `duration` is `0.0`. The metadata-only `fetch_video_metadata()` method does not parse or validate duration.
 
 ## Usage
 

@@ -117,8 +117,9 @@ export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=<api key>"
 **Datadog** (untested): send OTLP to a Datadog Agent with OTLP ingestion enabled (HTTP on 4318 by default) and set
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`. Datadog LLM Observability maps `invoke_agent` spans to agents,
 `execute_tool` to tools and `chat` to LLM calls, and reads the `gen_ai.usage.*` tokens and `gen_ai.conversation.id`.
-It reads prompt and response text only from `gen_ai.input.messages` and `gen_ai.output.messages`, which Atomic Agents
-does not emit, so you see spans, tokens and sessions but not the agent text. PostHog behaves the same way.
+It reads prompt and response text from `gen_ai.input.messages` and `gen_ai.output.messages`. The opt-in capture
+below adds those attributes for supported chat shapes. Releases up to 2.15.0 do not emit them. Backend rendering remains
+untested, including PostHog.
 
 **Arize Phoenix**: see "Setup with Phoenix" below.
 
@@ -243,9 +244,16 @@ Attributes, GenAI keys first. All of them are written whether or not the OpenInf
 | `gen_ai.usage.input_tokens` | AGENT, LLM | Input tokens (AGENT: total across attempts) |
 | `gen_ai.usage.output_tokens` | AGENT, LLM | Output tokens |
 | `gen_ai.usage.cache_read.input_tokens` | AGENT, LLM | Cached input tokens, when the provider reports them |
+| `gen_ai.usage.cache_write.input_tokens` | AGENT, LLM | Input tokens used to create a cache entry, when reported separately |
 | `gen_ai.usage.reasoning.output_tokens` | AGENT, LLM | Reasoning tokens, when the provider reports them |
+| `gen_ai.input.messages`, `gen_ai.output.messages` | LLM | Opt-in canonical message JSON, omitted when hidden or over the size cap (then `<key>.original_length` carries the size) |
 | `gen_ai.conversation.id` | all | Set by `using_conversation` |
 | `error.type` | failed spans | Exception class name |
+
+Input totals include cached tokens. Anthropic reports cache reads and writes separately from its uncached
+`input_tokens`, so tracing adds both to the input total and also records each cache category. OpenAI's input
+total already includes its nested `cached_tokens`, so that value is not added again. Each attempt records its
+own counts, and the AGENT span accumulates those counts across retries.
 
 Atomic Agents' own keys:
 
@@ -290,8 +298,8 @@ run) and removes them again in `uninstrument()`:
 - `completion:error` records the exception, sets `error.type` and ends the span with status `ERROR`.
 - `parse:error` adds a `validation_error` event (with `atomic_agents.llm.attempt`) to the AGENT span and sets
   `atomic_agents.llm.last_validation_error`. Instructor then retries, which opens the next attempt span.
-- `completion:usage` writes the running totals to the AGENT span: the four `gen_ai.usage.*` keys and
-  `atomic_agents.llm.attempts`.
+- Usage from each `completion:response` is accumulated, then written to the AGENT span with
+  `atomic_agents.llm.attempts` when the run finishes.
 
 An attempt is one call to the model. A retry is any attempt after the first, normally because the response failed
 validation, so two attempt spans under one agent span means one retry. Hooks you registered on the same client yourself
@@ -310,13 +318,23 @@ AtomicAgentsInstrumentor().instrument(tracer_provider=tracer_provider, config=Tr
 With `llm_spans=False` the usage totals and attempt count still land on the AGENT span, and the `validation_error` event
 still fires.
 
+Completed Gemini `GenerateContent` responses report their `model_version` and
+`usage_metadata` on the attempt span and contribute to the agent's totals across
+retries. Input usage includes prompt and tool-use prompt tokens; cached tokens
+are a subset of the prompt and are not added twice. Output usage includes
+candidate and thought tokens, with thought tokens also exposed as
+`gen_ai.usage.reasoning.output_tokens`. Missing counts are omitted. These mappings
+follow the [GenerateContent usage fields](https://ai.google.dev/api/generate-content#UsageMetadata).
+They do not infer token counts from response text or add streaming usage where
+the SDK/Instructor response hook does not report it.
+
 ## Naming and conversations
 
 Give each agent a stable name, so spans group the same way across deployments and class renames:
 
 ```python
 agent = AtomicAgent[InputSchema, OutputSchema](
-    config=AgentConfig(client=client, model="gpt-5-mini", name="orchestrator_planning")
+    config=AgentConfig(client=client, model="gpt-5.6-terra", name="orchestrator_planning")
 )
 ```
 
@@ -355,6 +373,39 @@ TracingConfig(hide_inputs=True, hide_outputs=True, max_attribute_length=2048)
 | `max_attribute_length` | `4096` | Longer values are cut to this many characters and end in `...[truncated]` |
 | `openinference_attributes` | auto | See "What you get" |
 | `llm_spans` | `True` | See "LLM attempt spans" |
+| `capture_messages` | `False` | Add supported request/response messages to chat attempt spans |
+
+### Opt-in chat messages
+
+Use `TracingConfig(capture_messages=True)` or set `ATOMIC_AGENTS_TRACE_CAPTURE_MESSAGES=true` (also accepts `1`,
+case-insensitive). An explicit `TracingConfig` keeps precedence over environment settings. This setting was added
+in 2.16.0.
+
+Capture requires enabled LLM attempt spans and unsuppressed instrumentation. `hide_inputs` omits
+`gen_ai.input.messages`. `hide_outputs` omits both attributes, because request messages replay model output: earlier
+assistant turns, and on a retry the rejected answer plus the validation error quoting it. Hidden attributes are
+skipped before content access or serialization. Captured request messages can include the system prompt, history,
+user text and tool arguments/results. Review their sensitivity before enabling capture. Existing agent/tool payload
+defaults stay unchanged.
+
+Supported shapes are OpenAI-compatible chat messages with string content or text blocks, ordinary ChatCompletion
+choices, function tool calls, and tool-role replies. Each represented output choice stays a separate message, in order.
+Tools-mode responses contain real `tool_call` parts, never text fabricated from the parsed agent result. Images,
+audio, files, reasoning and unknown blocks are excluded; recognized text in mixed content remains. Streams and
+generators are never consumed.
+
+Other provider shapes are captured only where they happen to match the chat shape, so their transcripts are partial.
+Native Responses calls record request text and no response. Anthropic-format requests record plain text turns; their
+`tool_use`/`tool_result` blocks and the separate `system` prompt are left out, and so is the response.
+
+Message attributes are compact JSON using the GenAI `role`/`parts` schema. A complete serialized attribute exceeding
+`max_attribute_length` is omitted, including at tiny caps; it is never sliced. Its size is recorded instead as
+`gen_ai.input.messages.original_length` or `gen_ai.output.messages.original_length`, so a missing attribute on a large
+request points at the size cap (`ATOMIC_AGENTS_TRACE_MAX_ATTRIBUTE_LENGTH`). Tool-call arguments that are not valid
+JSON, such as a truncated answer or one containing `NaN`, are kept as their raw string. Empty or
+malformed content can also be omitted. The instrumentor therefore never emits cut-off JSON itself, but an SDK
+`SpanLimits(max_attribute_length=...)` below this cap still truncates the value afterwards. Live backend display is
+unverified.
 
 When no config is passed to `instrument()`, the settings come from the environment. `ATOMIC_AGENTS_TRACE_HIDE_INPUTS`
 and `ATOMIC_AGENTS_TRACE_HIDE_OUTPUTS` are read first, then `OPENINFERENCE_HIDE_INPUTS` and `OPENINFERENCE_HIDE_OUTPUTS`
@@ -370,9 +421,11 @@ Hiding wins over truncation, and a hidden payload is never serialized in the fir
 
 Covered by hiding and truncation: `atomic_agents.input`, `atomic_agents.output`, `input.value`, `output.value`,
 `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result` and `atomic_agents.llm.last_validation_error`. `tool.parameters`
-is truncated but never hidden. Status descriptions and recorded exception messages are truncated too, and under
-`hide_outputs` a Pydantic validation error message is replaced by `__REDACTED__` plus the error count, because the raw
-model output is quoted inside it.
+is truncated but never hidden. Status descriptions and recorded exception messages are truncated too. If either
+`hide_inputs` or `hide_outputs` is enabled, failure messages and exception stack traces use redacted text while
+retaining the exception type and available error or attempt counts. Exceptions can repeat private tool arguments
+as well as model output, so they follow both visibility settings. Successful output payloads remain governed by
+`hide_outputs`.
 
 Instructor's own logging is separate from Atomic Agents' tracing: in the installed Instructor 1.17.0 source,
 `instructor.v2.retry` (re-exported through `instructor.core.retry`) logs per-attempt validation failures at DEBUG
@@ -418,10 +471,10 @@ is this flow. On the Phoenix path the provider's tracers are OpenInference `OITr
 
 ## Re-instrumentation
 
-`instrument()` with the same provider and config as the active installation does nothing. With a different provider or
-config it replaces them in place and logs a WARNING that says so. Spans already in flight finish on the provider they
-started with; new spans use the new one. `uninstrument()` followed by `instrument()` is the clean way to change
-settings, and `uninstrument()` restores the original methods on `AtomicAgent` and on every tool class.
+`instrument()` is a no-op for the same provider and config; otherwise it replaces them with a warning, with new spans
+using the new settings and in-flight spans retaining their original provider, payload visibility, and size limits.
+`uninstrument()` restores original agent and tool methods without interrupting active calls or streams; saved methods
+and deferred calls or streams that first execute afterwards run without tracing unless instrumentation is enabled again.
 
 In a test suite, call `instrument(tracer_provider=provider)` with a fresh in-memory provider in each test. The replace
 behavior means you do not need to uninstrument between tests, and the warning is expected there:
@@ -461,6 +514,7 @@ assert [span.name for span in exporter.get_finished_spans()][-1] == "invoke_agen
   do: `executor.submit(contextvars.copy_context().run, asyncio.run, self.run_async(params))`. `asyncio.to_thread` and
   `asyncio.run` already copy the context.
 - The AGENT span records the final (or last partial) response of a stream, not every chunk.
-- The system prompt text is not on any span. The AGENT span carries its SHA-256 instead.
-- Datadog and PostHog read prompt and response text from `gen_ai.input.messages` and `gen_ai.output.messages`, which
-  are not emitted.
+- System prompt text is absent by default. Opt-in message capture can include it on chat attempt spans; the AGENT
+  span carries its SHA-256.
+- Message capture supports the chat shapes listed above. Native Responses and Anthropic calls yield partial request
+  text and no response, and streamed chunks are omitted; live backend message rendering is unverified.

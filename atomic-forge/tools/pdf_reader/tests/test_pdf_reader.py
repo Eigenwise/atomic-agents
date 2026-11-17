@@ -1,6 +1,7 @@
 import io
 
 import pytest
+import requests
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
@@ -53,6 +54,20 @@ def test_parse_page_range_mixed(tool):
 
 def test_parse_page_range_clips_to_total(tool):
     assert PdfReaderTool.parse_page_range("1,3,5-7", 4) == [1, 3]
+
+
+@pytest.mark.parametrize(
+    "expression, expected",
+    [(f"1-{10**30}", [1, 2, 3]), (f"2-{10**30},1", [1, 2, 3]), (f"4-{10**30},2", [2])],
+)
+def test_parse_page_range_bounds_large_ranges(expression, expected):
+    assert PdfReaderTool.parse_page_range(expression, 3) == expected
+
+
+@pytest.mark.parametrize("expression, total_pages", [(f"4-{10**30}", 3), (f"1-{10**30}", 0)])
+def test_parse_page_range_rejects_large_ranges_without_pages(expression, total_pages):
+    with pytest.raises(ValueError, match="No pages selected"):
+        PdfReaderTool.parse_page_range(expression, total_pages)
 
 
 def test_parse_page_range_rejects_empty(tool):
@@ -126,6 +141,12 @@ def test_run_url_source(monkeypatch, tool, sample_pdf):
     class FakeResp:
         headers = {"Content-Length": str(len(pdf_bytes))}
 
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
         def raise_for_status(self):
             return None
 
@@ -148,6 +169,12 @@ def test_run_url_too_large_by_header(monkeypatch, tool):
     class FakeResp:
         headers = {"Content-Length": str(1_000_000_000)}
 
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
         def raise_for_status(self):
             return None
 
@@ -158,6 +185,42 @@ def test_run_url_too_large_by_header(monkeypatch, tool):
     out = tool.run(PdfReaderToolInputSchema(source="https://example.com/huge.pdf"))
     assert out.error is not None
     assert "too large" in out.error.lower()
+
+
+@pytest.mark.parametrize("failure", ["status", "declared_size", "streamed_size", "invalid_length", None])
+def test_url_responses_close_on_success_and_download_failures(monkeypatch, sample_pdf, failure):
+    pdf_bytes = sample_pdf.read_bytes()
+
+    class FakeResp:
+        closed = False
+        headers = {
+            "Content-Length": {"declared_size": "1000000000", "invalid_length": "invalid"}.get(failure, str(len(pdf_bytes)))
+        }
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.closed = True
+
+        def raise_for_status(self):
+            if failure == "status":
+                raise requests.HTTPError("404 Not Found")
+
+        def iter_content(self, chunk_size):
+            yield b"x" * (1024 * 1024 + 1) if failure == "streamed_size" else pdf_bytes
+
+    response = FakeResp()
+    monkeypatch.setattr("tool.pdf_reader.requests.get", lambda *args, **kwargs: response)
+    reader = PdfReaderTool(PdfReaderToolConfig(max_size_bytes=1024 * 1024))
+    out = reader.run(PdfReaderToolInputSchema(source="https://example.com/sample.pdf"))
+    if failure is None:
+        assert out.error is None
+        assert out.page_count == 3
+        assert "Hello World" in out.text
+    else:
+        assert out.error is not None
+    assert response.closed
 
 
 if __name__ == "__main__":

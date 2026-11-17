@@ -1,6 +1,7 @@
 import asyncio
 import contextvars
 import logging
+import re
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Literal, Optional
@@ -105,7 +106,8 @@ class ArxivSearchTool(BaseTool[ArxivSearchToolInputSchema, ArxivSearchToolOutput
     @staticmethod
     def _build_search_query(query: str, category: Optional[str]) -> str:
         # If the user already used field prefixes, leave them alone; otherwise wrap as `all:`
-        if any(prefix in query for prefix in ("ti:", "au:", "abs:", "cat:", "all:", "id:")):
+        field_prefixes = ("ti:", "au:", "abs:", "co:", "jr:", "cat:", "rn:", "id:", "all:", "submittedDate:")
+        if any(prefix in query for prefix in field_prefixes):
             base = query
         else:
             base = f"all:{query}"
@@ -121,7 +123,7 @@ class ArxivSearchTool(BaseTool[ArxivSearchToolInputSchema, ArxivSearchToolOutput
         """Strip the version suffix and the URL prefix from an arXiv entry id."""
         # entry id looks like: http://arxiv.org/abs/2401.12345v2
         tail = entry_id.rsplit("/abs/", 1)[-1]
-        return tail.split("v")[0] if "v" in tail else tail
+        return re.sub(r"v[0-9]+$", "", tail)
 
     @classmethod
     def _parse_entry(cls, entry: ET.Element, query: str) -> ArxivPaper:

@@ -18,6 +18,7 @@ from opentelemetry.util.types import AttributeValue
 from atomic_agents.agents.atomic_agent import AtomicAgent
 
 from . import installation
+from .message_payloads import write_messages
 from .span_attributes import _best_effort_attributes, _optional_attributes, _provider_attributes, _without_none
 from .span_payloads import _bounded_text, _failure_message, _record_failure, _write_payload
 from .tracing_config import TracingConfig
@@ -51,12 +52,32 @@ class _PromptCompletionUsage(Protocol):
     completion_tokens_details: _CompletionTokenDetails | None
 
 
-_Usage = _InputOutputUsage | _PromptCompletionUsage
+class _AnthropicUsage(Protocol):
+    input_tokens: int
+    output_tokens: int
+    cache_read_input_tokens: int | None
+    cache_creation_input_tokens: int | None
+
+
+_Usage = _InputOutputUsage | _PromptCompletionUsage | _AnthropicUsage
 
 
 class _Response(Protocol):
     model: str
     usage: _Usage
+
+
+class _GenerateContentUsage(Protocol):
+    prompt_token_count: int | None
+    tool_use_prompt_token_count: int | None
+    candidates_token_count: int | None
+    thoughts_token_count: int | None
+    cached_content_token_count: int | None
+
+
+class _GenerateContentResponse(Protocol):
+    model_version: str | None
+    usage_metadata: _GenerateContentUsage | None
 
 
 class _HookClient(Protocol):
@@ -204,6 +225,7 @@ def _completion_kwargs(*args: object, **kwargs: object) -> None:
         f"chat {model}" if model else "chat", kind=SpanKind.CLIENT, attributes=_without_none(attributes)
     )
     _attach_attempt(run)
+    write_messages(run.open_attempt, kwargs.get("messages"), "input", run.config)
 
 
 def _request_model(kwargs: dict[str, object]) -> str | None:
@@ -224,20 +246,55 @@ def _usage_attributes(usage: _Usage | None) -> dict[str, int]:
             None,
         ),
     }
+    # Anthropic's input_tokens excludes both cache reads and cache writes.
+    # OpenAI's nested cached_tokens is already included in its input total.
+    separate_cache = {
+        "cache_read.input_tokens": getattr(usage, "cache_read_input_tokens", None),
+        "cache_write.input_tokens": getattr(usage, "cache_creation_input_tokens", None),
+    }
+    separate_cache = {key: value for key, value in separate_cache.items() if isinstance(value, int)}
+    readers.update(separate_cache)
+    if isinstance(readers["input_tokens"], int):
+        readers["input_tokens"] += sum(separate_cache.values())
+    return {"gen_ai.usage." + key: value for key, value in readers.items() if isinstance(value, int)}
+
+
+def _generate_content_usage_attributes(usage: _GenerateContentUsage) -> dict[str, int]:
+    readers = {
+        "cache_read.input_tokens": getattr(usage, "cached_content_token_count", None),
+        "reasoning.output_tokens": getattr(usage, "thoughts_token_count", None),
+    }
+    # Cached tokens are already included in the prompt count. Tool-use prompts
+    # and thoughts are separate input/output contributions in GenerateContent.
+    for key, fields in (
+        ("input_tokens", ("prompt_token_count", "tool_use_prompt_token_count")),
+        ("output_tokens", ("candidates_token_count", "thoughts_token_count")),
+    ):
+        values = [getattr(usage, field, None) for field in fields]
+        reported = [value for value in values if isinstance(value, int)]
+        if reported:
+            readers[key] = sum(reported)
     return {"gen_ai.usage." + key: value for key, value in readers.items() if isinstance(value, int)}
 
 
 @_never_raise
-def _completion_response(response: _Response, **kwargs: object) -> None:
+def _completion_response(response: _Response | _GenerateContentResponse, **kwargs: object) -> None:
     run = _active_run.get()
     if run is None or run.suppressed_attempt:
         return
-    attributes = _without_none({_RESPONSE_MODEL: getattr(response, "model", None)})
+    model = getattr(response, "model", None) or getattr(response, "model_version", None)
+    attributes = _without_none({_RESPONSE_MODEL: model})
     run.span.set_attributes(attributes)
-    usage = _usage_attributes(getattr(response, "usage", None))
+    native_usage = getattr(response, "usage", None)
+    usage = _usage_attributes(native_usage)
+    metadata = getattr(response, "usage_metadata", None)
+    if native_usage is None and metadata is not None:
+        usage = _generate_content_usage_attributes(metadata)
     for key, value in usage.items():
         run.usage_totals[key] = run.usage_totals.get(key, 0) + value
     _complete_response_attempt(run, usage, attributes)
+    if run.open_attempt is not None:
+        write_messages(run.open_attempt, response, "output", run.config)
 
 
 def _complete_response_attempt(run: _AgentRun, usage: dict[str, int], attributes: dict[str, AttributeValue]) -> None:

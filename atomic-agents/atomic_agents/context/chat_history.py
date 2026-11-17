@@ -50,8 +50,14 @@ class ChatHistory(BaseChatHistory):
                 When exceeded, oldest messages are removed first.
         """
         self.history: List[Message] = []
-        self.max_messages = max_messages
+        self.max_messages = self._validate_max_messages(max_messages)
         self.current_turn_id: Optional[str] = None
+
+    @staticmethod
+    def _validate_max_messages(value: Optional[int]) -> Optional[int]:
+        if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0):
+            raise ValueError("max_messages must be a non-negative integer or None")
+        return value
 
     def initialize_turn(self) -> None:
         """
@@ -153,9 +159,14 @@ class ChatHistory(BaseChatHistory):
         if hasattr(obj, "__class__") and hasattr(obj.__class__, "model_fields"):
             all_objects = []
             exclude = {}
-            for field_name in obj.__class__.model_fields:
+            for field_name, field_info in obj.__class__.model_fields.items():
+                if field_info.exclude:
+                    continue
                 if hasattr(obj, field_name):
                     field_value = getattr(obj, field_name)
+                    exclude_if = getattr(field_info, "exclude_if", None)
+                    if exclude_if is not None and exclude_if(field_value):
+                        continue
                     objects, sub_exclude = ChatHistory._extract_multimodal_info(field_value)
                     if objects:
                         all_objects.extend(objects)
@@ -264,7 +275,7 @@ class ChatHistory(BaseChatHistory):
                 "role": message.role,
                 "content": {
                     "class_name": f"{content_class.__module__}.{content_class.__name__}",
-                    "data": message.content.model_dump_json(),
+                    "data": message.content.model_dump_json(round_trip=True),
                 },
                 "turn_id": message.turn_id,
             }
@@ -291,13 +302,23 @@ class ChatHistory(BaseChatHistory):
         try:
             history_data = json.loads(serialized_data)
             loaded_history: List[Message] = []
-            max_messages = history_data["max_messages"]
+            try:
+                max_messages = self._validate_max_messages(history_data["max_messages"])
+            except ValueError as error:
+                raise ValueError(f"Invalid serialized data: {error}") from error
             current_turn_id = history_data["current_turn_id"]
 
-            for message_data in history_data["history"]:
+            if current_turn_id is not None and not isinstance(current_turn_id, str):
+                raise ValueError("Invalid serialized data: current_turn_id must be a string or null")
+            messages = history_data["history"]
+            if not isinstance(messages, list):
+                raise ValueError("Invalid serialized data: history must be a list")
+
+            for message_data in messages:
                 content_info = message_data["content"]
                 content_class = self._get_class_from_string(content_info["class_name"])
-                content_instance = content_class.model_validate_json(content_info["data"])
+                # dump() serializes field names, which can differ from validation aliases.
+                content_instance = content_class.model_validate_json(content_info["data"], by_name=True)
 
                 # Process any Image objects to convert string paths back to Path objects
                 self._process_multimodal_paths(content_instance)
@@ -309,6 +330,7 @@ class ChatHistory(BaseChatHistory):
             self.history = loaded_history
             self.max_messages = max_messages
             self.current_turn_id = current_turn_id
+            self._manage_overflow()
         except (json.JSONDecodeError, KeyError, AttributeError, TypeError) as e:
             raise ValueError(f"Invalid serialized data: {e}")
 
@@ -328,7 +350,10 @@ class ChatHistory(BaseChatHistory):
         """
         module_name, class_name = class_string.rsplit(".", 1)
         module = __import__(module_name, fromlist=[class_name])
-        return getattr(module, class_name)
+        content_class = getattr(module, class_name)
+        if not isinstance(content_class, type) or not issubclass(content_class, BaseIOSchema):
+            raise ValueError(f"Invalid serialized data: {class_string} is not a BaseIOSchema subclass")
+        return content_class
 
     def _process_multimodal_paths(self, obj):
         """
@@ -345,8 +370,8 @@ class ChatHistory(BaseChatHistory):
             # Check if the string looks like a file path (not a URL or base64 data)
             if not obj.source.startswith(("http://", "https://", "data:")):
                 obj.source = Path(obj.source)
-        elif isinstance(obj, list):
-            # Process each item in the list
+        elif isinstance(obj, (list, tuple)):
+            # Process each item in the sequence
             for item in obj:
                 self._process_multimodal_paths(item)
         elif isinstance(obj, dict):

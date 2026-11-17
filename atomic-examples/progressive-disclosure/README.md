@@ -122,7 +122,7 @@ User Query: "Calculate (5 + 3) * 2 and reverse 'hello'"
 ┌─────────────────────────────────────────────────────┐
 │     Phase 1: Tool Discovery                         │
 │     ─────────────────────────                       │
-│     Tool Finder Agent (gpt-5-mini)                │
+│     Tool Finder Agent (gpt-5.6-terra)                │
 │     - Searches lightweight registry                 │
 │     - Registry has 24 tool names + descriptions    │
 │     - Returns: ["add_numbers", "multiply_numbers",  │

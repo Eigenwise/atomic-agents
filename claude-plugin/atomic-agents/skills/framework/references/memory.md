@@ -34,7 +34,7 @@ history = ChatHistory(max_messages=40)            # FIFO overflow
 # Optional: seed with an assistant intro so the first user turn has something to reply to
 history.add_message("assistant", BasicChatOutputSchema(chat_message="Hi!"))
 
-agent = AtomicAgent[In, Out](config=AgentConfig(client=client, model="gpt-5-mini", history=history))
+agent = AtomicAgent[In, Out](config=AgentConfig(client=client, model="gpt-5.6-terra", history=history))
 ```
 
 Omit `history` entirely for stateless agents — each `run()` is independent.
