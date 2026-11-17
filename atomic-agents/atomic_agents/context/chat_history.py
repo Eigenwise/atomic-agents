@@ -168,6 +168,11 @@ class ChatHistory(BaseChatHistory):
                     if objects:
                         all_objects.extend(objects)
                         exclude[field_name] = sub_exclude
+            for field_name, field_value in (getattr(obj, "model_extra", None) or {}).items():
+                objects, sub_exclude = ChatHistory._extract_multimodal_info(field_value)
+                if objects:
+                    all_objects.extend(objects)
+                    exclude[field_name] = sub_exclude
             return all_objects, (exclude if exclude else None)
 
         if isinstance(obj, (list, tuple)):
@@ -379,6 +384,8 @@ class ChatHistory(BaseChatHistory):
             for field_name in obj.__class__.model_fields:
                 if hasattr(obj, field_name):
                     self._process_multimodal_paths(getattr(obj, field_name))
+            for value in (getattr(obj, "model_extra", None) or {}).values():
+                self._process_multimodal_paths(value)
         elif hasattr(obj, "__dict__") and not isinstance(obj, Enum):
             # Process each attribute of the object
             for attr_name, attr_value in obj.__dict__.items():
