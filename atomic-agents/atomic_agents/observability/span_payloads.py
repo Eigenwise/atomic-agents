@@ -40,7 +40,7 @@ def _serialize_payload(value: object) -> str | None:
 def _record_payload(
     span: Span, key_pairs: tuple[tuple[str, str | None], ...], value: object, hide: bool, config: TracingConfig
 ) -> None:
-    if value is None:
+    if value is None or not span.is_recording():
         return
     serialized = "__REDACTED__" if hide else _serialize_payload(value)
     if serialized is None:

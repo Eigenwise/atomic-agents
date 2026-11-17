@@ -54,6 +54,7 @@ _NUMERIC_CONSTRAINTS = {
 }
 _STRING_CONSTRAINTS = {"minLength": "min_length", "maxLength": "max_length"}
 _ARRAY_CONSTRAINTS = {"minItems": "min_length", "maxItems": "max_length"}
+_OBJECT_CONSTRAINTS = {"minProperties": "min_length", "maxProperties": "max_length"}
 
 
 def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict[str, Any]) -> Type:
@@ -66,7 +67,11 @@ def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 constraints[target] = value
     else:
-        keywords = _STRING_CONSTRAINTS if json_type == "string" else _ARRAY_CONSTRAINTS if json_type == "array" else {}
+        keywords = {
+            "string": _STRING_CONSTRAINTS,
+            "array": _ARRAY_CONSTRAINTS,
+            "object": _OBJECT_CONSTRAINTS,
+        }.get(json_type, {})
         constraints.update({target: prop_schema[source] for source, target in keywords.items() if source in prop_schema})
     if json_type == "string" and isinstance(prop_schema.get("pattern"), str):
         pattern = prop_schema["pattern"]
@@ -234,9 +239,25 @@ class SchemaTransformer:
                 python_type = JSON_TYPE_MAP[json_type]
 
                 if json_type == "array":
-                    items_schema = prop_schema.get("items", {})
-                    item_type, _ = SchemaTransformer.json_to_pydantic_field(items_schema, True, root_schema, model_cache)
-                    python_type = List[item_type]
+                    prefix_items = prop_schema.get("prefixItems")
+                    if (
+                        isinstance(prefix_items, list)
+                        and prefix_items
+                        and prop_schema.get("minItems") == len(prefix_items)
+                        and prop_schema.get("maxItems", len(prefix_items)) >= len(prefix_items)
+                        and (prop_schema.get("maxItems") == len(prefix_items) or prop_schema.get("items") is False)
+                    ):
+                        # Fixed tuples, including schemas emitted by FastMCP/Pydantic,
+                        # validate each position instead of applying items to the prefix.
+                        item_types = [
+                            SchemaTransformer.json_to_pydantic_field(item, True, root_schema, model_cache)[0]
+                            for item in prefix_items
+                        ]
+                        python_type = Tuple[tuple(item_types)]
+                    else:
+                        items_schema = prop_schema.get("items", {})
+                        item_type, _ = SchemaTransformer.json_to_pydantic_field(items_schema, True, root_schema, model_cache)
+                        python_type = List[item_type]
 
                 elif json_type == "object":
                     python_type = Dict[str, Any]
@@ -289,11 +310,21 @@ class SchemaTransformer:
         required_fields = set(schema.get("required", []))
         properties = schema.get("properties")
         model_cache: Dict[str, Type] = {}
+        identifier_name = f"{attribute_type}_name"
+        argument_names = {}
 
         if properties:
             for prop_name, prop_schema in properties.items():
                 is_required = prop_name in required_fields
-                fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, schema, model_cache)
+                field_name = prop_name
+                if not is_output_schema and prop_name == identifier_name:
+                    field_name = f"mcp_{prop_name}"
+                    suffix = 0
+                    while field_name in properties:
+                        suffix += 1
+                        field_name = f"mcp_{prop_name}_{suffix}"
+                    argument_names[field_name] = prop_name
+                fields[field_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, schema, model_cache)
         elif schema.get("type") == "object" and not properties:
             pass
         elif schema:
@@ -304,7 +335,7 @@ class SchemaTransformer:
         # Only add the attribute identifier field for input schemas
         if not is_output_schema:
             tool_name_type = cast(Type[str], Literal[tool_name_literal])
-            fields[f"{attribute_type}_name"] = (
+            fields[identifier_name] = (
                 tool_name_type,
                 Field(..., description=f"Required identifier for the {tool_name_literal} {attribute_type}."),
             )
@@ -318,4 +349,7 @@ class SchemaTransformer:
             **fields,
         )
 
+        # Keep model serialization aligned with its schema. Only the MCP call
+        # boundary translates escaped argument names back to the server's keys.
+        model.__mcp_argument_names__ = argument_names
         return model
