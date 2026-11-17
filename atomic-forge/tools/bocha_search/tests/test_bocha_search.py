@@ -1,6 +1,7 @@
 import os
 import sys
 import pytest
+from pydantic import ValidationError
 from unittest.mock import patch, AsyncMock, MagicMock
 from types import SimpleNamespace
 import asyncio
@@ -250,10 +251,6 @@ async def test_bocha_search_tool_malformed_response(mock_aiohttp_session):
     assert len(result2.results) == 0
 
 
-if __name__ == "__main__":
-    pytest.main([__file__])
-
-
 @pytest.mark.parametrize(
     "freshness",
     [
@@ -289,8 +286,6 @@ def test_freshness_accepts_presets_and_dates(freshness):
     ],
 )
 def test_freshness_rejects_invalid_dates(freshness):
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         BoChaSearchToolConfig(freshness=freshness)
 
@@ -301,3 +296,7 @@ async def test_freshness_date_is_sent_unchanged(mock_aiohttp_session, freshness)
     tool = BoChaSearchTool(BoChaSearchToolConfig(api_key="mock-key", freshness=freshness))
     await tool.run_async(BoChaSearchToolInputSchema(queries=["test query"]))
     assert mock_aiohttp_session.post.call_args.kwargs["json"]["freshness"] == freshness
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])

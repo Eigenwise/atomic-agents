@@ -67,8 +67,8 @@ class BoChaSearchToolConfig(BaseToolConfig):
             raise ValueError(message)
         try:
             dates = [date.fromisoformat(part) for part in value.split("..")]
-        except ValueError as exc:
-            raise ValueError(message) from exc
+        except ValueError as error:
+            raise ValueError(message) from error
         if len(dates) == 2 and dates[0] > dates[1]:
             raise ValueError(message)
         return value
