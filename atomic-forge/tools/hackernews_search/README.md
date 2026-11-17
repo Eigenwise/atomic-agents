@@ -18,6 +18,8 @@ Searches Hacker News stories, comments, Show HN, Ask HN, and polls via the free 
 ### Input Schema
 - `queries` (list[str]): one or more search queries.
 - `tags` (str): `story`, `comment`, `show_hn`, `ask_hn`, `poll`, or `front_page` (default `story`).
+- `author` (str, optional): exact Hacker News username (letters, digits, underscores or hyphens); case is preserved.
+- `story_id` (int, optional): positive story ID to restrict the search; use `tags="comment"` to search that discussion.
 - `sort_by` (str): `relevance` or `date` (default `relevance`).
 - `max_results_per_query` (int): 1–50 (default 10).
 - `numeric_filters` (str, optional): Algolia numeric filter expression (e.g. `points>100`).
@@ -42,6 +44,20 @@ for item in output.results:
     print(item.title, "-", item.points, "points")
     print(item.hn_url)
 ```
+
+### Search one discussion or author
+
+```python
+output = tool.run(HackerNewsSearchToolInputSchema(
+    queries=["performance"],
+    tags="comment",
+    story_id=123456,
+    author="example_user",
+    sort_by="date",
+))
+```
+
+Both fields are optional and combine with the item type and existing numeric filters. They use the API's [`author_<username>` and `story_<id>` tags](https://hn.algolia.com/api), joined with AND, so filtering happens on the server before the per-query result limit. An empty query can retrieve recent matching items without a text constraint.
 
 ## Contributing
 PRs welcome — see the main repo `CONTRIBUTING.md`.

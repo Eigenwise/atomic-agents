@@ -32,6 +32,17 @@ class HackerNewsSearchToolInputSchema(BaseIOSchema):
             " 'front_page' = stories that reached the front page."
         ),
     )
+    author: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="Restrict results to this exact Hacker News username; may be combined with story_id.",
+    )
+    story_id: Optional[int] = Field(
+        default=None,
+        gt=0,
+        strict=True,
+        description="Restrict results to this story ID; use tags=comment to search within its discussion.",
+    )
     sort_by: Literal["relevance", "date"] = Field(
         default="relevance",
         description=(
@@ -149,6 +160,12 @@ class HackerNewsSearchTool(BaseTool[HackerNewsSearchToolInputSchema, HackerNewsS
         return [self._to_item(hit, query) for hit in data.get("hits", [])]
 
     async def run_async(self, params: HackerNewsSearchToolInputSchema) -> HackerNewsSearchToolOutputSchema:
+        tags = [params.tags]
+        if params.author is not None:
+            tags.append(f"author_{params.author}")
+        if params.story_id is not None:
+            tags.append(f"story_{params.story_id}")
+        tag_filter = ",".join(tags)
         headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
@@ -156,7 +173,7 @@ class HackerNewsSearchTool(BaseTool[HackerNewsSearchToolInputSchema, HackerNewsS
                 self._fetch(
                     session,
                     q,
-                    params.tags,
+                    tag_filter,
                     params.sort_by,
                     params.max_results_per_query,
                     params.numeric_filters,
