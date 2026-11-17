@@ -2,7 +2,7 @@ import asyncio
 import contextvars
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import aiohttp
 from pydantic import Field
@@ -152,12 +152,22 @@ class WikipediaSearchTool(BaseTool[WikipediaSearchToolInputSchema, WikipediaSear
         language: str,
         limit: int,
         full_text: bool,
+        summary_tasks: Optional[Dict[str, asyncio.Task]] = None,
+        extract_tasks: Optional[Dict[str, asyncio.Task]] = None,
     ) -> List[WikipediaArticle]:
+        # Share in-flight work only within this run. Each query still receives its
+        # own result objects, and later runs retry failures and see fresh content.
+        if summary_tasks is None:
+            summary_tasks = {}
+        if extract_tasks is None:
+            extract_tasks = {}
         titles = await self._search_titles(session, query, language, limit)
         articles: List[WikipediaArticle] = []
         for title in titles:
             try:
-                summary_data = await self._fetch_summary(session, title, language)
+                if title not in summary_tasks:
+                    summary_tasks[title] = asyncio.create_task(self._fetch_summary(session, title, language))
+                summary_data = await summary_tasks[title]
             except Exception as e:
                 logger.warning("Failed to fetch summary for '%s': %s", title, e)
                 continue
@@ -166,7 +176,9 @@ class WikipediaSearchTool(BaseTool[WikipediaSearchToolInputSchema, WikipediaSear
             full = None
             if full_text and not articles:
                 try:
-                    full = await self._fetch_full_extract(session, title, language)
+                    if title not in extract_tasks:
+                        extract_tasks[title] = asyncio.create_task(self._fetch_full_extract(session, title, language))
+                    full = await extract_tasks[title]
                 except Exception as e:
                     logger.warning("Failed to fetch full extract for '%s': %s", title, e)
             page_url = (
@@ -190,8 +202,12 @@ class WikipediaSearchTool(BaseTool[WikipediaSearchToolInputSchema, WikipediaSear
         headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+            summary_tasks: Dict[str, asyncio.Task] = {}
+            extract_tasks: Dict[str, asyncio.Task] = {}
             tasks = [
-                self._process_query(session, q, params.language, params.max_results_per_query, params.full_text)
+                self._process_query(
+                    session, q, params.language, params.max_results_per_query, params.full_text, summary_tasks, extract_tasks
+                )
                 for q in params.queries
             ]
             grouped = await asyncio.gather(*tasks, return_exceptions=True)

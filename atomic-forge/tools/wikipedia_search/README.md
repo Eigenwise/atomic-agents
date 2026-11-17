@@ -3,6 +3,8 @@
 ## Overview
 Searches Wikipedia and returns matching articles with titles, URLs, summaries, and (optionally) the full plain-text extract for the top hit. Uses Wikipedia's free public APIs (MediaWiki + REST) — no API key required. Supports any language edition (`en`, `fr`, `de`, `nl`, `ja`, …).
 
+Overlapping queries in one call share summary and full-extract requests for the same article. Each query retains its own ordered results; a later call fetches fresh content and retries any failures.
+
 ## Prerequisites and Dependencies
 - Python 3.12 or later
 - `atomic-agents`
