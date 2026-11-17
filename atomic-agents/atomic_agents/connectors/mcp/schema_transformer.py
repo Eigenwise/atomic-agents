@@ -54,6 +54,7 @@ _NUMERIC_CONSTRAINTS = {
 }
 _STRING_CONSTRAINTS = {"minLength": "min_length", "maxLength": "max_length"}
 _ARRAY_CONSTRAINTS = {"minItems": "min_length", "maxItems": "max_length"}
+_OBJECT_CONSTRAINTS = {"minProperties": "min_length", "maxProperties": "max_length"}
 
 
 def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict[str, Any]) -> Type:
@@ -66,7 +67,11 @@ def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 constraints[target] = value
     else:
-        keywords = _STRING_CONSTRAINTS if json_type == "string" else _ARRAY_CONSTRAINTS if json_type == "array" else {}
+        keywords = {
+            "string": _STRING_CONSTRAINTS,
+            "array": _ARRAY_CONSTRAINTS,
+            "object": _OBJECT_CONSTRAINTS,
+        }.get(json_type, {})
         constraints.update({target: prop_schema[source] for source, target in keywords.items() if source in prop_schema})
     if json_type == "string" and isinstance(prop_schema.get("pattern"), str):
         pattern = prop_schema["pattern"]
