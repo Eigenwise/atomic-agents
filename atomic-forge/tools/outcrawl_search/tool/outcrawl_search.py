@@ -65,6 +65,12 @@ class OutcrawlSearchToolConfig(BaseToolConfig):
         description="User agent for HTTP requests.",
     )
     timeout: float = Field(default=60.0, ge=1.0, le=300.0, description="HTTP request timeout in seconds.")
+    max_concurrent_requests: int = Field(
+        default=10,
+        gt=0,
+        strict=True,
+        description="Maximum simultaneous HTTP requests per run, shared by searches and page fetches.",
+    )
 
 
 #####################
@@ -79,6 +85,7 @@ class OutcrawlSearchTool(BaseTool[OutcrawlSearchToolInputSchema, OutcrawlSearchT
         self.base_url = config.base_url.rstrip("/")
         self.user_agent = config.user_agent
         self.timeout = config.timeout
+        self.max_concurrent_requests = config.max_concurrent_requests
 
     @staticmethod
     def _to_item(hit: dict, query: str) -> OutcrawlSearchResultItem:
@@ -137,7 +144,8 @@ class OutcrawlSearchTool(BaseTool[OutcrawlSearchToolInputSchema, OutcrawlSearchT
             "Accept": "application/json",
         }
         timeout = aiohttp.ClientTimeout(total=self.timeout)
-        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+        connector = aiohttp.TCPConnector(limit=self.max_concurrent_requests)
+        async with aiohttp.ClientSession(headers=headers, timeout=timeout, connector=connector) as session:
             tasks = [self._fetch(session, q, params.max_results_per_query, params.scrape_content) for q in params.queries]
             grouped = await asyncio.gather(*tasks, return_exceptions=True)
 

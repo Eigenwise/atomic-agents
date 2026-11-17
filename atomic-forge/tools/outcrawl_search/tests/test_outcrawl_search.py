@@ -190,13 +190,16 @@ async def test_run_async_sends_bearer_token(tool):
     captured = {}
 
     class FakeSession:
-        def __init__(self, headers=None, timeout=None):
+        def __init__(self, headers=None, timeout=None, connector=None):
             captured["headers"] = headers
+            self.connector = connector
 
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *args):
+            if self.connector is not None:
+                await self.connector.close()
             return False
 
     async def fake_fetch(self, session, query, max_results, scrape_content):

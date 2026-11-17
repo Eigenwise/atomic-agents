@@ -18,7 +18,8 @@ Searches the web through the [Outcrawl](https://outcrawl.ai) API and returns eac
 - `api_key` (str): Outcrawl API key. Falls back to the `OUTCRAWL_API_KEY` environment variable when empty.
 - `base_url` (str): API base URL (default `https://api.outcrawl.ai/v1`).
 - `user_agent` (str): user agent sent with each request.
-- `timeout` (float): HTTP timeout in seconds (default 60, since page fetches can take a while).
+- `timeout` (float): Total HTTP timeout in seconds, including waiting for an available connection (default 60).
+- `max_concurrent_requests` (positive int): Maximum simultaneous HTTP requests per run (default 10). Search and page-fetch requests share this budget across all queries. Each run owns its connection pool, so a tool can be reused across event loops.
 
 ## Input & Output Structure
 
