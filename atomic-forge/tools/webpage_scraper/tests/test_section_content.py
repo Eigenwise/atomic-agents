@@ -36,7 +36,7 @@ def test_preserves_section_headings_and_attribution(scraper, monkeypatch, scope)
     <footer>Site copyright</footer>
     </body></html>"""
     tool = scraper.WebpageScraperTool()
-    monkeypatch.setattr(tool, "_fetch_webpage", lambda url: html)
+    monkeypatch.setattr(tool, "_fetch_webpage", lambda url: (html, url))
 
     result = tool.run(scraper.WebpageScraperToolInputSchema(url="https://example.com/report"))
 

@@ -66,6 +66,7 @@ class TestWebpageScraperTool(unittest.TestCase):
         mock_response.text = self.sample_html
         mock_response.content = self.sample_html.encode("utf-8")
         mock_response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        mock_response.url = self.mock_url
         mock_get.return_value = mock_response
 
         # Test the method
@@ -73,7 +74,7 @@ class TestWebpageScraperTool(unittest.TestCase):
 
         # Assertions
         mock_get.assert_called_once()
-        self.assertEqual(result, self.sample_html)
+        self.assertEqual(result, (self.sample_html, self.mock_url))
 
         # Check headers
         call_args = mock_get.call_args
@@ -231,7 +232,7 @@ class TestWebpageScraperTool(unittest.TestCase):
     def test_run_with_links(self, mock_fetch):
         """Test running the tool with links included."""
         # Configure the mock
-        mock_fetch.return_value = self.sample_html
+        mock_fetch.return_value = (self.sample_html, self.mock_url)
 
         # Create input parameters
         params = WebpageScraperToolInputSchema(
@@ -253,7 +254,7 @@ class TestWebpageScraperTool(unittest.TestCase):
     def test_run_without_links(self, mock_fetch):
         """Test running the tool with links excluded."""
         # Configure the mock
-        mock_fetch.return_value = self.sample_html
+        mock_fetch.return_value = (self.sample_html, self.mock_url)
 
         # Create input parameters
         params = WebpageScraperToolInputSchema(

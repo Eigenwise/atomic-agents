@@ -106,5 +106,5 @@ def test_image_only_article_survives_the_public_http_path(scraper_module, page_s
     )
     result = scraper_module.WebpageScraperTool().run(scraper_module.WebpageScraperToolInputSchema(url=f"{url}/chart"))
     assert result.error is None
-    assert "![](/chart.png)" in result.content
+    assert f"![]({url}/chart.png)" in result.content
     assert "Unrelated material." not in result.content

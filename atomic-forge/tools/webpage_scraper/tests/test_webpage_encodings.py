@@ -128,7 +128,7 @@ def test_html_encoding_reaches_content_and_metadata(scraper_module, http_pages, 
 
 
 def test_fetch_empty_body_remains_an_empty_string(scraper_module, http_pages):
-    assert scraper_module.WebpageScraperTool()._fetch_webpage(f"{http_pages}/empty") == ""
+    assert scraper_module.WebpageScraperTool()._fetch_webpage(f"{http_pages}/empty")[0] == ""
 
 
 def test_content_limit_still_counts_bytes_before_html_decoding(scraper_module, http_pages):
@@ -139,4 +139,4 @@ def test_content_limit_still_counts_bytes_before_html_decoding(scraper_module, h
         tool._fetch_webpage(f"{http_pages}/{entry.name}")
     config.max_content_length = len(entry.body)
     tool = scraper_module.WebpageScraperTool(config)
-    assert entry.text in tool._fetch_webpage(f"{http_pages}/{entry.name}")
+    assert entry.text in tool._fetch_webpage(f"{http_pages}/{entry.name}")[0]
