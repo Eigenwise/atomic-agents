@@ -64,7 +64,7 @@ class TestWebpageScraperTool(unittest.TestCase):
         # Configure the mock
         mock_response = Mock()
         mock_response.text = self.sample_html
-        mock_response.content = self.sample_html.encode("utf-8")
+        mock_response.iter_content.return_value = [self.sample_html.encode("utf-8")]
         mock_response.headers = {"Content-Type": "text/html; charset=utf-8"}
         mock_response.url = self.mock_url
         mock_get.return_value = mock_response
@@ -87,7 +87,7 @@ class TestWebpageScraperTool(unittest.TestCase):
         # Configure the mock
         mock_response = Mock()
         mock_response.text = "X" * (self.config.max_content_length + 1)
-        mock_response.content = ("X" * (self.config.max_content_length + 1)).encode("utf-8")
+        mock_response.iter_content.return_value = [("X" * (self.config.max_content_length + 1)).encode("utf-8")]
         mock_get.return_value = mock_response
 
         # Test the method
