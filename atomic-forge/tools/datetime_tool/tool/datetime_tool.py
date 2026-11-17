@@ -52,7 +52,9 @@ class DateTimeToolInputSchema(BaseIOSchema):
         default=None,
         description="Second datetime string for the 'diff' operation (computes input_2 - input).",
     )
-    days: int = Field(default=0, description="Calendar days to add for 'shift', before elapsed hours/minutes/seconds.")
+    days: int = Field(
+        default=0, description="Calendar days to add for 'shift' (negative to subtract), before elapsed hours/minutes/seconds."
+    )
     hours: int = Field(default=0, description="Elapsed hours to add for 'shift' (negative to subtract).")
     minutes: int = Field(default=0, description="Elapsed minutes to add for 'shift' (negative to subtract).")
     seconds: int = Field(default=0, description="Elapsed seconds to add for 'shift' (negative to subtract).")

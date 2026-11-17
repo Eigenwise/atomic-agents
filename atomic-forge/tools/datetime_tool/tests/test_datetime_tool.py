@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from tool.datetime_tool import (
@@ -195,16 +198,12 @@ def test_shift_applies_calendar_days_before_elapsed_minutes():
     assert out.iso == "2026-03-08T03:30:00-04:00"
 
 
-def test_zero_shift_preserves_second_occurrence_of_ambiguous_time():
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
+def test_zero_shift_preserves_second_occurrence_of_ambiguous_time(monkeypatch):
     tool = DateTimeTool()
     # ISO offsets identify the second 01:30 unambiguously when converted to New York.
     original = datetime.fromisoformat("2026-11-01T01:30:00-05:00").astimezone(ZoneInfo("America/New_York"))
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(tool, "_parse", lambda value, zone: original)
-        out = tool.run(DateTimeToolInputSchema(operation="shift", input="unused", timezone="America/New_York"))
+    monkeypatch.setattr(tool, "_parse", lambda value, zone: original)
+    out = tool.run(DateTimeToolInputSchema(operation="shift", input="unused", timezone="America/New_York"))
     assert out.iso == original.isoformat()
     assert out.unix_timestamp == original.timestamp()
 
