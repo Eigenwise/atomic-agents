@@ -71,10 +71,20 @@ class HackerNewsItem(BaseIOSchema):
     story_id: Optional[str] = Field(None, description="Story this comment belongs to (for comments).")
 
 
+class HackerNewsSearchFailure(BaseIOSchema):
+    """A query that could not be completed, distinct from a successful empty search."""
+
+    query: str = Field(..., description="The query that failed.")
+    error: str = Field(..., description="Reason the query could not be completed.")
+
+
 class HackerNewsSearchToolOutputSchema(BaseIOSchema):
     """Output of the Hacker News search tool."""
 
     results: List[HackerNewsItem] = Field(..., description="Matching items across all queries.")
+    failures: List[HackerNewsSearchFailure] = Field(
+        default_factory=list, description="Queries that failed; an empty results list is conclusive only when this is empty."
+    )
 
 
 #################
@@ -146,7 +156,9 @@ class HackerNewsSearchTool(BaseTool[HackerNewsSearchToolInputSchema, HackerNewsS
             if resp.status != 200:
                 raise Exception(f"HN search failed for '{query}': {resp.status} {resp.reason}")
             data = await resp.json()
-        return [self._to_item(hit, query) for hit in data.get("hits", [])]
+        if not isinstance(data, dict) or not isinstance(data.get("hits"), list):
+            raise ValueError("HN search returned an invalid hits response")
+        return [self._to_item(hit, query) for hit in data["hits"]]
 
     async def run_async(self, params: HackerNewsSearchToolInputSchema) -> HackerNewsSearchToolOutputSchema:
         headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
@@ -166,12 +178,14 @@ class HackerNewsSearchTool(BaseTool[HackerNewsSearchToolInputSchema, HackerNewsS
             grouped = await asyncio.gather(*tasks, return_exceptions=True)
 
         results: List[HackerNewsItem] = []
+        failures: List[HackerNewsSearchFailure] = []
         for query, group in zip(params.queries, grouped):
             if isinstance(group, Exception):
                 logger.warning("HN query '%s' failed: %s", query, group)
+                failures.append(HackerNewsSearchFailure(query=query, error=str(group) or type(group).__name__))
                 continue
             results.extend(group)
-        return HackerNewsSearchToolOutputSchema(results=results)
+        return HackerNewsSearchToolOutputSchema(results=results, failures=failures)
 
     def run(self, params: HackerNewsSearchToolInputSchema) -> HackerNewsSearchToolOutputSchema:
         with ThreadPoolExecutor() as executor:
