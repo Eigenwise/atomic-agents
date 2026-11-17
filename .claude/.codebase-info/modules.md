@@ -19,8 +19,10 @@
 - **Purpose:** The typed contracts everything else implements.
 - **Key files:** `base_io_schema.py` (`BaseIOSchema` — Pydantic base; non-empty docstring enforced and
   used as the schema description), `base_tool.py` (`BaseTool[In, Out]`, `BaseToolConfig`),
-  `base_resource.py` (`BaseResource`), `base_prompt.py` (`BasePrompt`), and `multimodal.py`
-  (`VideoURL` — OpenAI-compatible `video_url` content-part model for video inputs).
+  `base_resource.py` (`BaseResource`), `base_prompt.py` (`BasePrompt`), `multimodal.py`
+  (`VideoURL` — OpenAI-compatible `video_url` content-part model for video inputs), and `_schema_types.py`
+  (`resolve_schema_types`, the one place that finds a component's input and output schema through generic
+  subclasses; `AtomicAgent`, `BaseTool`, `BaseResource` and `BasePrompt` all call it, with no per-class cache).
 - **Exposes via package root:** `BaseIOSchema`, `BaseTool`, `BaseToolConfig`, `VideoURL`.
 - **Generic schemas:** a specialization of a generic `BaseIOSchema` (`Envelope[int]`) inherits the docstring of
   its origin; an explicitly declared subclass still needs its own.
@@ -38,7 +40,9 @@
   in a loaded snapshot. `load()` checks the snapshot's structure, replaces state only after every message
   deserialized, then trims to capacity. Local media paths are restored inside lists and tuples. `dump()` writes
   field names with `round_trip=True` and `load()` validates by field name, so aliased and `Json[T]` fields
-  reload. Media on a field whose `exclude_if` predicate matches is not attached.
+  reload. Media on a field whose `exclude_if` predicate matches is not attached. A schema class declared inside
+  another class is saved by its qualified name; loading imports the longest importable module prefix, walks the
+  rest through classes only, and requires a `BaseIOSchema` subclass.
 - **Note:** `AgentConfig.history` is typed to `BaseChatHistory`, so any conforming backend drops in.
 
 ### connectors/mcp
@@ -124,15 +128,20 @@
   structure and can also fetch each result page as Markdown; `fxmacrodata` provides economic releases, FX and COT
   data; `deed_page` publishes static files to a public deed.page URL and is the only forge tool that writes outward
   (it keeps its owner token on `tool.token`, never in the output). Each keeps its own dependencies and setup.
-- **YouTube compatibility:** `youtube_transcript_scraper` uses the instance-based transcript API and converts SDK transcript objects to raw entries. `run()` reads the video duration from the Data API `contentDetails`; `fetch_video_metadata()` returns metadata only. The `youtube-summarizer` and `youtube-to-recipe` examples carry their own copy of the tool.
+- **YouTube compatibility:** `youtube_transcript_scraper` uses the instance-based transcript API and converts SDK transcript objects to raw entries. `run()` reads the video duration from the Data API `contentDetails`; `fetch_video_metadata()` returns metadata only. The `youtube-summarizer` and `youtube-to-recipe` examples carry their own copy of the tool. `publishedAt` keeps its UTC offset, and the Google API client is closed after each metadata lookup.
 - **Calculator:** `CalculatorToolConfig(safe_mode=True, allowed_functions={})`. Safe mode parses the expression and only evaluates allowlisted operators, math functions and the configured callables; `safe_mode=False` hands the string to `sympy.sympify`.
-- **PDF reader:** page ranges are bounded by the document length before iteration, and streamed downloads are closed on every exit path.
+- **PDF reader:** page ranges are bounded by the document length before iteration, and streamed downloads are closed on every exit path. Input options: `extraction_mode` (`"plain"` default, or `"layout"` to keep rows and columns of text-based PDFs) and `include_links` (off by default; fills `PdfPage.links` with link targets as strings, never fetched).
 - **Webpage scraper:** `_fetch_webpage` returns `(text, final_url)`. The body is decoded from its bytes (BOM, HTTP
   charset, then the HTML declaration) and relative links and images are resolved against the final URL or
-  `<base>`. The `deep-research` example carries its own copy.
+  `<base>`. The download is streamed and stops with a `ValueError` once the body passes `max_content_length`.
+  The `deep-research` example carries its own copy.
 - **Search tools:** `hackernews_search` reports failed queries in `failures`; `serply_search` does not follow
   redirects (its key travels in `X-Api-Key`); `wikipedia_search` validates the edition code before building the
-  host; `searxng_search` sends the `social media` category under SearXNG's own name.
+  host; `searxng_search` sends the `social media` category under SearXNG's own name; `bocha_search` validates
+  `freshness` as a preset, a real date, or an ordered date range.
+- **Datetime and weather:** `datetime_tool` shifts by calendar `days` (keeping the local clock time) and by
+  elapsed `hours`/`minutes`/`seconds` (applied in UTC, so they stay correct across DST). `weather` takes an
+  optional two-letter `country_code` for the city lookup.
 - **Authoring guide:** `atomic-forge/guides/tool_structure.md`.
 
 ### atomic-examples
