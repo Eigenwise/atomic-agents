@@ -37,6 +37,10 @@ config = SearXNGSearchToolConfig(
 - `queries` (List[str]): List of search queries.
 - `category` (Optional[Literal["general", "news", "social_media"]]): Category of the search queries. Defaults to "general".
 
+The `social_media` input selects SearXNG's `social media` category. The output
+continues to report `social_media`, while requests and result filtering use the
+server's category name. With `category=None`, no category restriction is sent.
+
 ### Output Schema
 - `results` (List[SearXNGSearchResultItemSchema]): List of search result items.
 - `category` (Optional[str]): The category of the search results.

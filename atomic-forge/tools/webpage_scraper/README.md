@@ -38,9 +38,23 @@ config = WebpageScraperToolConfig(
 
 ## Input & Output Structure
 
+### HTML character encoding
+
+The scraper decodes response bytes using a byte-order mark, an explicit HTTP
+`charset`, or an HTML encoding declaration before trying encoding detection.
+This keeps non-ASCII text intact in both Markdown and page metadata when a
+server sends `Content-Type: text/html` without a charset. The content-length
+limit applies to response bytes before decoding. The deep-research example
+uses the same decoding behavior.
+
 ### Input Schema
 - `url` (HttpUrl): URL of the webpage to scrape.
 - `include_links` (bool): Whether to preserve hyperlinks in the markdown output. Defaults to True.
+
+Relative hyperlinks and image sources are resolved against the final response URL, including redirects.
+The first HTML `<base href>` supplies the base when present. With `include_links=False`, link labels
+remain plain text while image sources are still resolved. The metadata domain identifies the page
+that supplied the content after redirects.
 
 ### Output Schema
 - `content` (str): The scraped content in markdown format.
