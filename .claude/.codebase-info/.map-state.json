@@ -3,7 +3,7 @@
   "tool": "codebase-mapper",
   "version": "2.15.10",
   "mappedAt": "2026-11-17",
-  "gitCommit": "cdab450e1e45173bb06858d771f607c976e4fc5f",
+  "gitCommit": "6430ded78f4cb3da2b478f7f660ff6d9d06dc860",
   "documents": [
     "architecture.md",
     "coding-style.md",
@@ -17,7 +17,7 @@
     "tech-landscape.md"
   ],
   "hashes": {
-    "INDEX.md": "648a5afc105d4a852174959faa9fda3da20bba7dc7440005a23e42069f23d213",
+    "INDEX.md": "98e688dc7ee1620ef22cb13dd35f2a3c62ce7cf0d3a4b0d4d45d77698d1a2d18",
     "architecture.md": "0ff15b04928495b48cdcf40845b5bf9e3bb548c602b734321c4b10f630d83150",
     "coding-style.md": "b63e8dff06d16a2d882f02624c62f490291317aec8b3032f6d79b3ee035e8567",
     "communication.md": "3cacf0f5291fb3cb6d272cf9722fd036a4546bbef929048e0dc0ca9af3a9ab25",
