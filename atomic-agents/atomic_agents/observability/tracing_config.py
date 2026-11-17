@@ -24,6 +24,14 @@ class TracingConfig:
     llm_spans: bool = True
     capture_messages: bool = False
 
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.max_attribute_length, int)
+            or isinstance(self.max_attribute_length, bool)
+            or self.max_attribute_length < 1
+        ):
+            raise ValueError("max_attribute_length must be a positive integer")
+
     @classmethod
     def from_environment(cls) -> "TracingConfig":
         return cls(
