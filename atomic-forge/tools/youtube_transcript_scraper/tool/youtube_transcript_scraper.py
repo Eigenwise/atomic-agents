@@ -154,8 +154,11 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
     def _fetch_video_details(self, video_id: str) -> Tuple[VideoMetadata, Dict[str, Any]]:
         """Fetch metadata and the raw video item in a single API request."""
         youtube = build("youtube", "v3", developerKey=self.api_key)
-        request = youtube.videos().list(part="snippet,contentDetails", id=video_id)
-        response = request.execute()
+        try:
+            request = youtube.videos().list(part="snippet,contentDetails", id=video_id)
+            response = request.execute()
+        finally:
+            youtube.close()
 
         if not response["items"]:
             raise Exception(f"No metadata found for video '{video_id}'")
@@ -166,7 +169,7 @@ class YouTubeTranscriptTool(BaseTool[YouTubeTranscriptToolInputSchema, YouTubeTr
             id=video_id,
             title=video_info["title"],
             channel=video_info["channelTitle"],
-            published_at=datetime.fromisoformat(video_info["publishedAt"].rstrip("Z")),
+            published_at=datetime.fromisoformat(video_info["publishedAt"]),
         )
         return metadata, video
 
