@@ -1,11 +1,13 @@
 import os
-from typing import List, Optional, Literal
+import re
+from datetime import date
+from typing import List, Optional
 import asyncio
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import aiohttp
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from atomic_agents import BaseIOSchema, BaseTool, BaseToolConfig
 
@@ -46,12 +48,30 @@ class BoChaSearchToolOutputSchema(BaseIOSchema):
 class BoChaSearchToolConfig(BaseToolConfig):
 
     api_key: str = ""
-    freshness: Literal["noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear", "YYYY-MM-DD..YYYY-MM-DD", "YYYY-MM-DD"] = (
-        "noLimit"
+    freshness: str = Field(
+        default="noLimit",
+        description="Time filter: noLimit, oneDay, oneWeek, oneMonth, oneYear, YYYY-MM-DD, or YYYY-MM-DD..YYYY-MM-DD.",
     )
     include: Optional[str] = None
     exclude: Optional[str] = None
     count: int = 10
+
+    @field_validator("freshness")
+    @classmethod
+    def validate_freshness(cls, value: str) -> str:
+        """Accept supported presets or real, chronologically ordered ISO dates."""
+        if value in {"noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"}:
+            return value
+        message = "freshness must be a supported preset, a YYYY-MM-DD date, or an ordered YYYY-MM-DD..YYYY-MM-DD range"
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}(?:\.\.[0-9]{4}-[0-9]{2}-[0-9]{2})?", value):
+            raise ValueError(message)
+        try:
+            dates = [date.fromisoformat(part) for part in value.split("..")]
+        except ValueError as error:
+            raise ValueError(message) from error
+        if len(dates) == 2 and dates[0] > dates[1]:
+            raise ValueError(message)
+        return value
 
 
 class BoChaSearchTool(BaseTool[BoChaSearchToolInputSchema, BoChaSearchToolOutputSchema]):
@@ -80,7 +100,7 @@ class BoChaSearchTool(BaseTool[BoChaSearchToolInputSchema, BoChaSearchToolOutput
         self.include = config.include
         self.exclude = config.exclude
 
-    async def _fetch_search_results(self, session: aiohttp.ClientSession, query: str) -> dict:
+    async def _fetch_search_results(self, session: aiohttp.ClientSession, query: str, count: Optional[int] = None) -> dict:
         headers = {
             "content-type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
@@ -88,7 +108,7 @@ class BoChaSearchTool(BaseTool[BoChaSearchToolInputSchema, BoChaSearchToolOutput
 
         json_data = {
             "query": query,
-            "count": self.count,
+            "count": count or self.count,
             "freshness": self.freshness,
         }
         if self.include is not None:
@@ -118,7 +138,7 @@ class BoChaSearchTool(BaseTool[BoChaSearchToolInputSchema, BoChaSearchToolOutput
     async def run_async(self, params: BoChaSearchToolInputSchema, count: Optional[int] = None) -> BoChaSearchToolOutputSchema:
         async with aiohttp.ClientSession() as session:
             # Fetch results for all queries
-            tasks = [self._fetch_search_results(session, query) for query in params.queries]
+            tasks = [self._fetch_search_results(session, query, count) for query in params.queries]
             raw_responses = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results for each query

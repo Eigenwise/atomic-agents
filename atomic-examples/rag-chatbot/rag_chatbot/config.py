@@ -41,8 +41,8 @@ class ChatConfig:
 
 # Model Configuration
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI's latest embedding model
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
+CHUNK_SIZE = 1000  # Maximum characters per chunk, including paragraph separators
+CHUNK_OVERLAP = 200  # Up to this many trailing characters; must be less than CHUNK_SIZE
 
 # Vector Search Configuration
 NUM_CHUNKS_TO_RETRIEVE = 3

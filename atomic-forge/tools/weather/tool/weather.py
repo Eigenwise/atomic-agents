@@ -65,6 +65,13 @@ class WeatherToolInputSchema(BaseIOSchema):
             " IL'`), or a `lat,lon` pair (e.g. `'48.8566,2.3522'`)."
         ),
     )
+    country_code: Optional[str] = Field(
+        default=None,
+        min_length=2,
+        max_length=2,
+        pattern=r"^[A-Za-z]{2}$",
+        description="Optional ISO 3166-1 alpha-2 country filter for city lookup (e.g. GB). Ignored for lat,lon input.",
+    )
     units: Literal["metric", "imperial"] = Field(
         default="metric",
         description="'metric' uses Celsius and km/h; 'imperial' uses Fahrenheit and mph.",
@@ -81,7 +88,7 @@ class WeatherCurrent(BaseIOSchema):
     """Current observed weather."""
 
     time: str = Field(..., description="Local timestamp of the observation (ISO 8601).")
-    temperature: float = Field(..., description="Temperature in the requested unit.")
+    temperature: Optional[float] = Field(None, description="Temperature in the requested unit, or None when unavailable.")
     apparent_temperature: Optional[float] = Field(None, description="'Feels like' temperature.")
     humidity: Optional[int] = Field(None, description="Relative humidity, in percent.")
     wind_speed: Optional[float] = Field(None, description="Wind speed in km/h or mph (matches `units`).")
@@ -188,8 +195,10 @@ class WeatherTool(BaseTool[WeatherToolInputSchema, WeatherToolOutputSchema]):
             return None
         return lat, lon
 
-    def _geocode(self, query: str, language: str) -> dict:
+    def _geocode(self, query: str, language: str, country_code: Optional[str] = None) -> dict:
         params = {"name": query, "count": "1", "language": language, "format": "json"}
+        if country_code is not None:
+            params["countryCode"] = country_code.upper()
         response = self._session.get(self.geocoding_url, params=params, timeout=self.timeout)
         response.raise_for_status()
         data = response.json()
@@ -326,7 +335,7 @@ class WeatherTool(BaseTool[WeatherToolInputSchema, WeatherToolOutputSchema]):
                 location_name = f"{latitude:.4f}, {longitude:.4f}"
                 country = None
             else:
-                geocoded = self._geocode(params.location, params.language)
+                geocoded = self._geocode(params.location, params.language, params.country_code)
                 latitude = geocoded["latitude"]
                 longitude = geocoded["longitude"]
                 location_name = geocoded.get("name", params.location)

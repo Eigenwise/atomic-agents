@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestServer
 
 from tool.arxiv_search import (
     ArxivPaper,
@@ -71,6 +73,36 @@ def test_build_search_query_groups_a_multi_word_query_before_the_category(tool):
 
 def test_build_search_query_field_prefix_and_category(tool):
     assert tool._build_search_query("ti:RAG", "cs.AI") == "(ti:RAG) AND cat:cs.AI"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("category", [None, "cs.AI"])
+@pytest.mark.parametrize(
+    "query",
+    [
+        'co:"Accepted at NeurIPS"',
+        "jr:Nature",
+        "rn:CERN-TH",
+        "submittedDate:[202401010000 TO 202412312359]",
+    ],
+)
+async def test_metadata_and_date_queries_reach_http_endpoint_unchanged(query, category):
+    received = []
+
+    async def search(request):
+        received.append(request.query["search_query"])
+        return web.Response(text=SAMPLE_FEED, content_type="application/atom+xml")
+
+    app = web.Application()
+    app.router.add_get("/query", search)
+    async with TestServer(app) as server:
+        tool = ArxivSearchTool(ArxivSearchToolConfig(base_url=str(server.make_url("/query"))))
+        output = await tool.run_async(ArxivSearchToolInputSchema(queries=[query], category=category))
+
+    expected = f"({query}) AND cat:{category}" if category else query
+    assert received == [expected]
+    assert len(output.results) == 2
+    assert all(paper.query == query for paper in output.results)
 
 
 def test_extract_id_strips_version_and_url(tool):

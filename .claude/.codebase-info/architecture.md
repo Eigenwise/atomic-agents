@@ -1,6 +1,6 @@
 # Architecture
 
-*Last Updated: 2026-10-21*
+*Last Updated: 2026-11-17*
 
 ## Summary
 
@@ -66,6 +66,9 @@ Tool install (atomic-assembler TUI):
    Instructor. Streaming and async variants exist: `run_stream`, `run_async`, `run_async_stream`.
 5. The validated output schema is appended to history and returned. Instructor **hooks**
    (`parse:error`, `completion:kwargs`, `completion:response`, …) provide observability and retry.
+6. If the request fails (provider error, Instructor giving up, a stream that drops, or the final validation of a
+   streamed response), the user turn that run added is removed from history before the exception propagates, so
+   a retry does not send the same user message twice (`_discard_turn`). A run without input removes nothing.
 
 ## Key Decisions & Constraints
 
