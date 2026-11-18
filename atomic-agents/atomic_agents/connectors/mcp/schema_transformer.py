@@ -2,11 +2,12 @@
 
 import logging
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, cast
+from typing import Any, Dict, List, Optional, Type, Tuple, Literal, Union, Annotated, ForwardRef, cast
 
 from atomic_agents.connectors.mcp.mcp_definition_service import MCPAttributeType
 from jsonschema import Draft202012Validator, ValidationError as JSONSchemaValidationError, validators
-from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError, WithJsonSchema, create_model
+from pydantic import BaseModel, BeforeValidator, Field, TypeAdapter, ValidationError, WithJsonSchema, create_model
+from pydantic.fields import FieldInfo
 from pydantic_core import SchemaError, to_jsonable_python
 from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
@@ -136,6 +137,7 @@ _NUMERIC_CONSTRAINTS = {
 }
 _STRING_CONSTRAINTS = {"minLength": "min_length", "maxLength": "max_length"}
 _ARRAY_CONSTRAINTS = {"minItems": "min_length", "maxItems": "max_length"}
+_OBJECT_CONSTRAINTS = {"minProperties": "min_length", "maxProperties": "max_length"}
 
 
 def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict[str, Any]) -> Type:
@@ -148,7 +150,11 @@ def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 constraints[target] = value
     else:
-        keywords = _STRING_CONSTRAINTS if json_type == "string" else _ARRAY_CONSTRAINTS if json_type == "array" else {}
+        keywords = {
+            "string": _STRING_CONSTRAINTS,
+            "array": _ARRAY_CONSTRAINTS,
+            "object": _OBJECT_CONSTRAINTS,
+        }.get(json_type, {})
         constraints.update({target: prop_schema[source] for source, target in keywords.items() if source in prop_schema})
     if json_type == "string" and isinstance(prop_schema.get("pattern"), str):
         pattern = prop_schema["pattern"]
@@ -164,6 +170,21 @@ def _constrained_value_type(python_type: Type, json_type: str, prop_schema: Dict
 
 class SchemaTransformer:
     """Class for transforming JSON schemas to Pydantic models."""
+
+    @staticmethod
+    def _reference_type_name(ref_path: str) -> str:
+        # Use the complete reference, not its final token or the schema title.
+        # Encoding also keeps punctuation in a JSON Pointer out of Python expressions.
+        return "_MCPRef_" + ref_path.encode("utf-8").hex()
+
+    @staticmethod
+    def _rebuild_reference_models(model_cache: Dict[str, Type]) -> None:
+        if any(isinstance(value, ForwardRef) for value in model_cache.values()):
+            return  # A mutually referenced object is still being constructed.
+        namespace = {SchemaTransformer._reference_type_name(path): value for path, value in model_cache.items()}
+        for value in model_cache.values():
+            if isinstance(value, type) and issubclass(value, BaseModel) and not value.__pydantic_complete__:
+                value.model_rebuild(_types_namespace=namespace)
 
     @staticmethod
     def _matches_scalar_type(value: Any, json_types: List[str]) -> bool:
@@ -231,18 +252,21 @@ class SchemaTransformer:
             logger.warning(f"Could not resolve $ref: {ref_path}")
             return Any
 
-        # Avoid infinite recursion by adding a placeholder before conversion.
-        model_cache[ref_path] = Any
         if isinstance(ref_schema, dict) and (
             ref_schema.get("properties")
             or (ref_schema.get("type") == "object" and ref_schema.get("additionalProperties") is False)
         ):
+            # Recursive children must validate against the eventual object model.
+            model_cache[ref_path] = ForwardRef(SchemaTransformer._reference_type_name(ref_path))
             ref_name = ref_path.split("/")[-1].replace("~1", "/").replace("~0", "~")
             model_name = ref_schema.get("title", ref_name)
             model = SchemaTransformer._create_nested_model(ref_schema, model_name, root_schema, model_cache)
         else:
+            # Keep the existing fallback for cyclic non-object aliases.
+            model_cache[ref_path] = Any
             model, _ = SchemaTransformer.json_to_pydantic_field(ref_schema, True, root_schema, model_cache)
         model_cache[ref_path] = model
+        SchemaTransformer._rebuild_reference_models(model_cache)
         return model
 
     @staticmethod
@@ -250,15 +274,50 @@ class SchemaTransformer:
         schema: Dict[str, Any], model_name: str, root_schema: Dict[str, Any], model_cache: Dict[str, Type]
     ) -> Type:
         """Create a nested Pydantic model from a schema."""
+        fields = SchemaTransformer._model_fields(schema, root_schema, model_cache)
+        config = SchemaTransformer._object_extra_policy(schema, root_schema, model_cache, fields)
+        return create_model(model_name, __config__={"serialize_by_alias": True, **config}, **fields)
+
+    @staticmethod
+    def _model_fields(schema: Dict[str, Any], root_schema: Dict[str, Any], model_cache: Dict[str, Type]) -> Dict[str, Any]:
+        """Alias rejected field names while preserving attributes that Pydantic permits."""
         fields = {}
         required_fields = set(schema.get("required", []))
-        properties = schema.get("properties", {})
+        properties = schema.get("properties") or {}
 
         for prop_name, prop_schema in properties.items():
             is_required = prop_name in required_fields
-            fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, root_schema, model_cache)
+            value_type, field = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, root_schema, model_cache)
+            field_name = prop_name
+            # Pydantic permits names such as `schema` with a warning. Only its
+            # protected model_validate/model_dump methods and config name need aliases.
+            if (
+                prop_name.startswith("_")
+                or prop_name == "model_config"
+                or (prop_name.startswith(("model_validate", "model_dump")) and hasattr(BaseIOSchema, prop_name))
+            ):
+                index = len(fields)
+                field_name = f"mcp_field_{index}"
+                while field_name in properties or field_name in fields:
+                    index += 1
+                    field_name = f"mcp_field_{index}"
+                field = FieldInfo.merge_field_infos(field, Field(alias=prop_name))
+            fields[field_name] = (value_type, field)
+        return fields
 
-        return create_model(model_name, **fields)
+    @staticmethod
+    def _object_extra_policy(
+        schema: Dict[str, Any], root_schema: Dict[str, Any], model_cache: Dict[str, Type], fields: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Preserve explicitly allowed extensions without changing ignore behavior."""
+        additional = schema.get("additionalProperties")
+        if additional is True:
+            return {"extra": "allow"}
+        if isinstance(additional, dict):
+            value_type, _ = SchemaTransformer.json_to_pydantic_field(additional, True, root_schema, model_cache)
+            fields["__pydantic_extra__"] = (Dict[str, value_type], Field(init=False))
+            return {"extra": "allow"}
+        return {}
 
     @staticmethod
     def json_to_pydantic_field(
@@ -337,9 +396,25 @@ class SchemaTransformer:
                 python_type = JSON_TYPE_MAP[json_type]
 
                 if json_type == "array":
-                    items_schema = prop_schema.get("items", {})
-                    item_type, _ = SchemaTransformer.json_to_pydantic_field(items_schema, True, root_schema, model_cache)
-                    python_type = List[item_type]
+                    prefix_items = prop_schema.get("prefixItems")
+                    if (
+                        isinstance(prefix_items, list)
+                        and prefix_items
+                        and prop_schema.get("minItems") == len(prefix_items)
+                        and prop_schema.get("maxItems", len(prefix_items)) >= len(prefix_items)
+                        and (prop_schema.get("maxItems") == len(prefix_items) or prop_schema.get("items") is False)
+                    ):
+                        # Fixed tuples, including schemas emitted by FastMCP/Pydantic,
+                        # validate each position instead of applying items to the prefix.
+                        item_types = [
+                            SchemaTransformer.json_to_pydantic_field(item, True, root_schema, model_cache)[0]
+                            for item in prefix_items
+                        ]
+                        python_type = Tuple[tuple(item_types)]
+                    else:
+                        items_schema = prop_schema.get("items", {})
+                        item_type, _ = SchemaTransformer.json_to_pydantic_field(items_schema, True, root_schema, model_cache)
+                        python_type = List[item_type]
 
                 elif json_type == "object":
                     python_type = Dict[str, Any]
@@ -388,18 +463,21 @@ class SchemaTransformer:
         Returns:
             Pydantic model class
         """
-        fields = {}
-        required_fields = set(schema.get("required", []))
         properties = schema.get("properties")
         model_cache: Dict[str, Type] = {}
+        fields = SchemaTransformer._model_fields(schema, schema, model_cache)
+        identifier_name = f"{attribute_type}_name"
+        argument_names = {}
+        if not is_output_schema and identifier_name in fields:
+            field_name = f"mcp_{identifier_name}"
+            suffix = 0
+            while field_name in fields:
+                suffix += 1
+                field_name = f"mcp_{identifier_name}_{suffix}"
+            fields[field_name] = fields.pop(identifier_name)
+            argument_names[field_name] = identifier_name
 
-        if properties:
-            for prop_name, prop_schema in properties.items():
-                is_required = prop_name in required_fields
-                fields[prop_name] = SchemaTransformer.json_to_pydantic_field(prop_schema, is_required, schema, model_cache)
-        elif schema.get("type") == "object" and not properties:
-            pass
-        elif schema:
+        if not properties and schema.get("type") != "object" and schema:
             logger.warning(
                 f"Schema for {model_name} is not a typical object with properties. Fields might be empty beyond tool_name."
             )
@@ -407,18 +485,22 @@ class SchemaTransformer:
         # Only add the attribute identifier field for input schemas
         if not is_output_schema:
             tool_name_type = cast(Type[str], Literal[tool_name_literal])
-            fields[f"{attribute_type}_name"] = (
+            fields[identifier_name] = (
                 tool_name_type,
                 Field(..., description=f"Required identifier for the {tool_name_literal} {attribute_type}."),
             )
 
         # Create the model
+        config = SchemaTransformer._object_extra_policy(schema, schema, model_cache, fields)
         model = create_model(
             model_name,
             __base__=BaseIOSchema,
             __doc__=docstring or f"Dynamically generated Pydantic model for {model_name}",
-            __config__={"title": tool_name_literal},
+            __config__={"title": tool_name_literal, "serialize_by_alias": True, **config},
             **fields,
         )
 
+        # Keep model serialization aligned with its schema. Only the MCP call
+        # boundary translates escaped argument names back to the server's keys.
+        model.__mcp_argument_names__ = argument_names
         return model

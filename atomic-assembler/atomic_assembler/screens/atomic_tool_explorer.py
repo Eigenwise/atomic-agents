@@ -3,9 +3,10 @@ from textual.widgets import Static, Footer
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.message import Message
-from textual import on
+from textual import on, work
 from pathlib import Path
 import logging
+import threading
 
 from atomic_assembler.constants import BORDER_STYLE, GITHUB_BRANCH, PRIMARY_COLOR, Mode, GITHUB_BASE_URL
 from atomic_assembler.screens.file_explorer import FileExplorerScreen
@@ -56,7 +57,11 @@ class AtomicToolExplorerScreen(Screen):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._initialize_components()
-        self._setup_github_repo()
+        self.github_repo_cloner = GithubRepoCloner(GITHUB_BASE_URL, branch=GITHUB_BRANCH)
+        self._catalog_ready = False
+        self._catalog_closed = threading.Event()
+        self._checkout_started = threading.Event()
+        self._checkout_finished = threading.Event()
 
     def _initialize_components(self):
         self.title_widget = Static("Atomic Tool Explorer", id="title")
@@ -67,14 +72,46 @@ class AtomicToolExplorerScreen(Screen):
         self.current_tool = None
         self.highlighted_tool = None
 
-    def _setup_github_repo(self):
-        self.github_repo_cloner = GithubRepoCloner(GITHUB_BASE_URL, branch=GITHUB_BRANCH)
+    class CatalogLoaded(Message):
+        """Carry a completed checkout back to the screen's message loop."""
+
+        def __init__(self, tools: list[dict], error: str | None = None) -> None:
+            self.tools = tools
+            self.error = error
+            super().__init__()
+
+    def on_mount(self) -> None:
+        self.tool_list.loading = True
+        self._load_catalog()
+
+    @work(thread=True)
+    def _load_catalog(self) -> None:
+        self._checkout_started.set()
         try:
+            if self._catalog_closed.is_set():
+                return
             self.github_repo_cloner.clone()
-            logging.info("Repository cloned successfully")
-        except Exception as e:
-            logging.error(f"Failed to clone repository: {e}")
-            self.notify(f"Failed to clone repository: {e}", severity="error")
+            tools = self.atomic_tool_manager.get_atomic_tools(self.github_repo_cloner.tools_path)
+            self.post_message(self.CatalogLoaded(tools))
+        except Exception as error:
+            logging.exception("Failed to load the tool catalogue")
+            self.post_message(self.CatalogLoaded([], str(error)))
+        finally:
+            # A cancelled worker's Git process can still be writing. Cleanup
+            # waits for checkout to finish, even if the screen has already left.
+            self._checkout_finished.set()
+            if self._catalog_closed.is_set():
+                self.github_repo_cloner.cleanup()
+
+    def on_atomic_tool_explorer_screen_catalog_loaded(self, event: CatalogLoaded) -> None:
+        if self._catalog_closed.is_set():
+            return
+        self.tool_list.loading = False
+        if event.error is not None:
+            self.notify(f"Failed to load tool catalogue: {event.error}", severity="error", markup=False)
+            return
+        self._catalog_ready = True
+        self.tool_list.update_list(event.tools)
 
     def compose(self) -> ComposeResult:
         yield self.title_widget
@@ -87,9 +124,13 @@ class AtomicToolExplorerScreen(Screen):
         self.border_color = BORDER_STYLE.split()[-1]
 
     def on_unmount(self):
-        self.github_repo_cloner.cleanup()
+        self._catalog_closed.set()
+        if not self._checkout_started.is_set() or self._checkout_finished.is_set():
+            self.github_repo_cloner.cleanup()
 
     def refresh_tool_list(self):
+        if not self._catalog_ready:
+            return
         tools = self.atomic_tool_manager.get_atomic_tools(self.github_repo_cloner.tools_path)
         self.tool_list.update_list(tools)
 

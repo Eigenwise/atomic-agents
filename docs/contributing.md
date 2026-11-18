@@ -161,6 +161,19 @@ When adding documentation:
    - Include test results
    - Add documentation updates
 
+### What gets reviewed
+
+Review time is the scarce resource here, so a few rules keep the queue workable:
+
+- **Keep at most 5 pull requests open at a time.** Wait for those to be reviewed before opening more. Pull requests
+  beyond the limit may be closed without review, and you are welcome to reopen them once your queue is shorter.
+- **Group related fixes.** Several fixes to the same module or tool belong in one pull request. Don't open separate
+  pull requests that edit the same lines, because they can't all merge.
+- **A bug fix needs a trigger a user can hit.** Say which real input, provider, server or library version produces the
+  problem. A fix for a state that only a hand-built test can reach is usually declined.
+- **Features and performance changes start with an issue.** A performance pull request needs a measurement that shows
+  the problem matters at a realistic size.
+
 ## Getting Help
 
 If you need help:

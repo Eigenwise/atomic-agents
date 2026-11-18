@@ -52,10 +52,12 @@ class DateTimeToolInputSchema(BaseIOSchema):
         default=None,
         description="Second datetime string for the 'diff' operation (computes input_2 - input).",
     )
-    days: int = Field(default=0, description="Days to add for 'shift' (negative to subtract).")
-    hours: int = Field(default=0, description="Hours to add for 'shift' (negative to subtract).")
-    minutes: int = Field(default=0, description="Minutes to add for 'shift' (negative to subtract).")
-    seconds: int = Field(default=0, description="Seconds to add for 'shift' (negative to subtract).")
+    days: int = Field(
+        default=0, description="Calendar days to add for 'shift' (negative to subtract), before elapsed hours/minutes/seconds."
+    )
+    hours: int = Field(default=0, description="Elapsed hours to add for 'shift' (negative to subtract).")
+    minutes: int = Field(default=0, description="Elapsed minutes to add for 'shift' (negative to subtract).")
+    seconds: int = Field(default=0, description="Elapsed seconds to add for 'shift' (negative to subtract).")
 
 
 #################
@@ -119,6 +121,13 @@ class DateTimeTool(BaseTool[DateTimeToolInputSchema, DateTimeToolOutputSchema]):
             raise ValueError(f"Could not parse datetime '{value}': {e}") from e
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=cls._zone(default_tz))
+            # PEP 495: a gap increases the UTC offset from fold=0 to fold=1;
+            # an overlap decreases it. Avoid UTC conversion at datetime's bounds.
+            if dt.utcoffset() < dt.replace(fold=1).utcoffset():
+                raise ValueError(
+                    f"Local datetime '{value}' does not exist in timezone '{default_tz}'. "
+                    "Choose an existing local time or include an explicit UTC offset."
+                )
         return dt
 
     @staticmethod
@@ -178,12 +187,16 @@ class DateTimeTool(BaseTool[DateTimeToolInputSchema, DateTimeToolOutputSchema]):
             if params.operation == "shift":
                 if not params.input:
                     raise ValueError("'shift' operation requires `input`.")
-                dt = self._parse(params.input, params.timezone) + timedelta(
-                    days=params.days,
-                    hours=params.hours,
-                    minutes=params.minutes,
-                    seconds=params.seconds,
-                )
+                dt = self._parse(params.input, params.timezone)
+                # Calendar days retain the local clock time. Do not add a zero
+                # timedelta: datetime arithmetic resets fold during an overlap.
+                if params.days:
+                    dt += timedelta(days=params.days)
+                # Sub-day components represent elapsed time, including across DST.
+                # The round trip also normalizes a calendar result inside a gap.
+                dt = (
+                    dt.astimezone(timezone.utc) + timedelta(hours=params.hours, minutes=params.minutes, seconds=params.seconds)
+                ).astimezone(dt.tzinfo)
                 return self._build(dt, "shift")
 
             if params.operation == "diff":

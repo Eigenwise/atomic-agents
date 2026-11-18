@@ -106,7 +106,8 @@ class ArxivSearchTool(BaseTool[ArxivSearchToolInputSchema, ArxivSearchToolOutput
     @staticmethod
     def _build_search_query(query: str, category: Optional[str]) -> str:
         # If the user already used field prefixes, leave them alone; otherwise wrap as `all:`
-        if any(prefix in query for prefix in ("ti:", "au:", "abs:", "cat:", "all:", "id:")):
+        field_prefixes = ("ti:", "au:", "abs:", "co:", "jr:", "cat:", "rn:", "id:", "all:", "submittedDate:")
+        if any(prefix in query for prefix in field_prefixes):
             base = query
         else:
             base = f"all:{query}"

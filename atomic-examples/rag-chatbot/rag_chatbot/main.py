@@ -54,34 +54,35 @@ def download_document() -> str:
 
 
 def chunk_document(file_path: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
-    """Split the document into chunks with overlap."""
+    """Split into at most chunk_size characters, carrying up to overlap characters forward.
+
+    Prefer paragraph, line, then word boundaries. Trim boundary whitespace and
+    split long paragraphs or words when no boundary fits inside the size limit.
+    """
+    if chunk_size <= 0 or not 0 <= overlap < chunk_size:
+        raise ValueError("chunk_size must be positive and overlap must be between 0 and chunk_size - 1")
     with open(file_path, "r", encoding="utf-8") as file:
-        text = file.read()
+        text = file.read().strip()
 
-    # Split into paragraphs first
-    paragraphs = text.split("\n\n")
     chunks = []
-    current_chunk = ""
-    current_size = 0
-
-    for i, paragraph in enumerate(paragraphs):
-        if current_size + len(paragraph) > chunk_size:
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-            # Include some overlap from the previous chunk
-            if overlap > 0 and chunks:
-                last_chunk = chunks[-1]
-                overlap_text = " ".join(last_chunk.split()[-overlap:])
-                current_chunk = overlap_text + "\n\n" + paragraph
-            else:
-                current_chunk = paragraph
-            current_size = len(current_chunk)
-        else:
-            current_chunk += "\n\n" + paragraph if current_chunk else paragraph
-            current_size += len(paragraph)
-
-    if current_chunk:
-        chunks.append(current_chunk.strip())
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        if end < len(text):
+            for separator in ("\n\n", "\n", " "):
+                boundary = text.rfind(separator, start + overlap + 1, end)
+                if boundary != -1:
+                    end = boundary
+                    break
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end == len(text):
+            break
+        # A selected boundary is beyond the overlap, so every iteration advances.
+        start = end - overlap
+        while start < len(text) and text[start].isspace():
+            start += 1
 
     return chunks
 

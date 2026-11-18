@@ -295,11 +295,22 @@ print(result.confidence)  # Guaranteed 0.0-1.0 float
 
 ## Benchmark Results
 
+Stage 2 restores the agent's configured initial history before each review. Earlier
+test reviews and predictions are excluded, including after failed calls, so the
+request context remains independent across the test set. The accuracy figures in
+this guide describe earlier runs; rerun all three stages when comparing a changed
+model or evaluation setup.
+
 ### Dataset Composition
 
 **Training Set: 60 examples** (10 per genre)
 - Clear, representative examples for learning
 - Some nuanced examples to teach edge cases
+
+The training catalog interleaves genres deterministically. Stage 1's 30-example
+training prefix contains five examples per genre; Stage 3's 40-example prefix
+contains six or seven per genre. Both optimizer candidate pools include all six
+categories, and the full 60-example catalog remains available.
 
 **Test Set: 30 challenging examples** intentionally designed to be difficult:
 
@@ -485,6 +496,11 @@ class DSPyAtomicModule(dspy.Module):
 ---
 
 ## The Bridge: DSPyAtomicModule
+
+`run_validated()` reads DSPy prediction data fields directly. Output names such as
+`items`, `keys` and `completions` remain valid even when DSPy exposes methods or
+properties with those names. Missing prediction data uses the Pydantic schema's
+defaults and validation rules.
 
 ### Core Functions
 

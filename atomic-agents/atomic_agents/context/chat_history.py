@@ -2,6 +2,7 @@ import json
 import uuid
 from copy import deepcopy
 from enum import Enum
+from importlib import import_module
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type, Union
 
@@ -164,6 +165,9 @@ class ChatHistory(BaseChatHistory):
                     continue
                 if hasattr(obj, field_name):
                     field_value = getattr(obj, field_name)
+                    exclude_if = getattr(field_info, "exclude_if", None)
+                    if exclude_if is not None and exclude_if(field_value):
+                        continue
                     objects, sub_exclude = ChatHistory._extract_multimodal_info(field_value)
                     if objects:
                         all_objects.extend(objects)
@@ -268,11 +272,16 @@ class ChatHistory(BaseChatHistory):
         serialized_history = []
         for message in self.history:
             content_class = message.content.__class__
+            class_name = content_class.__qualname__
+            # A function-local class may be explicitly exported under its simple
+            # name. Preserve that existing convention; <locals> is not importable.
+            if "<locals>" in class_name:
+                class_name = content_class.__name__
             serialized_message = {
                 "role": message.role,
                 "content": {
-                    "class_name": f"{content_class.__module__}.{content_class.__name__}",
-                    "data": message.content.model_dump_json(),
+                    "class_name": f"{content_class.__module__}.{class_name}",
+                    "data": message.content.model_dump_json(round_trip=True),
                 },
                 "turn_id": message.turn_id,
             }
@@ -314,7 +323,8 @@ class ChatHistory(BaseChatHistory):
             for message_data in messages:
                 content_info = message_data["content"]
                 content_class = self._get_class_from_string(content_info["class_name"])
-                content_instance = content_class.model_validate_json(content_info["data"])
+                # dump() serializes field names, which can differ from validation aliases.
+                content_instance = content_class.model_validate_json(content_info["data"], by_name=True)
 
                 # Process any Image objects to convert string paths back to Path objects
                 self._process_multimodal_paths(content_instance)
@@ -344,12 +354,31 @@ class ChatHistory(BaseChatHistory):
         Raises:
             AttributeError: If the class cannot be found.
         """
-        module_name, class_name = class_string.rsplit(".", 1)
-        module = __import__(module_name, fromlist=[class_name])
-        content_class = getattr(module, class_name)
-        if not isinstance(content_class, type) or not issubclass(content_class, BaseIOSchema):
-            raise ValueError(f"Invalid serialized data: {class_string} is not a BaseIOSchema subclass")
-        return content_class
+        parts = class_string.split(".")
+        import_error = None
+        for boundary in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:boundary])
+            try:
+                obj = import_module(module_name)
+            except ModuleNotFoundError as error:
+                # Only shorten a missing module path. A missing dependency inside
+                # an existing schema module must retain its original exception.
+                if error.name != module_name and not module_name.startswith(f"{error.name}."):
+                    raise
+                if import_error is None:
+                    import_error = error
+                continue
+            obj = getattr(obj, parts[boundary])
+            for name in parts[boundary + 1 :]:
+                if not isinstance(obj, type):
+                    raise ValueError(f"Invalid serialized data: {class_string} traverses a non-class attribute")
+                obj = getattr(obj, name)
+            if not isinstance(obj, type) or not issubclass(obj, BaseIOSchema):
+                raise ValueError(f"Invalid serialized data: {class_string} is not a BaseIOSchema subclass")
+            return obj
+        if import_error is not None:
+            raise import_error
+        raise ValueError(f"Expected a fully qualified schema class name: {class_string}")
 
     def _process_multimodal_paths(self, obj):
         """

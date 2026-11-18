@@ -124,7 +124,7 @@ class UserCtx(BaseDynamicContextProvider):
         return f"Current user: {self.name or 'anonymous'}"
 
 agent.register_context_provider("user", UserCtx())
-agent.context_providers["user"].name = "Alice"   # dynamic update before next run
+agent.get_context_provider("user").name = "Alice"   # dynamic update before next run
 ```
 
 See `context-providers.md` for patterns (RAG, time, session, cached database schema).

@@ -29,13 +29,30 @@ It uses the standard library only (`datetime`, `zoneinfo`) plus `tzdata` so the 
 - `target_timezone` (str, optional): required for `convert`.
 - `input` (str, optional): ISO 8601 datetime string for non-`now` operations.
 - `input_2` (str, optional): second datetime, required for `diff` (computes `input_2 - input`).
-- `days`, `hours`, `minutes`, `seconds` (int): duration components for `shift` (negative values subtract).
+- `days` (int): calendar days for `shift`, applied in the input timezone first (negative values subtract).
+- `hours`, `minutes`, `seconds` (int): elapsed time for `shift`, applied after calendar days (negative values subtract).
+
+Across daylight-saving transitions, `days=1` preserves the local clock time, while
+`hours=24` or `seconds=86400` advances by exactly 24 elapsed hours. For example,
+from `2026-03-08T00:00:00` in `America/New_York`, `days=1` gives the following
+midnight, but `hours=24` gives `2026-03-09T01:00:00-04:00`. Calendar results in a
+spring-forward gap are normalized through UTC (for example, 02:30 becomes 03:30).
+An explicit UTC offset in `input` remains authoritative; it is a fixed offset,
+not an IANA timezone with daylight-saving rules.
 
 ### Output Schema
 - `operation` (str): operation that was performed.
 - `iso`, `timezone`, `unix_timestamp`, `year`, `month`, `day`, `hour`, `minute`, `second`, `weekday`, `human`: populated for `now`/`parse`/`convert`/`shift`.
 - `diff_seconds`, `diff_human`: populated for `diff`.
 - `error` (str, optional): set when something went wrong.
+
+An input without an explicit UTC offset is interpreted in `timezone`. A local
+time skipped by an offset change, such as `2026-03-08T02:30:00` in
+`America/New_York`, returns an error instead of a timestamp for a different local
+time. This check applies to both inputs of `diff` as well as `parse`, `convert`
+and `shift`. An ambiguous time during a backward clock change keeps the first
+occurrence (`fold=0`); include an explicit offset to select the other occurrence.
+An explicit offset always defines the input instant independently of `timezone`.
 
 ## Usage
 

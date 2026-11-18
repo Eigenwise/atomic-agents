@@ -1,6 +1,6 @@
 # Patterns & Conventions
 
-*Last Updated: 2026-10-24*
+*Last Updated: 2026-11-17*
 
 ## Atomicity
 Build with small, single-purpose, composable parts ("LEGO blocks"): each agent, tool, and context
@@ -11,7 +11,8 @@ the next's input. See `atomic-examples/deep-research` and `orchestration-agent`.
 - Every input and output is a `BaseIOSchema` (Pydantic) subclass with a **required docstring** (used
   as the LLM-facing description). Naming: `<Thing>InputSchema` / `<Thing>OutputSchema`.
 - Agents are parameterized by schemas via PEP 695 generics: `AtomicAgent[InputSchema, OutputSchema]`.
-- Fully specialized generic agent subclasses resolve their concrete schemas through intermediate bases per instance.
+- Fully specialized generic agent, tool, resource and prompt subclasses resolve their concrete schemas through
+  intermediate bases per instance, all through one resolver (`resolve_schema_types` in `base/_schema_types.py`).
   Different specializations keep independent input/output bindings; untyped agents retain the basic chat defaults.
 - Structured output is enforced by Instructor through `response_model=OutputSchema`.
 - Streaming completion accepts field names when reconstructing output schemas with aliases.
@@ -41,7 +42,8 @@ the next's input. See `atomic-examples/deep-research` and `orchestration-agent`.
   content part for provider messages. `AtomicAgent` trims the oldest whole turns to honor
   `max_context_tokens`, using a text placeholder when LiteLLM cannot count video parts.
 - Invalid serialized history is validated before replacing existing state. Context trimming includes the incoming message in the token budget.
-- Custom backend pattern: subclass `ChatHistory` and override `add_message`/`load` to persist (see
+- Custom backend pattern: subclass `ChatHistory` and override `add_message`/`load` to persist, and
+  `delete_turn_id` too, because `AtomicAgent` deletes turns when it trims context and when a run fails (see
   the `persistent-memory` example and the "Writing a Custom Memory Backend" guide section).
 
 ## Error handling & retries

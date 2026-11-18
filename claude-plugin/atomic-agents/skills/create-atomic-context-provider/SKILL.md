@@ -172,7 +172,7 @@ shared.set("locale", "en-GB")  # visible to both agents
 Inspect or unregister:
 
 ```python
-"user" in agent.context_providers
+"user" in agent.system_prompt_generator.context_providers
 agent.unregister_context_provider("user")
 ```
 

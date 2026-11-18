@@ -24,7 +24,7 @@ You can install the tool using any of the following options:
 
 - `user_agent` (str): User agent string to use for requests. Defaults to Chrome/Windows user agent.
 - `timeout` (int): Timeout in seconds for HTTP requests. Defaults to 30.
-- `max_content_length` (int): Maximum content length in bytes to process. Defaults to 1,000,000.
+- `max_content_length` (int): Maximum response size in bytes after HTTP decompression and before text decoding. Defaults to 1,000,000.
 
 ### Example
 
@@ -38,9 +38,26 @@ config = WebpageScraperToolConfig(
 
 ## Input & Output Structure
 
+### HTML character encoding
+
+The scraper decodes response bytes using a byte-order mark, an explicit HTTP
+`charset`, or an HTML encoding declaration before trying encoding detection.
+This keeps non-ASCII text intact in both Markdown and page metadata when a
+server sends `Content-Type: text/html` without a charset. The content-length
+limit applies to response bytes after HTTP decompression and before text decoding.
+Responses are streamed and closed on every exit; a chunk that exceeds the byte
+budget is rejected before it is appended to the accumulated body. The limit does
+not depend on a server-supplied `Content-Length`. The deep-research example
+uses the same decoding behavior.
+
 ### Input Schema
 - `url` (HttpUrl): URL of the webpage to scrape.
 - `include_links` (bool): Whether to preserve hyperlinks in the markdown output. Defaults to True.
+
+Relative hyperlinks and image sources are resolved against the final response URL, including redirects.
+The first HTML `<base href>` supplies the base when present. With `include_links=False`, link labels
+remain plain text while image sources are still resolved. The metadata domain identifies the page
+that supplied the content after redirects.
 
 ### Output Schema
 - `content` (str): The scraped content in markdown format.
