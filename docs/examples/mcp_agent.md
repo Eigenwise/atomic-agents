@@ -161,6 +161,29 @@ serialization uses the same field names as the generated input schema. Resource
 URI parameters and prompt arguments follow the same rule. Server output schemas
 keep their original field names because they do not contain routing fields.
 
+### Request response timeouts
+
+Owned MCP sessions wait indefinitely for a response by default. Pass `request_timeout` in seconds to bound each
+protocol request, including initialization, discovery pages and later tool, resource or prompt calls:
+
+```python
+tools = fetch_mcp_tools(
+    mcp_endpoint="python server_stdio.py",
+    transport_type=MCPTransportType.STDIO,
+    request_timeout=30.0,
+)
+```
+
+The same optional argument is available on the resource/prompt helpers, their async versions,
+`fetch_mcp_attributes_with_schema`, `MCPFactory` and `MCPDefinitionService`. It must be positive and finite; `None`
+keeps the SDK default. The timeout applies to each request's response wait across all three transports. Transport
+connection establishment and session/process cleanup retain the transport's own timing; this is not a total
+wall-clock deadline for discovery or an invocation.
+
+When reusing a caller-owned `client_session`, configure its SDK `read_timeout_seconds` with a `datetime.timedelta`
+at session construction instead. Combining `client_session` with `request_timeout` raises a configuration error
+before discovery, so the helper does not silently ignore the setting or change a shared session's policy.
+
 ## MCP Transport Methods
 
 The example implements three distinct transport methods via the `MCPTransportType` enum, each with its own advantages:

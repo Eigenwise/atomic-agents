@@ -19,6 +19,7 @@ from atomic_agents.base import BaseTool, BaseResource, BasePrompt
 from atomic_agents.connectors.mcp.schema_transformer import SchemaTransformer
 from atomic_agents.connectors.mcp.mcp_definition_service import (
     _transport_endpoint,
+    _session_timeout_options,
     MCPAttributeType,
     MCPDefinitionService,
     MCPToolDefinition,
@@ -243,6 +244,7 @@ class MCPFactory:
         client_session: Optional[ClientSession] = None,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
         working_directory: Optional[str] = None,
+        request_timeout: Optional[float] = None,
     ):
         """
         Initialize the factory.
@@ -254,6 +256,7 @@ class MCPFactory:
             client_session: Optional pre-initialized ClientSession for reuse
             event_loop: Optional event loop for running asynchronous operations
             working_directory: Optional working directory to use when running STDIO commands
+            request_timeout: Optional positive per-request response timeout in seconds for owned sessions.
         """
         self.mcp_endpoint = mcp_endpoint
         self.transport_type = transport_type
@@ -261,6 +264,11 @@ class MCPFactory:
         self.event_loop = event_loop
         self.schema_transformer = SchemaTransformer()
         self.working_directory = working_directory
+        self.request_timeout = request_timeout
+        self._session_options = _session_timeout_options(request_timeout)
+
+        if client_session is not None and request_timeout is not None:
+            raise ValueError("Configure request timeouts on the supplied client_session itself.")
 
         # Validate configuration
         if client_session is not None and event_loop is None:
@@ -300,6 +308,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                request_timeout=self.request_timeout,
             )
             return asyncio.run(service.fetch_tool_definitions())
 
@@ -398,7 +407,9 @@ class MCPFactory:
                                     f"Unknown transport type: {bound_transport_type}. Available transport types: {available_types}"
                                 )
 
-                            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+                            session = await stack.enter_async_context(
+                                ClientSession(read_stream, write_stream, **getattr(self, "_session_options", {}))
+                            )
                             await session.initialize()
 
                             # Ensure arguments is a dict, even if empty
@@ -457,6 +468,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_session_options": dict(self._session_options),
                     "_has_typed_output_schema": has_typed_output_schema,
                 }
 
@@ -590,6 +602,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                request_timeout=self.request_timeout,
             )
             return asyncio.run(service.fetch_resource_definitions())
 
@@ -678,7 +691,9 @@ class MCPFactory:
                                     f"Unknown transport type: {bound_transport_type}. Available transport types: {available_types}"
                                 )
 
-                            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+                            session = await stack.enter_async_context(
+                                ClientSession(read_stream, write_stream, **getattr(self, "_session_options", {}))
+                            )
                             await session.initialize()
 
                             # Substitute URI placeholders with provided parameters when available.
@@ -760,6 +775,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_session_options": dict(self._session_options),
                     "uri": uri,
                     "_mime_type": mime_type,
                 }
@@ -815,6 +831,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                request_timeout=self.request_timeout,
             )
             return asyncio.run(service.fetch_prompt_definitions())
 
@@ -896,7 +913,9 @@ class MCPFactory:
                                     f"Unknown transport type: {bound_transport_type}. Available transport types: {available_types}"
                                 )
 
-                            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+                            session = await stack.enter_async_context(
+                                ClientSession(read_stream, write_stream, **getattr(self, "_session_options", {}))
+                            )
                             await session.initialize()
 
                             # Ensure arguments is a dict, even if empty
@@ -979,6 +998,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_session_options": dict(self._session_options),
                 }
 
                 # Create the class using new_class() for proper generic type support
@@ -1007,6 +1027,7 @@ def fetch_mcp_tools(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    request_timeout: Optional[float] = None,
 ) -> List[Type[BaseTool]]:
     """
     Connects to an MCP server via SSE, HTTP Stream or STDIO, discovers tool definitions, and dynamically generates
@@ -1019,8 +1040,11 @@ def fetch_mcp_tools(
         client_session: Optional pre-initialized ClientSession for reuse.
         event_loop: Optional event loop for running asynchronous operations.
         working_directory: Optional working directory for STDIO.
+        request_timeout: Optional positive per-request response timeout for owned sessions, in seconds.
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(
+        mcp_endpoint, transport_type, client_session, event_loop, working_directory, request_timeout=request_timeout
+    )
     return factory.create_tools()
 
 
@@ -1030,6 +1054,7 @@ async def fetch_mcp_tools_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    request_timeout: Optional[float] = None,
 ) -> List[Type[BaseTool]]:
     """
     Asynchronously connects to an MCP server and dynamically generates BaseTool subclasses for each tool.
@@ -1040,14 +1065,22 @@ async def fetch_mcp_tools_async(
         transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO).
         client_session: Optional pre-initialized ClientSession for reuse.
         working_directory: Optional working directory for STDIO transport.
+        request_timeout: Optional positive per-request response timeout for owned sessions, in seconds.
     """
     if client_session is not None:
+        factory = MCPFactory(
+            mcp_endpoint,
+            transport_type,
+            client_session,
+            asyncio.get_running_loop(),
+            working_directory,
+            request_timeout=request_timeout,
+        )
         tool_defs = await MCPDefinitionService.fetch_tool_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, request_timeout=request_timeout)
         tool_defs = await service.fetch_tool_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, request_timeout=request_timeout)
 
     return factory._create_tool_classes(tool_defs)
 
@@ -1078,6 +1111,7 @@ def fetch_mcp_attributes_with_schema(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    request_timeout: Optional[float] = None,
 ) -> Tuple[List[Type[BaseTool]], List[Type[BaseResource]], List[Type[BasePrompt]], Optional[Type[BaseIOSchema]]]:
     """
     Fetches MCP tools and creates an orchestrator schema for them. Returns both as a tuple.
@@ -1088,6 +1122,7 @@ def fetch_mcp_attributes_with_schema(
         client_session: Optional pre-initialized ClientSession for reuse.
         event_loop: Optional event loop for running asynchronous operations.
         working_directory: Optional working directory for STDIO.
+        request_timeout: Optional positive per-request response timeout for owned sessions, in seconds.
 
     Returns:
         A tuple containing:
@@ -1096,7 +1131,9 @@ def fetch_mcp_attributes_with_schema(
         - List of dynamically generated prompt classes
         - Orchestrator output schema with Union of tool input schemas, or None if no tools found.
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(
+        mcp_endpoint, transport_type, client_session, event_loop, working_directory, request_timeout=request_timeout
+    )
     tools = factory.create_tools()
     resources = factory.create_resources()
     prompts = factory.create_prompts()
@@ -1115,11 +1152,14 @@ def fetch_mcp_resources(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    request_timeout: Optional[float] = None,
 ) -> List[Type[BaseResource]]:
     """
     Fetch resource classes from an MCP server (sync).
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(
+        mcp_endpoint, transport_type, client_session, event_loop, working_directory, request_timeout=request_timeout
+    )
     return factory.create_resources()
 
 
@@ -1129,17 +1169,25 @@ async def fetch_mcp_resources_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    request_timeout: Optional[float] = None,
 ) -> List[Type[BaseResource]]:
     """
     Async version of fetch_mcp_resources. Call from within an event loop.
     """
     if client_session is not None:
+        factory = MCPFactory(
+            mcp_endpoint,
+            transport_type,
+            client_session,
+            asyncio.get_running_loop(),
+            working_directory,
+            request_timeout=request_timeout,
+        )
         resource_defs = await MCPDefinitionService.fetch_resource_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, request_timeout=request_timeout)
         resource_defs = await service.fetch_resource_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, request_timeout=request_timeout)
 
     return factory._create_resource_classes(resource_defs)
 
@@ -1151,11 +1199,14 @@ def fetch_mcp_prompts(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    request_timeout: Optional[float] = None,
 ) -> List[Type[BasePrompt]]:
     """
     Fetch prompt classes from an MCP server (sync).
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(
+        mcp_endpoint, transport_type, client_session, event_loop, working_directory, request_timeout=request_timeout
+    )
     return factory.create_prompts()
 
 
@@ -1165,16 +1216,24 @@ async def fetch_mcp_prompts_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    request_timeout: Optional[float] = None,
 ) -> List[Type[BasePrompt]]:
     """
     Async version of fetch_mcp_prompts. Call from within an event loop.
     """
     if client_session is not None:
+        factory = MCPFactory(
+            mcp_endpoint,
+            transport_type,
+            client_session,
+            asyncio.get_running_loop(),
+            working_directory,
+            request_timeout=request_timeout,
+        )
         prompt_defs = await MCPDefinitionService.fetch_prompt_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, request_timeout=request_timeout)
         prompt_defs = await service.fetch_prompt_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, request_timeout=request_timeout)
 
     return factory._create_prompt_classes(prompt_defs)
