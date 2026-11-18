@@ -2,6 +2,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 from mcp import ClientSession, StdioServerParameters
 from mcp.types import (
+    BlobResourceContents,
     CallToolResult,
     GetPromptResult,
     ImageContent,
@@ -12,6 +13,7 @@ from mcp.types import (
     ReadResourceResult,
     ResourceTemplate,
     TextContent,
+    TextResourceContents,
     Tool,
 )
 from atomic_agents.base import BasePrompt, BaseResource
@@ -3268,6 +3270,58 @@ def test_generated_resource_mapping_adapter_preserves_contents_and_mime(
     assert result.content == [{"text": "item"}]
     assert result.mime_type == expected_mime
     session.read_resource.assert_awaited_once_with(uri="resource://items/entry")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mapping", [False, True], ids=["sdk", "mapping"])
+@pytest.mark.parametrize("borrowed", [False, True], ids=["owned", "borrowed"])
+@pytest.mark.parametrize("binary", [False, True], ids=["text", "blob"])
+@pytest.mark.parametrize("content_mime", [None, "application/json"], ids=["catalog-mime", "content-mime"])
+async def test_generated_resource_keeps_content_mime_and_catalog_fallback(
+    mocked_mcp_connection: tuple[AsyncMock, dict[str, MagicMock]],
+    generated_resource: BaseResource,
+    mapping: bool,
+    borrowed: bool,
+    binary: bool,
+    content_mime: str | None,
+) -> None:
+    session, clients = mocked_mcp_connection
+    content_type = BlobResourceContents if binary else TextResourceContents
+    payload = {"blob": "eyJhbnN3ZXIiOjQyfQ=="} if binary else {"text": '{"answer":42}'}
+    envelope = ReadResourceResult(
+        contents=[
+            content_type(uri="resource://items/entry", mimeType=content_mime, **payload),
+            TextResourceContents(uri="resource://items/other", mimeType="text/html", text="second item"),
+        ]
+    )
+    response = envelope.model_dump() if mapping else envelope
+    session.read_resource.return_value = response
+    if borrowed:
+        generated_resource._client_session = session
+
+    result = await generated_resource.aread(generated_resource.input_schema(resource_name="ReadItem", item="entry"))
+
+    assert result.mime_type == (content_mime if content_mime is not None else "text/plain")
+    assert result.content == (response["contents"] if mapping else envelope.contents)
+    session.read_resource.assert_awaited_once_with(uri="resource://items/entry")
+    assert session.initialize.await_count == int(not borrowed)
+    assert session.__aexit__.await_count == int(not borrowed)
+    assert clients["sse_client"].call_count == int(not borrowed)
+
+
+@pytest.mark.parametrize("override", [None, "application/xml"])
+def test_generated_resource_preserves_legacy_mime_override(
+    mocked_mcp_connection: tuple[AsyncMock, dict[str, MagicMock]],
+    generated_resource: BaseResource,
+    override: str | None,
+) -> None:
+    session, _ = mocked_mcp_connection
+    session.read_resource.return_value = {
+        "contents": [{"text": "item", "mimeType": "application/json"}],
+        "mime_type": override,
+    }
+    result = generated_resource.read(generated_resource.input_schema(resource_name="ReadItem", item="entry"))
+    assert result.mime_type == override
 
 
 @pytest.mark.parametrize(
