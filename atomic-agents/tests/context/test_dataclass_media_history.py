@@ -301,11 +301,11 @@ def test_opaque_serializers_do_not_expose_dataclass_media_or_run_twice(serialize
     assert calls == [serializer_location]
 
 
-def test_default_dataclass_traversal_does_not_repeat_computed_fields():
+def test_default_dataclass_traversal_does_not_add_computed_field_evaluations():
     calls = []
 
     class Input(BaseIOSchema):
-        """A normal computed field must still be serialized only once."""
+        """History traversal must not add computed-field evaluations."""
 
         attachment: StandardAttachment
 
@@ -315,10 +315,21 @@ def test_default_dataclass_traversal_does_not_repeat_computed_fields():
             calls.append("summary")
             return "one frame"
 
-    parts = history_content(Input(attachment=StandardAttachment(image(), "caption")))
+    content = Input(attachment=StandardAttachment(image(), "caption"))
+    assert ChatHistory._extract_multimodal_info(content) == ([image()], {"attachment": {"image": True}})
+    assert calls == []
+
+    # Pydantic versions differ in how often one serialization evaluates computed
+    # fields. Compare with the same native serialization, without history traversal.
+    expected_json = content.model_dump_json(exclude={"attachment": {"image": True}})
+    serialization_calls = calls.copy()
+    calls.clear()
+
+    parts = history_content(content)
     assert parts[1:] == [image()]
+    assert parts[0] == expected_json
     assert json.loads(parts[0]) == {"attachment": {"caption": "caption"}, "summary": "one frame"}
-    assert calls == ["summary"]
+    assert calls == serialization_calls
 
 
 def test_dataclass_field_aliases_keep_caption_and_exclude_media_by_field_name():
