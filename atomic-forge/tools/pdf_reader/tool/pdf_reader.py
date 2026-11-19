@@ -44,6 +44,10 @@ class PdfReaderToolInputSchema(BaseIOSchema):
         ),
     )
     include_links: bool = Field(default=False, description="Whether to extract each page's embedded URI link targets.")
+    include_page_labels: bool = Field(
+        default=False,
+        description="Whether to include the document's logical page labels (such as 'iv', '1', or 'A-1').",
+    )
 
 
 ####################
@@ -53,6 +57,10 @@ class PdfPage(BaseIOSchema):
     """A single extracted PDF page."""
 
     page_number: int = Field(..., description="1-based page number in the source document.")
+    page_label: Optional[str] = Field(
+        None,
+        description="Document page label when include_page_labels=True; defaults to the physical page number if unlabeled.",
+    )
     text: str = Field(..., description="Extracted text for this page.")
     links: List[str] = Field(
         default_factory=list, description="URI annotation targets in page order, when include_links=True."
@@ -236,12 +244,14 @@ class PdfReaderTool(BaseTool[PdfReaderToolInputSchema, PdfReaderToolOutputSchema
             else:
                 page_numbers = list(range(1, total_pages + 1))
 
+            page_labels = reader.page_labels if params.include_page_labels else None
             pages: List[PdfPage] = []
             for page_number in page_numbers:
                 page = reader.pages[page_number - 1]
                 text = page.extract_text(extraction_mode=params.extraction_mode) or ""
                 links = self._page_links(page) if params.include_links else []
-                pages.append(PdfPage(page_number=page_number, text=text, links=links))
+                page_label = page_labels[page_number - 1] if page_labels is not None else None
+                pages.append(PdfPage(page_number=page_number, page_label=page_label, text=text, links=links))
 
             text = "\n\f\n".join(page.text for page in pages)
             metadata = self._format_metadata(reader) if params.include_metadata else None

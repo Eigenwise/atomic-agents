@@ -2,6 +2,7 @@ import io
 
 import pytest
 import requests
+from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
@@ -32,6 +33,20 @@ def _make_pdf(pages: list[str], title: str = "Test Doc", author: str = "tester")
 def sample_pdf(tmp_path):
     path = tmp_path / "sample.pdf"
     path.write_bytes(_make_pdf(["Hello World", "Second Page Content", "Third Page"]))
+    return path
+
+
+@pytest.fixture
+def labeled_pdf(tmp_path):
+    writer = PdfWriter()
+    for page in PdfReader(io.BytesIO(_make_pdf(["Preface", "Contents", "Introduction", "Methods", "Appendix"]))).pages:
+        writer.add_page(page)
+    writer.set_page_label(0, 1, style="/r", start=1)
+    writer.set_page_label(2, 3, style="/D", start=1)
+    writer.set_page_label(4, 4, style="/D", prefix="A-", start=1)
+    path = tmp_path / "labeled.pdf"
+    with path.open("wb") as stream:
+        writer.write(stream)
     return path
 
 
@@ -100,6 +115,38 @@ def test_run_local_file_reads_all_pages(tool, sample_pdf):
     assert "Second Page Content" in out.pages[1].text
     assert "Third Page" in out.pages[2].text
     assert "Hello World" in out.text and "\f" in out.text
+
+
+def test_page_labels_preserve_document_numbering(tool, labeled_pdf):
+    out = tool.run(PdfReaderToolInputSchema(source=str(labeled_pdf), include_page_labels=True))
+    assert out.error is None
+    assert [page.page_label for page in out.pages] == ["i", "ii", "1", "2", "A-1"]
+    assert [page.page_number for page in out.pages] == [1, 2, 3, 4, 5]
+    assert "Preface" in out.pages[0].text
+    assert "Appendix" in out.pages[-1].text
+
+
+def test_page_labels_follow_original_pages_after_filtering(tool, labeled_pdf):
+    out = tool.run(
+        PdfReaderToolInputSchema(source=str(labeled_pdf), page_range="2-3,5", include_page_labels=True, include_metadata=False)
+    )
+    assert out.error is None
+    assert [(page.page_number, page.page_label) for page in out.pages] == [(2, "ii"), (3, "1"), (5, "A-1")]
+    assert out.page_count == 3
+    assert out.total_page_count == 5
+    assert out.metadata is None
+
+
+def test_page_labels_fall_back_to_physical_numbers(tool, sample_pdf):
+    out = tool.run(PdfReaderToolInputSchema(source=str(sample_pdf), page_range="2-3", include_page_labels=True))
+    assert out.error is None
+    assert [page.page_label for page in out.pages] == ["2", "3"]
+
+
+def test_page_labels_are_opt_in(tool, labeled_pdf):
+    out = tool.run(PdfReaderToolInputSchema(source=str(labeled_pdf)))
+    assert out.error is None
+    assert all(page.page_label is None for page in out.pages)
 
 
 def test_run_local_file_with_page_range(tool, sample_pdf):
