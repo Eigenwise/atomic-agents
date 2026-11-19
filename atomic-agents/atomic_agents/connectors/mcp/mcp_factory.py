@@ -233,6 +233,15 @@ def _render_generic_tool_output(tool_result: _ToolResult, output_schema: type[Ba
     return output_schema(**{"result": content})
 
 
+def _resource_content_mime_type(contents: Any, fallback: Optional[str]) -> Optional[str]:
+    """Read the same optional MIME metadata from SDK and serialized content blocks."""
+    if not isinstance(contents, (list, tuple)) or not contents:
+        return fallback
+    first_content = contents[0]
+    mime_type = first_content.get("mimeType") if isinstance(first_content, dict) else getattr(first_content, "mimeType", None)
+    return fallback if mime_type is None else mime_type
+
+
 class MCPFactory:
     """Factory for creating MCP tool classes."""
 
@@ -714,16 +723,13 @@ class MCPFactory:
                         # Process the result
                         if isinstance(resource_result, BaseModel) and hasattr(resource_result, "contents"):
                             actual_content = resource_result.contents
-                            # MCP stores mimeType in each content item, not on the result itself
-                            if actual_content and len(actual_content) > 0:
-                                # Get mimeType from the first content item
-                                first_content = actual_content[0]
-                                actual_mime = getattr(first_content, "mimeType", self._mime_type)
-                            else:
-                                actual_mime = self._mime_type
+                            actual_mime = _resource_content_mime_type(actual_content, self._mime_type)
                         elif isinstance(resource_result, dict) and "contents" in resource_result:
                             actual_content = resource_result["contents"]
-                            actual_mime = resource_result.get("mime_type", self._mime_type)
+                            # Preserve the legacy adapter override while handling SDK model_dump() results.
+                            actual_mime = resource_result.get(
+                                "mime_type", _resource_content_mime_type(actual_content, self._mime_type)
+                            )
                         else:
                             actual_content = resource_result
                             actual_mime = self._mime_type
