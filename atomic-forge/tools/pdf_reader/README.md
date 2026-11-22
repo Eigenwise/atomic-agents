@@ -22,11 +22,12 @@ Extracts text and metadata from a PDF, given either a local file path or an HTTP
 - `include_metadata` (bool): default `True`.
 - `extraction_mode` (`"plain"` or `"layout"`): defaults to `"plain"`. Choose `"layout"` to preserve rendered row and column positions with fixed-width spacing, useful for reports and tables whose PDF text operators are stored column by column.
 - `include_links` (bool): extract embedded URI annotations for the selected pages; default `False`.
+- `include_page_labels` (bool): include the document's logical page labels, such as Roman-numbered front matter or appendix prefixes; default `False`.
 
 ### Output Schema
 - `source` (str): echo of the input source.
 - `text` (str): concatenated text for the extracted pages, separated by `\f` (form feed).
-- `pages` (list[PdfPage]): per-page extracted text with 1-based `page_number` and `links` (list[str]). Links are empty unless requested.
+- `pages` (list[PdfPage]): per-page extracted text with physical 1-based `page_number`, optional `page_label` (str), and `links` (list[str]). Page labels are `None` and links are empty unless requested.
 - `page_count` (int): number of pages extracted (after page_range filter).
 - `total_page_count` (int): total pages in the source document.
 - `metadata` (PdfMetadata, optional): document info dictionary.
@@ -65,6 +66,16 @@ for page in out.pages:
 ```
 
 URI targets are returned as stored in the PDF, in annotation order, including repeated and relative targets. Internal page jumps and other annotation types are omitted. Targets are never fetched or executed, and extracted page text stays unchanged.
+
+To cite a report whose displayed page labels differ from its physical page numbers:
+
+```python
+out = tool.run(PdfReaderToolInputSchema(source="./report.pdf", include_page_labels=True))
+for page in out.pages:
+    print(f"Page {page.page_label} (PDF page {page.page_number})", page.text)
+```
+
+Labels come from the PDF's `/PageLabels` data, not from text recognition. For example, physical pages 1–5 may be labeled `i`, `ii`, `1`, `2`, `A-1`. When no labels are defined, they fall back to physical page numbers as strings. `page_range` always selects physical page numbers; filtered pages retain their original labels. Labels can be requested independently of document metadata.
 
 ## Notes
 - The tool fails gracefully and returns `error` set in the output rather than raising.
