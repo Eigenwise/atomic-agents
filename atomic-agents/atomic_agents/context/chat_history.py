@@ -1,6 +1,7 @@
 import json
 import uuid
 from copy import deepcopy
+from dataclasses import fields as dataclass_fields, is_dataclass
 from enum import Enum
 from importlib import import_module
 from pathlib import Path
@@ -147,64 +148,136 @@ class ChatHistory(BaseChatHistory):
         model_dump_json(exclude=...).
 
         Args:
-            obj: The object to inspect (BaseIOSchema, list, dict, or primitive).
+            obj: The object to inspect (BaseIOSchema, dataclass, list, dict, or primitive).
 
         Returns:
             tuple: (multimodal_objects, exclude_spec) where:
                 - multimodal_objects: flat list of all multimodal objects found
                 - exclude_spec: Pydantic exclude dict, True (exclude entirely), or None
         """
-        if isinstance(obj, MULTIMODAL_TYPES):
-            return [obj], True
+        definitions = {}
 
-        if hasattr(obj, "__class__") and hasattr(obj.__class__, "model_fields"):
-            all_objects = []
-            exclude = {}
-            for field_name, field_info in obj.__class__.model_fields.items():
-                if field_info.exclude:
-                    continue
-                if hasattr(obj, field_name):
-                    field_value = getattr(obj, field_name)
-                    exclude_if = getattr(field_info, "exclude_if", None)
+        def resolve_schema(schema):
+            # Use Pydantic's already resolved annotations, including function-local
+            # aliases and dataclass exclusion metadata, without serializing twice.
+            seen = set()
+            while isinstance(schema, dict) and id(schema) not in seen:
+                seen.add(id(schema))
+                if schema.get("serialization"):
+                    # A custom serializer can hide or reshape a dataclass. Keep
+                    # that value as text rather than bypassing its serialization.
+                    return {}
+                kind = schema.get("type")
+                if kind == "definitions":
+                    definitions.update((item["ref"], item) for item in schema["definitions"])
+                    schema = schema["schema"]
+                elif kind == "definition-ref":
+                    schema = definitions.get(schema["schema_ref"])
+                elif kind in ("default", "nullable", "function-before", "function-after", "function-wrap"):
+                    schema = schema["schema"]
+                else:
+                    return schema
+            return {}
+
+        def extract(value, schema, dataclass_context=False):
+            schema = resolve_schema(schema)
+            if dataclass_context and not schema:
+                return [], None
+            if isinstance(value, MULTIMODAL_TYPES):
+                if dataclass_context and (schema.get("type") != "model" or schema.get("cls") is not value.__class__):
+                    return [], None
+                return [value], True
+
+            if hasattr(value, "__class__") and hasattr(value.__class__, "model_fields"):
+                model_fields_schema = resolve_schema(schema.get("schema"))
+                schema_fields = model_fields_schema["fields"] if model_fields_schema.get("type") == "model-fields" else {}
+                if dataclass_context and (schema.get("type") != "model" or schema.get("cls") is not value.__class__):
+                    return [], None
+                all_objects = []
+                exclude = {}
+                for field_name, field_info in value.__class__.model_fields.items():
+                    if field_info.exclude:
+                        continue
+                    if hasattr(value, field_name):
+                        field_value = getattr(value, field_name)
+                        exclude_if = getattr(field_info, "exclude_if", None)
+                        if exclude_if is not None and exclude_if(field_value):
+                            continue
+                        child_schema = schema_fields.get(field_name, {}).get("schema")
+                        objects, sub_exclude = extract(field_value, child_schema, dataclass_context)
+                        if objects:
+                            all_objects.extend(objects)
+                            exclude[field_name] = sub_exclude
+                return all_objects, (exclude if exclude else None)
+
+            if is_dataclass(value) and not isinstance(value, type):
+                if schema.get("type") != "dataclass" or not isinstance(value, schema["cls"]):
+                    return [], None
+                args_schema = resolve_schema(schema["schema"])
+                if args_schema.get("type") != "dataclass-args":
+                    return [], None
+                field_names = {field.name for field in dataclass_fields(value)}
+                all_objects = []
+                exclude = {}
+                for field in args_schema["fields"]:
+                    name = field["name"]
+                    if name not in field_names or field.get("serialization_exclude"):
+                        continue
+                    field_value = getattr(value, name)
+                    exclude_if = field.get("serialization_exclude_if")
                     if exclude_if is not None and exclude_if(field_value):
                         continue
-                    objects, sub_exclude = ChatHistory._extract_multimodal_info(field_value)
+                    objects, sub_exclude = extract(field_value, field["schema"], True)
                     if objects:
                         all_objects.extend(objects)
-                        exclude[field_name] = sub_exclude
-            return all_objects, (exclude if exclude else None)
+                        exclude[name] = sub_exclude
+                return all_objects, (exclude if exclude else None)
 
-        if isinstance(obj, (list, tuple)):
-            all_objects = []
-            exclude = {}
-            for i, item in enumerate(obj):
-                objects, sub_exclude = ChatHistory._extract_multimodal_info(item)
-                if objects:
-                    all_objects.extend(objects)
-                    exclude[i] = sub_exclude
-            if not all_objects:
-                return [], None
-            # If every item in the list is fully multimodal, exclude the entire field
-            if len(exclude) == len(obj) and all(v is True for v in exclude.values()):
-                return all_objects, True
-            return all_objects, exclude
+            if isinstance(value, (list, tuple)):
+                all_objects = []
+                exclude = {}
+                for i, item in enumerate(value):
+                    child_schema = None
+                    if schema.get("type") == "list":
+                        child_schema = schema.get("items_schema")
+                    elif schema.get("type") == "tuple":
+                        items = schema["items_schema"]
+                        variadic = schema.get("variadic_item_index")
+                        index = i
+                        if variadic is not None:
+                            index = (
+                                min(i, variadic) if i < len(value) - len(items) + variadic + 1 else i - len(value) + len(items)
+                            )
+                        if index < len(items):
+                            child_schema = items[index]
+                    objects, sub_exclude = extract(item, child_schema, dataclass_context)
+                    if objects:
+                        all_objects.extend(objects)
+                        exclude[i] = sub_exclude
+                if not all_objects:
+                    return [], None
+                if len(exclude) == len(value) and all(v is True for v in exclude.values()):
+                    return all_objects, True
+                return all_objects, exclude
 
-        if isinstance(obj, dict):
-            all_objects = []
-            exclude = {}
-            for k, v in obj.items():
-                objects, sub_exclude = ChatHistory._extract_multimodal_info(v)
-                if objects:
-                    all_objects.extend(objects)
-                    exclude[k] = sub_exclude
-            if not all_objects:
-                return [], None
-            # If every value in the dict is fully multimodal, exclude the entire field
-            if len(exclude) == len(obj) and all(v is True for v in exclude.values()):
-                return all_objects, True
-            return all_objects, exclude
+            if isinstance(value, dict):
+                all_objects = []
+                exclude = {}
+                for key, item in value.items():
+                    child_schema = schema.get("values_schema") if schema.get("type") == "dict" else None
+                    objects, sub_exclude = extract(item, child_schema, dataclass_context)
+                    if objects:
+                        all_objects.extend(objects)
+                        exclude[key] = sub_exclude
+                if not all_objects:
+                    return [], None
+                if len(exclude) == len(value) and all(v is True for v in exclude.values()):
+                    return all_objects, True
+                return all_objects, exclude
 
-        return [], None
+            return [], None
+
+        return extract(obj, getattr(type(obj), "__pydantic_core_schema__", None))
 
     def copy(self) -> "ChatHistory":
         """
