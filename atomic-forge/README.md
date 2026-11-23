@@ -16,6 +16,7 @@ The Atomic Forge project includes the following tools:
 - [arXiv Search](/atomic-forge/tools/arxiv_search/README.md) — search the free arXiv public API for academic papers.
 - [BoCha Search](/atomic-forge/tools/bocha_search/README.md)
 - [Calculator](/atomic-forge/tools/calculator/README.md)
+- [Datacircle](/atomic-forge/tools/datacircle/README.md) — Datacircle's GTM API rankings and prices, via the Datacircle API (no API key).
 - [DateTime](/atomic-forge/tools/datetime_tool/README.md) — timezone-aware now/parse/convert/shift/diff.
 - [deed.page Publisher](/atomic-forge/tools/deed_page/README.md) — publish HTML files to a public URL (no account or key required).
 - [Fía Signals](/atomic-forge/tools/fia_signals/README.md)

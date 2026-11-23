@@ -148,6 +148,7 @@ The Atomic Forge ships with several pre-built tools:
 - **arXiv Search**: Search arXiv for academic papers (free public API)
 - **BoCha Search**: Web search
 - **Calculator**: Perform mathematical calculations
+- **Datacircle**: Datacircle's GTM API rankings and prices (email finders, LinkedIn profiles, company data, SERP and more), each plan with Datacircle's score out of 100 (no key required)
 - **DateTime**: Timezone-aware now / parse / convert / shift / diff (no key required)
 - **deed.page Publisher**: Publish HTML pages to a public URL via the deed.page API (no key required)
 - **Fía Signals**: Crypto market intelligence — market regime, trading signals, DeFi yields, gas prices, Solana trending tokens, and wallet risk scoring
