@@ -8,7 +8,7 @@ packages = ["tool"]
 [project]
 name = "datacircle-tool"
 version = "1.0.0"
-description = "GTM API plans, their scores out of 100 and prices, for Atomic Agents via the Datacircle API (no API key)"
+description = "Datacircle's GTM API rankings and prices for Atomic Agents, via the Datacircle API (no API key)"
 readme = "README.md"
 authors = [
     { name = "Wayne Hamadi", email = "wayne@datacircle.dev" }

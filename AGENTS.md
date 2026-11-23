@@ -98,7 +98,7 @@ Each example is self-contained and demonstrates specific patterns and capabiliti
 - `arxiv_search/` - Academic paper search via the public arXiv API
 - `bocha_search/` - BoCha web search
 - `calculator/` - Mathematical computation tool
-- `datacircle/` - GTM API plans ranked by score out of 100, with their prices, via the Datacircle API (no key)
+- `datacircle/` - Datacircle's GTM API rankings and prices, each plan with Datacircle's score out of 100, via the Datacircle API (no key)
 - `datetime_tool/` - Timezone-aware now / parse / convert / shift / diff
 - `deed_page/` - Publish HTML files to a public URL via the deed.page API (no key)
 - `fia_signals/` - Crypto market intelligence (regime, signals, yields, gas, trending, wallet risk)

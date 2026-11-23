@@ -15,7 +15,6 @@ from tool.datacircle import (  # noqa: E402
     DatacircleToolConfig,
     DatacircleToolInputSchema,
     DatacircleToolOutputSchema,
-    build_request,
 )
 
 BASE = "https://api.datacircle.dev/v1"
@@ -117,8 +116,8 @@ def tool():
     "fields, path, query",
     [
         ({"call": "list_apis", "limit": 5, "query": "ignored"}, "/apis", {}),
-        ({"call": "best_plans", "api": "email-finder"}, "/apis/email-finder/best", {}),
-        ({"call": "best_plans", "api": " Email-Finder ", "limit": 3}, "/apis/email-finder/best", {"limit": "3"}),
+        ({"call": "ranked_plans", "api": "email-finder"}, "/apis/email-finder/best", {}),
+        ({"call": "ranked_plans", "api": " Email-Finder ", "limit": 3}, "/apis/email-finder/best", {"limit": "3"}),
         (
             {"call": "search_plans", "api": "Employee email", "query": "apollo", "sort": "price", "limit": 50, "offset": 0},
             "/plans",
@@ -128,17 +127,23 @@ def tool():
         ({"call": "provider", "provider": "bright-data", "limit": 2}, "/providers/bright-data", {}),
     ],
 )
-def test_build_request(fields, path, query):
-    assert build_request(DatacircleToolInputSchema(**fields)) == (path, query)
+def test_each_call_sends_its_path_and_query(fields, path, query):
+    payload = (
+        APIS_PAYLOAD if fields["call"] == "list_apis" else PROVIDER_PAYLOAD if fields["call"] == "provider" else BEST_PAYLOAD
+    )
+    api = FakeApi(payload=payload)
+    output = api.run(DatacircleTool(), **fields)
+    expected = requests.Request("GET", BASE + path, params=query).prepare().url
+    assert [request.url for request in api.sent] == [expected] == [output.url]
 
 
 @pytest.mark.parametrize(
     "fields, message",
     [
-        ({"call": "best_plans"}, "'best_plans' needs 'api' as a slug"),
-        ({"call": "best_plans", "api": "Employee email"}, "'best_plans' needs 'api' as a slug"),
-        ({"call": "best_plans", "api": "../providers/x"}, "'best_plans' needs 'api' as a slug"),
-        ({"call": "best_plans", "api": "email--finder"}, "'best_plans' needs 'api' as a slug"),
+        ({"call": "ranked_plans"}, "'ranked_plans' needs 'api' as a slug"),
+        ({"call": "ranked_plans", "api": "Employee email"}, "'ranked_plans' needs 'api' as a slug"),
+        ({"call": "ranked_plans", "api": "../providers/x"}, "'ranked_plans' needs 'api' as a slug"),
+        ({"call": "ranked_plans", "api": "email--finder"}, "'ranked_plans' needs 'api' as a slug"),
         ({"call": "provider"}, "'provider' needs 'provider' as a slug"),
         ({"call": "provider", "provider": "bright data"}, "'provider' needs 'provider' as a slug"),
         ({"call": "provider", "provider": "bright-data?x=1"}, "'provider' needs 'provider' as a slug"),
@@ -159,8 +164,8 @@ def test_invalid_slugs_return_an_error_without_a_request(tool, fields, message):
         {"call": "search_plans", "query": "   "},
         {"call": "search_plans", "api": ""},
         {"call": "provider", "provider": " "},
-        {"call": "best_plans", "api": "email-finder", "limit": 0},
-        {"call": "best_plans", "api": "email-finder", "limit": 51},
+        {"call": "ranked_plans", "api": "email-finder", "limit": 0},
+        {"call": "ranked_plans", "api": "email-finder", "limit": 51},
         {"call": "search_plans", "offset": -1},
         {"call": "search_plans", "sort": "cheapest"},
         {"call": "plans"},
@@ -171,6 +176,14 @@ def test_out_of_range_and_blank_inputs_fail_validation(fields):
         DatacircleToolInputSchema(**fields)
 
 
+def test_scores_and_ranks_are_attributed_to_datacircle(tool):
+    output = FakeApi(payload=BEST_PAYLOAD).run(tool, call="ranked_plans", api="email-finder")
+    assert output.source == "Datacircle"
+    description = DatacircleToolOutputSchema.model_fields["data"].description
+    assert "Datacircle's own score out of 100" in description and "Datacircle's ranking" in description
+    assert "best" not in DatacircleToolInputSchema.__doc__.lower()
+
+
 def test_list_apis(tool):
     api = FakeApi(payload=APIS_PAYLOAD)
     output = api.run(tool, call="list_apis")
@@ -179,9 +192,9 @@ def test_list_apis(tool):
     assert output == DatacircleToolOutputSchema(call="list_apis", url=f"{BASE}/apis", data=APIS_PAYLOAD)
 
 
-def test_best_plans_keeps_the_default_plan_fields(tool):
+def test_ranked_plans_keeps_the_default_plan_fields(tool):
     api = FakeApi(payload=BEST_PAYLOAD)
-    output = api.run(tool, call="best_plans", api="email-finder", limit=2)
+    output = api.run(tool, call="ranked_plans", api="email-finder", limit=2)
     assert output.error is None
     assert output.url == f"{BASE}/apis/email-finder/best?limit=2"
     assert api.sent[0].url == output.url
@@ -218,7 +231,7 @@ def test_provider_keeps_every_plan_without_limit(tool):
 
 def test_plan_fields_none_keeps_every_field():
     tool = DatacircleTool(DatacircleToolConfig(plan_fields=None))
-    output = FakeApi(payload=BEST_PAYLOAD).run(tool, call="best_plans", api="email-finder")
+    output = FakeApi(payload=BEST_PAYLOAD).run(tool, call="ranked_plans", api="email-finder")
     assert output.data["plans"] == [PLAN, SECOND_PLAN]
 
 
@@ -235,7 +248,7 @@ def test_default_plan_fields_are_not_shared_between_configs():
 
 
 def test_unknown_slug_error_lists_the_valid_slugs(tool):
-    output = FakeApi(404, SLUG_404).run(tool, call="best_plans", api="nope")
+    output = FakeApi(404, SLUG_404).run(tool, call="ranked_plans", api="nope")
     assert output.error == "Datacircle returned 404: no API has the slug nope. Valid slugs: linkedin-profile, email-finder"
     assert output.data == {}
 
@@ -294,13 +307,13 @@ def test_non_json_200_response_returns_an_error(tool):
     [
         ({"call": "list_apis"}, {"apis": []}),
         ({"call": "list_apis"}, ["email-finder"]),
-        ({"call": "best_plans", "api": "email-finder"}, []),
-        ({"call": "best_plans", "api": "email-finder"}, {"total": 1}),
-        ({"call": "best_plans", "api": "email-finder"}, {"total": 1, "plans": {"provider": "Emelia"}}),
-        ({"call": "best_plans", "api": "email-finder"}, {"total": 1, "plans": ["Emelia"]}),
-        ({"call": "best_plans", "api": "email-finder"}, {"total": "1", "plans": []}),
-        ({"call": "best_plans", "api": "email-finder"}, {"total": True, "plans": []}),
-        ({"call": "best_plans", "api": "email-finder"}, {"plans": []}),
+        ({"call": "ranked_plans", "api": "email-finder"}, []),
+        ({"call": "ranked_plans", "api": "email-finder"}, {"total": 1}),
+        ({"call": "ranked_plans", "api": "email-finder"}, {"total": 1, "plans": {"provider": "Emelia"}}),
+        ({"call": "ranked_plans", "api": "email-finder"}, {"total": 1, "plans": ["Emelia"]}),
+        ({"call": "ranked_plans", "api": "email-finder"}, {"total": "1", "plans": []}),
+        ({"call": "ranked_plans", "api": "email-finder"}, {"total": True, "plans": []}),
+        ({"call": "ranked_plans", "api": "email-finder"}, {"plans": []}),
         ({"call": "search_plans"}, {"total": 1, "offset": None, "plans": []}),
         ({"call": "search_plans"}, {"total": -1, "offset": 0, "plans": []}),
         ({"call": "search_plans"}, {"error": "upstream failure"}),
@@ -355,5 +368,5 @@ def test_timeout_is_passed_to_requests():
 @pytest.mark.asyncio
 async def test_run_async(tool):
     with patch("requests.adapters.HTTPAdapter.send", FakeApi(payload=BEST_PAYLOAD).send):
-        output = await tool.run_async(DatacircleToolInputSchema(call="best_plans", api="email-finder"))
+        output = await tool.run_async(DatacircleToolInputSchema(call="ranked_plans", api="email-finder"))
     assert [plan["rank"] for plan in output.data["plans"]] == [1, 2]
