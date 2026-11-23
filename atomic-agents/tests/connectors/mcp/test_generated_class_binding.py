@@ -91,8 +91,9 @@ def test_prompt_output_class_matches_each_prompt(connection, synchronous):
 @pytest.mark.parametrize(
     "kind,method,action", [("tool", "run", "execute"), ("resource", "read", "read"), ("prompt", "generate", "get")]
 )
-def test_sync_wrapper_error_names_each_generated_class(kind, method, action, names, index):
-    """A missing borrowed-session loop must not report the last definition's name."""
+@pytest.mark.parametrize("loop_state", ["missing", "closed", "owner-running", "other-running"])
+def test_sync_wrapper_error_names_each_generated_class(kind, method, action, names, index, loop_state):
+    """Loop-state errors retain each generated class's name and avoid sending a request."""
     schema = {"type": "object", "properties": {}}
     definitions = {
         "tool": [MCPToolDefinition(name, None, schema) for name in names],
@@ -106,14 +107,39 @@ def test_sync_wrapper_error_names_each_generated_class(kind, method, action, nam
         assert len(classes) == len(names)
         component_class, name = classes[index], names[index]
         component = component_class()
-        component._event_loop = None
         params = component.input_schema(**{f"{kind}_name": name})
-        with pytest.raises(RuntimeError) as caught:
-            getattr(component, method)(params)
-        assert str(caught.value) == (
-            f"Failed to {action} MCP {kind} '{name}': " "'NoneType' object has no attribute 'run_until_complete'"
-        )
-        assert isinstance(caught.value.__cause__, AttributeError)
+        expected = {
+            "missing": "A persistent MCP session requires an event loop",
+            "closed": "The persistent MCP session's event loop is closed",
+            "owner-running": "Use the asynchronous MCP API from the session's running event loop",
+            "other-running": "Use the asynchronous MCP API when another event loop is already running",
+        }[loop_state]
+
+        def invoke():
+            with pytest.raises(RuntimeError) as caught:
+                getattr(component, method)(params)
+            assert str(caught.value) == f"Failed to {action} MCP {kind} '{name}': {expected}"
+            assert isinstance(caught.value.__cause__, RuntimeError)
+
+        async def invoke_from_loop():
+            invoke()
+
+        if loop_state == "missing":
+            component._event_loop = None
+            invoke()
+        elif loop_state == "owner-running":
+            runner.run(invoke_from_loop())
+        else:
+            other_loop = asyncio.new_event_loop()
+            component._event_loop = other_loop
+            try:
+                if loop_state == "closed":
+                    other_loop.close()
+                    invoke()
+                else:
+                    runner.run(invoke_from_loop())
+            finally:
+                other_loop.close()
     session.call_tool.assert_not_awaited()
     session.read_resource.assert_not_awaited()
     session.get_prompt.assert_not_awaited()
