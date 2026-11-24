@@ -688,7 +688,12 @@ class AtomicAgent[InputSchema: BaseIOSchema, OutputSchema: BaseIOSchema]:
         Args:
             turn_id (Optional[str]): The turn the failed run added, or None if it added none.
         """
-        if turn_id is not None and self.history.get_current_turn_id() == turn_id:
+        if (
+            turn_id is not None
+            and self.history.get_current_turn_id() == turn_id
+            # A zero-capacity history has already evicted the user message.
+            and any(message.turn_id == turn_id for message in self.history.history)
+        ):
             self.history.delete_turn_id(turn_id)
 
     def run(self, user_input: Optional[InputSchema] = None) -> OutputSchema:
