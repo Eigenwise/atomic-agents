@@ -174,7 +174,8 @@ class WeatherToolConfig(BaseToolConfig):
 class WeatherTool(BaseTool[WeatherToolInputSchema, WeatherToolOutputSchema]):
     """Weather tool backed by the free Open-Meteo APIs (geocoding + forecast)."""
 
-    LATLON_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
+    _COORDINATE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+    LATLON_RE = re.compile(rf"^\s*({_COORDINATE})\s*,\s*({_COORDINATE})\s*$")
 
     def __init__(self, config: WeatherToolConfig = WeatherToolConfig()):
         super().__init__(config)
@@ -335,6 +336,8 @@ class WeatherTool(BaseTool[WeatherToolInputSchema, WeatherToolOutputSchema]):
                 location_name = f"{latitude:.4f}, {longitude:.4f}"
                 country = None
             else:
+                if self.LATLON_RE.fullmatch(params.location):
+                    raise ValueError("Latitude must be between -90 and 90 and longitude between -180 and 180.")
                 geocoded = self._geocode(params.location, params.language, params.country_code)
                 latitude = geocoded["latitude"]
                 longitude = geocoded["longitude"]

@@ -161,6 +161,25 @@ def test_run_with_lat_lon_skips_geocoding(tool):
     assert out.country is None  # no country lookup performed
 
 
+@pytest.mark.parametrize("location, expected", [("+48.85,+2.35", (48.85, 2.35)), (".5,-.25", (0.5, -0.25)), ("9e1,-1.8e2", (90.0, -180.0))])
+def test_run_accepts_decimal_coordinate_notation(tool, location, expected):
+    with patch.object(tool._session, "get", return_value=_mock_response(SAMPLE_FORECAST)) as mock_get:
+        out = tool.run(WeatherToolInputSchema(location=location))
+    assert out.error is None
+    assert (out.latitude, out.longitude) == expected
+    assert mock_get.call_count == 1
+    assert mock_get.call_args.args[0] == tool.forecast_url
+
+
+@pytest.mark.parametrize("location", ["91,0", "0,-181", "1e999,0"])
+def test_invalid_numeric_coordinate_never_falls_back_to_city_search(tool, location):
+    with patch.object(tool._session, "get") as mock_get:
+        out = tool.run(WeatherToolInputSchema(location=location))
+    assert out.error is not None
+    assert "Latitude must be between" in out.error
+    mock_get.assert_not_called()
+
+
 def test_run_unknown_location_returns_error(tool):
     with patch.object(tool._session, "get", side_effect=[_mock_response({"results": []})]):
         out = tool.run(WeatherToolInputSchema(location="Nowheresville XYZ"))
