@@ -449,6 +449,28 @@ class MCPConfig:
     mcp_stdio_server_command: str = "uv run example-mcp-server --mode stdio"
 ```
 
+Pass `stdio_env` to configure the environment of a newly started STDIO server:
+
+```python
+tools = fetch_mcp_tools(
+    "uv run example-mcp-server --mode stdio",
+    MCPTransportType.STDIO,
+    stdio_env={"SERVER_REGION": "eu-west-1"},
+)
+```
+
+The same option is available on `MCPFactory`, `MCPDefinitionService`, and all
+tool, resource, prompt and combined-schema fetching helpers, including the async
+helpers. It applies during discovery and when the generated components start a
+server for later calls. Each factory keeps a copy of the supplied mapping, so
+changing the caller's dictionary does not change an existing component's setup.
+
+The MCP SDK merges these values with its default inherited environment. Omitting
+`stdio_env` retains the SDK's default behavior; arbitrary parent-process variables
+are not automatically forwarded. Supply any required server credentials explicitly
+from your application's configuration. The parent process environment is not
+modified. An existing `client_session` keeps its original process environment.
+
 ## Usage Examples
 
 1. **Start the Server (SSE mode)**:

@@ -243,6 +243,8 @@ class MCPFactory:
         client_session: Optional[ClientSession] = None,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
         working_directory: Optional[str] = None,
+        *,
+        stdio_env: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize the factory.
@@ -254,6 +256,7 @@ class MCPFactory:
             client_session: Optional pre-initialized ClientSession for reuse
             event_loop: Optional event loop for running asynchronous operations
             working_directory: Optional working directory to use when running STDIO commands
+            stdio_env: Optional environment overrides for newly started STDIO servers.
         """
         self.mcp_endpoint = mcp_endpoint
         self.transport_type = transport_type
@@ -261,6 +264,7 @@ class MCPFactory:
         self.event_loop = event_loop
         self.schema_transformer = SchemaTransformer()
         self.working_directory = working_directory
+        self.stdio_env = dict(stdio_env) if stdio_env is not None else None
 
         # Validate configuration
         if client_session is not None and event_loop is None:
@@ -300,6 +304,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                stdio_env=self.stdio_env,
             )
             return asyncio.run(service.fetch_tool_definitions())
 
@@ -375,7 +380,10 @@ class MCPFactory:
                                 args = command_parts[1:]
                                 logger.debug(f"Executing tool '{bound_tool_name}' via STDIO: command='{command}', args={args}")
                                 server_params = StdioServerParameters(
-                                    command=command, args=args, env=None, cwd=bound_working_directory
+                                    command=command,
+                                    args=args,
+                                    env=getattr(self, "_stdio_env", None),
+                                    cwd=bound_working_directory,
                                 )
                                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                                 read_stream, write_stream = stdio_transport
@@ -457,6 +465,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_stdio_env": dict(self.stdio_env) if self.stdio_env is not None else None,
                     "_has_typed_output_schema": has_typed_output_schema,
                 }
 
@@ -590,6 +599,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                stdio_env=self.stdio_env,
             )
             return asyncio.run(service.fetch_resource_definitions())
 
@@ -653,7 +663,10 @@ class MCPFactory:
                                     f"Reading resource '{self.mcp_resource_name}' via STDIO: command='{command}', args={args}"
                                 )
                                 server_params = StdioServerParameters(
-                                    command=command, args=args, env=None, cwd=bound_working_directory
+                                    command=command,
+                                    args=args,
+                                    env=getattr(self, "_stdio_env", None),
+                                    cwd=bound_working_directory,
                                 )
                                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                                 read_stream, write_stream = stdio_transport
@@ -760,6 +773,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_stdio_env": dict(self.stdio_env) if self.stdio_env is not None else None,
                     "uri": uri,
                     "_mime_type": mime_type,
                 }
@@ -815,6 +829,7 @@ class MCPFactory:
                 self.mcp_endpoint,
                 self.transport_type,
                 self.working_directory,
+                stdio_env=self.stdio_env,
             )
             return asyncio.run(service.fetch_prompt_definitions())
 
@@ -873,7 +888,10 @@ class MCPFactory:
                                     f"Getting prompt '{bound_prompt_name}' via STDIO: command='{command}', args={args}"
                                 )
                                 server_params = StdioServerParameters(
-                                    command=command, args=args, env=None, cwd=bound_working_directory
+                                    command=command,
+                                    args=args,
+                                    env=getattr(self, "_stdio_env", None),
+                                    cwd=bound_working_directory,
                                 )
                                 stdio_transport = await stack.enter_async_context(stdio_client(server_params))
                                 read_stream, write_stream = stdio_transport
@@ -979,6 +997,7 @@ class MCPFactory:
                     "_client_session": self.client_session,
                     "_event_loop": self.event_loop,
                     "working_directory": self.working_directory,
+                    "_stdio_env": dict(self.stdio_env) if self.stdio_env is not None else None,
                 }
 
                 # Create the class using new_class() for proper generic type support
@@ -1007,6 +1026,7 @@ def fetch_mcp_tools(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    stdio_env: Optional[Dict[str, str]] = None,
 ) -> List[Type[BaseTool]]:
     """
     Connects to an MCP server via SSE, HTTP Stream or STDIO, discovers tool definitions, and dynamically generates
@@ -1019,8 +1039,9 @@ def fetch_mcp_tools(
         client_session: Optional pre-initialized ClientSession for reuse.
         event_loop: Optional event loop for running asynchronous operations.
         working_directory: Optional working directory for STDIO.
+        stdio_env: Optional environment overrides for newly started STDIO servers.
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory, stdio_env=stdio_env)
     return factory.create_tools()
 
 
@@ -1030,6 +1051,7 @@ async def fetch_mcp_tools_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    stdio_env: Optional[Dict[str, str]] = None,
 ) -> List[Type[BaseTool]]:
     """
     Asynchronously connects to an MCP server and dynamically generates BaseTool subclasses for each tool.
@@ -1040,14 +1062,17 @@ async def fetch_mcp_tools_async(
         transport_type: Type of transport to use (SSE, HTTP_STREAM, or STDIO).
         client_session: Optional pre-initialized ClientSession for reuse.
         working_directory: Optional working directory for STDIO transport.
+        stdio_env: Optional environment overrides for newly started STDIO servers.
     """
     if client_session is not None:
         tool_defs = await MCPDefinitionService.fetch_tool_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
+        factory = MCPFactory(
+            mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory, stdio_env=stdio_env
+        )
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, stdio_env=stdio_env)
         tool_defs = await service.fetch_tool_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, stdio_env=stdio_env)
 
     return factory._create_tool_classes(tool_defs)
 
@@ -1078,6 +1103,7 @@ def fetch_mcp_attributes_with_schema(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    stdio_env: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[Type[BaseTool]], List[Type[BaseResource]], List[Type[BasePrompt]], Optional[Type[BaseIOSchema]]]:
     """
     Fetches MCP tools and creates an orchestrator schema for them. Returns both as a tuple.
@@ -1088,6 +1114,7 @@ def fetch_mcp_attributes_with_schema(
         client_session: Optional pre-initialized ClientSession for reuse.
         event_loop: Optional event loop for running asynchronous operations.
         working_directory: Optional working directory for STDIO.
+        stdio_env: Optional environment overrides for newly started STDIO servers.
 
     Returns:
         A tuple containing:
@@ -1096,7 +1123,7 @@ def fetch_mcp_attributes_with_schema(
         - List of dynamically generated prompt classes
         - Orchestrator output schema with Union of tool input schemas, or None if no tools found.
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory, stdio_env=stdio_env)
     tools = factory.create_tools()
     resources = factory.create_resources()
     prompts = factory.create_prompts()
@@ -1115,11 +1142,12 @@ def fetch_mcp_resources(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    stdio_env: Optional[Dict[str, str]] = None,
 ) -> List[Type[BaseResource]]:
     """
     Fetch resource classes from an MCP server (sync).
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory, stdio_env=stdio_env)
     return factory.create_resources()
 
 
@@ -1129,17 +1157,20 @@ async def fetch_mcp_resources_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    stdio_env: Optional[Dict[str, str]] = None,
 ) -> List[Type[BaseResource]]:
     """
     Async version of fetch_mcp_resources. Call from within an event loop.
     """
     if client_session is not None:
         resource_defs = await MCPDefinitionService.fetch_resource_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
+        factory = MCPFactory(
+            mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory, stdio_env=stdio_env
+        )
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, stdio_env=stdio_env)
         resource_defs = await service.fetch_resource_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, stdio_env=stdio_env)
 
     return factory._create_resource_classes(resource_defs)
 
@@ -1151,11 +1182,12 @@ def fetch_mcp_prompts(
     client_session: Optional[ClientSession] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
     working_directory: Optional[str] = None,
+    stdio_env: Optional[Dict[str, str]] = None,
 ) -> List[Type[BasePrompt]]:
     """
     Fetch prompt classes from an MCP server (sync).
     """
-    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory)
+    factory = MCPFactory(mcp_endpoint, transport_type, client_session, event_loop, working_directory, stdio_env=stdio_env)
     return factory.create_prompts()
 
 
@@ -1165,16 +1197,19 @@ async def fetch_mcp_prompts_async(
     *,
     client_session: Optional[ClientSession] = None,
     working_directory: Optional[str] = None,
+    stdio_env: Optional[Dict[str, str]] = None,
 ) -> List[Type[BasePrompt]]:
     """
     Async version of fetch_mcp_prompts. Call from within an event loop.
     """
     if client_session is not None:
         prompt_defs = await MCPDefinitionService.fetch_prompt_definitions_from_session(client_session)
-        factory = MCPFactory(mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory)
+        factory = MCPFactory(
+            mcp_endpoint, transport_type, client_session, asyncio.get_running_loop(), working_directory, stdio_env=stdio_env
+        )
     else:
-        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory)
+        service = MCPDefinitionService(mcp_endpoint, transport_type, working_directory, stdio_env=stdio_env)
         prompt_defs = await service.fetch_prompt_definitions()
-        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory)
+        factory = MCPFactory(mcp_endpoint, transport_type, None, None, working_directory, stdio_env=stdio_env)
 
     return factory._create_prompt_classes(prompt_defs)
