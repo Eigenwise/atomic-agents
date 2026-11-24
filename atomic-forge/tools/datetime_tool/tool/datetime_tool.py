@@ -132,11 +132,10 @@ class DateTimeTool(BaseTool[DateTimeToolInputSchema, DateTimeToolOutputSchema]):
 
     @staticmethod
     def _humanize_delta(delta: timedelta) -> str:
-        total = int(delta.total_seconds())
-        sign = "-" if total < 0 else ""
-        total = abs(total)
-        days, remainder = divmod(total, 86400)
-        hours, remainder = divmod(remainder, 3600)
+        sign = "-" if delta < timedelta(0) else ""
+        magnitude = abs(delta)
+        days = magnitude.days
+        hours, remainder = divmod(magnitude.seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         parts = []
         if days:
@@ -145,7 +144,10 @@ class DateTimeTool(BaseTool[DateTimeToolInputSchema, DateTimeToolOutputSchema]):
             parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
         if minutes:
             parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
-        if seconds or not parts:
+        if magnitude.microseconds:
+            seconds_text = f"{seconds}.{magnitude.microseconds:06d}".rstrip("0")
+            parts.append(f"{seconds_text} seconds")
+        elif seconds or not parts:
             parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
         return sign + ", ".join(parts)
 

@@ -106,6 +106,26 @@ def test_diff_negative_keeps_sign():
     assert out.diff_human.startswith("-")
 
 
+@pytest.mark.parametrize(
+    ("start", "end", "seconds", "human"),
+    [
+        ("2026-04-29T00:00:00Z", "2026-04-29T00:00:00.250000Z", 0.25, "0.25 seconds"),
+        ("2026-04-29T00:00:00.250000Z", "2026-04-29T00:00:00Z", -0.25, "-0.25 seconds"),
+        ("2026-04-29T00:00:00Z", "2026-04-29T00:00:00.000001Z", 0.000001, "0.000001 seconds"),
+        ("2026-04-29T00:00:00Z", "2026-04-29T00:00:01Z", 1.0, "1 second"),
+        ("2026-04-29T00:00:00Z", "2026-04-29T00:00:01.250000Z", 1.25, "1.25 seconds"),
+        ("2026-04-29T00:00:00Z", "2026-04-29T00:01:00.000001Z", 60.000001, "1 minute, 0.000001 seconds"),
+        ("2026-04-29T00:00:00Z", "2026-04-29T00:00:00Z", 0.0, "0 seconds"),
+    ],
+)
+def test_diff_human_preserves_fractional_seconds(start, end, seconds, human):
+    tool = DateTimeTool()
+    out = tool.run(DateTimeToolInputSchema(operation="diff", input=start, input_2=end))
+    assert out.error is None
+    assert out.diff_seconds == pytest.approx(seconds)
+    assert out.diff_human == human
+
+
 def test_diff_counts_elapsed_time_across_a_dst_change():
     tool = DateTimeTool()
     # Clocks in New York go forward an hour on 2026-03-08, and in Brussels back an hour on 2026-10-25.
