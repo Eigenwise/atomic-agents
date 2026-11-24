@@ -3,7 +3,7 @@ import contextvars
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import aiohttp
 from pydantic import Field
@@ -46,10 +46,20 @@ class OutcrawlSearchResultItem(BaseIOSchema):
     content: Optional[str] = Field(None, description="Main page content as Markdown (only when scrape_content is set).")
 
 
+class OutcrawlSearchFailure(BaseIOSchema):
+    """A query that failed while other queries returned results."""
+
+    query: str = Field(..., description="The query that failed.")
+    error: str = Field(..., description="Why the query failed, including the HTTP status when available.")
+
+
 class OutcrawlSearchToolOutputSchema(BaseIOSchema):
     """Output of the Outcrawl search tool."""
 
     results: List[OutcrawlSearchResultItem] = Field(..., description="Matching results across all queries.")
+    failures: List[OutcrawlSearchFailure] = Field(
+        default_factory=list, description="Queries that failed while others returned results, with the reason."
+    )
 
 
 #################
@@ -103,6 +113,9 @@ class OutcrawlSearchTool(BaseTool[OutcrawlSearchToolInputSchema, OutcrawlSearchT
         data = await self._post(session, f"{self.base_url}/scrape", payload, f"scrape failed for '{url}'")
         return data.get("markdown") or None
 
+    def _redact_failure(self, detail: str) -> str:
+        return detail.replace(self.api_key, "[redacted]") if self.api_key else detail
+
     async def _fetch(
         self,
         session: aiohttp.ClientSession,
@@ -120,10 +133,21 @@ class OutcrawlSearchTool(BaseTool[OutcrawlSearchToolInputSchema, OutcrawlSearchT
             pages = await asyncio.gather(*(self._scrape(session, item.url) for item in items), return_exceptions=True)
             for item, page in zip(items, pages):
                 if isinstance(page, Exception):
-                    logger.warning("Outcrawl scrape of '%s' failed: %s", item.url, page)
+                    logger.warning("%s", self._redact_failure(f"Outcrawl scrape of '{item.url}' failed: {page}"))
                     continue
                 item.content = page
         return items
+
+    async def _query_outcome(
+        self, session: aiohttp.ClientSession, query: str, params: OutcrawlSearchToolInputSchema
+    ) -> Union[List[OutcrawlSearchResultItem], OutcrawlSearchFailure]:
+        try:
+            return await self._fetch(session, query, params.max_results_per_query, params.scrape_content)
+        except Exception as error:
+            # Convert provider exceptions before they reach the raising frame. Their
+            # repr/traceback may retain response text or authenticated request headers.
+            detail = self._redact_failure(f"Outcrawl query '{query}' failed: {error}")
+            return OutcrawlSearchFailure(query=query, error=detail)
 
     async def run_async(self, params: OutcrawlSearchToolInputSchema) -> OutcrawlSearchToolOutputSchema:
         if not self.api_key:
@@ -131,23 +155,28 @@ class OutcrawlSearchTool(BaseTool[OutcrawlSearchToolInputSchema, OutcrawlSearchT
                 "Outcrawl API key is missing. Set OutcrawlSearchToolConfig.api_key or the OUTCRAWL_API_KEY environment variable."
             )
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "User-Agent": self.user_agent,
-            "Accept": "application/json",
-        }
         timeout = aiohttp.ClientTimeout(total=self.timeout)
-        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
-            tasks = [self._fetch(session, q, params.max_results_per_query, params.scrape_content) for q in params.queries]
+        async with aiohttp.ClientSession(
+            headers={"Authorization": f"Bearer {self.api_key}", "User-Agent": self.user_agent, "Accept": "application/json"},
+            timeout=timeout,
+        ) as session:
+            tasks = [self._query_outcome(session, q, params) for q in params.queries]
             grouped = await asyncio.gather(*tasks, return_exceptions=True)
 
         results: List[OutcrawlSearchResultItem] = []
-        for query, group in zip(params.queries, grouped):
-            if isinstance(group, Exception):
-                logger.warning("Outcrawl query '%s' failed: %s", query, group)
+        failures: List[OutcrawlSearchFailure] = []
+        for group in grouped:
+            if isinstance(group, OutcrawlSearchFailure):
+                failures.append(group)
+                logger.warning("%s", group.error)
                 continue
+            if isinstance(group, BaseException):
+                raise group
             results.extend(group)
-        return OutcrawlSearchToolOutputSchema(results=results)
+
+        if failures and not results:
+            raise RuntimeError(failures[0].error)
+        return OutcrawlSearchToolOutputSchema(results=results, failures=failures)
 
     def run(self, params: OutcrawlSearchToolInputSchema) -> OutcrawlSearchToolOutputSchema:
         with ThreadPoolExecutor() as executor:
