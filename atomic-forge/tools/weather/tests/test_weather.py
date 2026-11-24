@@ -161,7 +161,9 @@ def test_run_with_lat_lon_skips_geocoding(tool):
     assert out.country is None  # no country lookup performed
 
 
-@pytest.mark.parametrize("location, expected", [("+48.85,+2.35", (48.85, 2.35)), (".5,-.25", (0.5, -0.25)), ("9e1,-1.8e2", (90.0, -180.0))])
+@pytest.mark.parametrize(
+    "location, expected", [("+48.85,+2.35", (48.85, 2.35)), (".5,-.25", (0.5, -0.25)), ("9e1,-1.8e2", (90.0, -180.0))]
+)
 def test_run_accepts_decimal_coordinate_notation(tool, location, expected):
     with patch.object(tool._session, "get", return_value=_mock_response(SAMPLE_FORECAST)) as mock_get:
         out = tool.run(WeatherToolInputSchema(location=location))
