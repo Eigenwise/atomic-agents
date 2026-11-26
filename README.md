@@ -48,13 +48,11 @@ Built on [Instructor](https://github.com/jxnl/instructor) and [Pydantic](https:/
   - [Examples \& Documentation](#examples--documentation)
     - [Quickstart Examples](#quickstart-examples)
     - [Complete Examples](#complete-examples)
+  - [Observability](#observability)
   - [AI-Assisted Development](#ai-assisted-development)
     - [Project instructions (Cursor, Windsurf, Cline, Continue, and Aider)](#project-instructions-cursor-windsurf-cline-continue-and-aider)
     - [Agent skills (Claude Code, Cursor, Copilot, Codex, Windsurf, Gemini CLI, ...)](#agent-skills-claude-code-cursor-copilot-codex-windsurf-gemini-cli-)
     - [Docs for LLMs](#docs-for-llms)
-  - [🚀 Version 2.0 Released!](#-version-20-released)
-    - [Key Changes in v2.0:](#key-changes-in-v20)
-    - [⚠️ Upgrading from v1.x](#️-upgrading-from-v1x)
   - [Atomic Forge \& CLI](#atomic-forge--cli)
     - [Running the CLI](#running-the-cli)
   - [Project Structure](#project-structure)
@@ -63,7 +61,6 @@ Built on [Instructor](https://github.com/jxnl/instructor) and [Pydantic](https:/
   - [Contributing](#contributing)
   - [License](#license)
   - [Additional Resources](#additional-resources)
-  - [Star History](#star-history)
 
 ## Getting Started
 
