@@ -148,7 +148,7 @@ class SearXNGSearchTool(BaseTool[SearXNGSearchToolInputSchema, SearXNGSearchTool
                 continue
             if result["url"] not in seen_urls:
                 unique_results.append(result)
-                if "metadata" in result:
+                if result.get("metadata"):
                     result["title"] = f"{result['title']} - (Published {result['metadata']})"
                 if "publishedDate" in result and result["publishedDate"]:
                     result["title"] = f"{result['title']} - (Published {result['publishedDate']})"

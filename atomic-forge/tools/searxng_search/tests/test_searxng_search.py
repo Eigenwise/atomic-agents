@@ -124,6 +124,9 @@ async def test_searxng_search_tool_with_metadata_and_published_date(mock_aiohttp
                 "url": "https://example.com/no-dates",
                 "content": "Content without dates",
                 "query": mock_query,
+                # SearXNG serializes unset fields of typed results as "" / null
+                "metadata": "",
+                "publishedDate": None,
             },
         ]
     }
